@@ -12,5 +12,8 @@
     "@nuxt/devtools": "latest",
     "@types/node": "^18.17.0",
     "nuxt": "^3.6.5"
+  },
+  "dependencies": {
+    "@nuxtjs/auth-next": "5.0.0-1667386184.dfbbb54"
   }
 }
