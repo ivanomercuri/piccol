@@ -1,0 +1,58 @@
+{
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "jsx": "preserve",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment",
+    "paths": {
+      "#imports": [
+        "/nuxt/.nuxt/types/nitro-imports"
+      ],
+      "#paths": [
+        "/nuxt/node_modules/nuxt/dist/core/runtime/nitro/paths"
+      ],
+      "~": [
+        "/nuxt"
+      ],
+      "~/*": [
+        "/nuxt/*"
+      ],
+      "@": [
+        "/nuxt"
+      ],
+      "@/*": [
+        "/nuxt/*"
+      ],
+      "~~": [
+        "/nuxt"
+      ],
+      "~~/*": [
+        "/nuxt/*"
+      ],
+      "@@": [
+        "/nuxt"
+      ],
+      "@@/*": [
+        "/nuxt/*"
+      ],
+      "assets": [
+        "/nuxt/assets"
+      ],
+      "public": [
+        "/nuxt/public"
+      ]
+    }
+  },
+  "include": [
+    "/nuxt/.nuxt/types/nitro-nuxt.d.ts",
+    "./types/nitro.d.ts",
+    "../**/*",
+    "../server/**/*"
+  ]
+}
