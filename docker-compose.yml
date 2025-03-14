@@ -1,0 +1,47 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: mysql-db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mydatabase
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  backend:
+    build: ./backend
+    container_name: express-backend
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    environment:
+      - DB_HOST=db
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=mydatabase
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    container_name: react-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - VITE_HOST=0.0.0.0
+    command: [ "npm", "run", "dev" ]
+    depends_on:
+      - backend
+
+volumes:
+  mysql-data:
