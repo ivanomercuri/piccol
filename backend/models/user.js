@@ -1,4 +1,3 @@
-// models/user.js
 module.exports = (sequelize, DataTypes) => {
   const User = sequelize.define('User', {
     id: {
@@ -16,9 +15,14 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       unique: true,
     },
-    password: { // Aggiungi questa parte
+    password: {
       type: DataTypes.STRING,
       allowNull: false,
+    },
+    current_token: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+      defaultValue: null
     }
   }, {
     tableName: 'users',
