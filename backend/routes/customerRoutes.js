@@ -12,4 +12,9 @@ router.post('/register', [
   body('address').notEmpty().withMessage('Indirizzo è richiesto'),
 ], handleValidationErrors, authCustomerController.register);
 
+router.post('/login', [
+  body('email').notEmpty().withMessage('Email è richiesta'),
+  body('password').notEmpty().withMessage('Password è richiesta')
+], handleValidationErrors, authCustomerController.login);
+
 module.exports = router;
