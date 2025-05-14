@@ -1,22 +1,18 @@
 'use strict';
 
+// Import bcrypt for password hashing
 const bcrypt = require('bcryptjs');
 
-
-/** @type {import('sequelize-cli').Migration} */
+/** 
+ * Seeder for inserting initial users into the database.
+ */
 module.exports = {
+  // Seed the database with initial users
   async up(queryInterface, Sequelize) {
-    /**
-     * Add seed commands here.
-     *
-     * Example:
-     * await queryInterface.bulkInsert('People', [{
-     *   name: 'John Doe',
-     *   isBetaMember: false
-     * }], {});
-     */
+    // Hash the password before storing
     const hashedPassword = await bcrypt.hash('password123', 10);
 
+    // Insert user records into the 'users' table
     return queryInterface.bulkInsert('users', [
       {
         name: 'Mario Rossi',
@@ -33,16 +29,10 @@ module.exports = {
         updatedAt: new Date(),
       }
     ], {});
-
   },
 
+  // Remove the seeded users from the database
   async down(queryInterface, Sequelize) {
-    /**
-     * Add commands to revert seed here.
-     *
-     * Example:
-     * await queryInterface.bulkDelete('People', null, {});
-     */
     return queryInterface.bulkDelete('users', {
       email: ['mario@example.com', 'luigi@example.com']
     }, {});

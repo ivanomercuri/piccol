@@ -2,7 +2,7 @@
   "name": "express-backend",
   "version": "1.0.0",
   "scripts": {
-    "dev": "nodemon --inspect=0.0.0.0:9229 index.js"
+    "dev": "nodemon --inspect=0.0.0.0:9229 server.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

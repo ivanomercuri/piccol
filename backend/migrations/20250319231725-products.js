@@ -1,14 +1,13 @@
 'use strict';
 
-/** @type {import('sequelize-cli').Migration} */
+/**
+ * Migration for creating the 'products' table.
+ * Includes columns for id, name, description, price, quantity, image_url, available, createdAt, updatedAt.
+ */
 module.exports = {
+  // Run when migrating up (creating the table)
   async up(queryInterface, Sequelize) {
-    /**
-     * Add altering commands here.
-     *
-     * Example:
-     * await queryInterface.createTable('users', { id: Sequelize.INTEGER });
-     */
+    // Create 'products' table with specified columns
     await queryInterface.createTable('products', {
       id: {
         allowNull: false,
@@ -53,13 +52,9 @@ module.exports = {
     });
   },
 
+  // Run when migrating down (dropping the table)
   async down(queryInterface, Sequelize) {
-    /**
-     * Add reverting commands here.
-     *
-     * Example:
-     * await queryInterface.dropTable('users');
-     */
+    // Drop 'products' table
     await queryInterface.dropTable('products');
   }
 };

@@ -1,14 +1,13 @@
 'use strict';
 
-/** @type {import('sequelize-cli').Migration} */
+/**
+ * Migration for creating the 'users' table.
+ * Includes columns for id, name, email, password, createdAt, updatedAt.
+ */
 module.exports = {
+  // Run when migrating up (creating the table)
   async up(queryInterface, Sequelize) {
-    /**
-     * Add altering commands here.
-     *
-     * Example:
-     * await queryInterface.createTable('users', { id: Sequelize.INTEGER });
-     */
+    // Create 'users' table with specified columns
     await queryInterface.createTable('users', {
       id: {
         type: Sequelize.INTEGER,
@@ -40,13 +39,9 @@ module.exports = {
     });
   },
 
+  // Run when migrating down (dropping the table)
   async down(queryInterface, Sequelize) {
-    /**
-     * Add reverting commands here.
-     *
-     * Example:
-     * await queryInterface.dropTable('users');
-     */
+    // Drop 'users' table
     await queryInterface.dropTable('users');
   }
 };

@@ -1,4 +1,7 @@
+
+// Middleware to format API responses with success and error helpers
 module.exports = (req, res, next) => {
+  // Helper for successful responses
   res.success = (data, message = '', code = 200) => {
     res.status(code).json({
       success: true,
@@ -8,6 +11,7 @@ module.exports = (req, res, next) => {
     });
   };
 
+  // Helper for error responses
   res.error = (code = 500, message = '') => {
     res.status(code).json({
       success: false,
@@ -17,5 +21,6 @@ module.exports = (req, res, next) => {
     });
   };
 
+  // Proceed to the next middleware or route handler
   next();
 };

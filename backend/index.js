@@ -20,7 +20,4 @@ app.use('/user', userRoutes);
 app.use(noPathMiddleware);
 app.use(errorMiddleware);
 
-const PORT = 5000;
-app.listen(PORT, () => {
-  console.log(`Backend running on port ${PORT}`);
-});
+module.exports = app;
