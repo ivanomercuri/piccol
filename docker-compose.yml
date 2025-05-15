@@ -41,6 +41,16 @@ services:
     depends_on:
       - db
 
+  test_backend:
+    build: ./backend
+    container_name: backend-test
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: [ "npm", "run", "test" ]
+    depends_on:
+      - db
+
   frontend:
     build: ./frontend
     container_name: react-frontend

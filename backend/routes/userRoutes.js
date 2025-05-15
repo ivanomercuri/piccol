@@ -5,8 +5,9 @@ const { body } = require("express-validator");
 const router = express.Router();
 
 // Import controllers
-const exampleController = require('../controllers/exampleController');
-const authUserController = require("../controllers/authUserController");
+//const exampleController = require('../controllers/exampleController');
+const authUserController = require("../controllers/user/authUserController");
+const profileUserController = require("../controllers/user/profileUserController");
 
 // Import middlewares
 const authUserMiddleware = require('../middlewares/authUserMiddleware');
@@ -17,7 +18,8 @@ const handleValidationErrors = require('../middlewares/validationHandler');
 router.get(
   '/', 
   authUserMiddleware, 
-  exampleController.getExample
+  //exampleController.getExample
+  profileUserController.getProfileUser
 );
 
 // Route: Register a new user

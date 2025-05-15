@@ -5,7 +5,7 @@ const { body } = require("express-validator");
 const router = express.Router();
 
 // Import controllers
-const authCustomerController = require("../controllers/authCustomerController");
+const authCustomerController = require("../controllers/customer/authCustomerController");
 
 // Import middlewares
 const handleValidationErrors = require('../middlewares/validationHandler');

@@ -5,7 +5,7 @@ const app = express();
 
 const responseFormatter = require('./middlewares/responseFormatter');
 
-const userRoutes = require('./routes/userRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const noPathMiddleware = require('./middlewares/noPathMiddleware');
 const errorMiddleware = require('./middlewares/errorMiddleware');
@@ -15,7 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/', customerRoutes);
-app.use('/user', userRoutes);
+app.use('/admin', adminRoutes);
 
 app.use(noPathMiddleware);
 app.use(errorMiddleware);

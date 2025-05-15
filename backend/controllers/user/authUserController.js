@@ -1,18 +1,18 @@
 
 // Import required modules and services
-const {Customer} = require('../models');
-const {authenticate} = require("../services/authService");
-const {registerEntity} = require("../services/registerService");
+const {User} = require('../../models');
+const {authenticate} = require('../../services/authService');
+const {registerEntity} = require('../../services/registerService');
 
-// Controller: Register a new customer
+// Controller: Register a new user
 exports.register = async (req, res) => {
-  const { email, password, firstName, lastName, address } = req.body;
+  const {name, email, password} = req.body;
 
   try {
-    // Call registerEntity to create a new customer and generate a token
+    // Call registerEntity to create a new user and generate a token
     const token = await registerEntity(
-      Customer,
-      { email, password, firstName, lastName, address },
+      User,
+      { name, email, password },
       ['id', 'email']
     );
 
@@ -24,13 +24,12 @@ exports.register = async (req, res) => {
   }
 }
 
-// Controller: Customer login
+// Controller: User login
 exports.login = async (req, res) => {
   const {email, password} = req.body;
-
   try {
-    // Authenticate customer credentials
-    const user = await authenticate(Customer, email, password);
+    // Authenticate user credentials
+    const user = await authenticate(User, email, password);
     if (user.success) {
       // Return success response with a token
       return res.success(user.token);
