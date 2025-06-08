@@ -22,6 +22,19 @@ router.get(
   profileUserController.getProfileUser
 );
 
+// Route: Update user profile
+// PATCH /user
+router.patch(
+  '/',
+  authUserMiddleware,
+  [
+    body('name').notEmpty().withMessage('Nome è richiesto'),
+    body('email').notEmpty().withMessage('Email è richiesta')
+  ],
+  handleValidationErrors,
+  profileUserController.updateProfileUser
+)
+
 // Route: Register a new user
 // POST /register
 router.post(
@@ -45,6 +58,19 @@ router.post(
   ],
   handleValidationErrors,
   authUserController.login
+);
+
+// Route: User change password
+// PATCH /user/password
+router.patch(
+  '/password',
+  authUserMiddleware,
+  [
+    body('oldPassword').notEmpty().withMessage('Vecchia password è richiesta'),
+    body('newPassword').notEmpty().withMessage('Nuova password è richiesta')
+  ],
+  handleValidationErrors,
+  profileUserController.changePassword
 );
 
 // Export the router
