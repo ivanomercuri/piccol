@@ -6,7 +6,7 @@ const res = {
   error: jest.fn()
 };
 
-describe('getProfileUser', () => {
+describe('Profile User', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -101,4 +101,60 @@ describe('getProfileUser', () => {
     expect(res.error).toHaveBeenCalledWith(500, "Errore durante l'aggiornamento del profilo");
     expect(res.success).not.toHaveBeenCalled();
   });
+
+  it('returns error 401 if user not present on update', async () => {
+    const req = {
+      user: null,
+      body: {name: 'Luigi', email: 'luigi@example.com'}
+    }
+
+    await updateProfileUser(req, res);
+
+    expect(res.error).toHaveBeenCalledWith(401, 'Utente non trovato');
+    expect(res.success).not.toHaveBeenCalled();
+  });
+
+  it('returns error 500 if an unexpected error occurs', async () => {
+    const req = {
+      user: { id: 1, name: 'Mario', email: 'mario@example.com', save: jest.fn().mockResolvedValue(true) }
+    };
+    // Simula un errore quando si accede a req.body
+    Object.defineProperty(req, 'body', {
+      get() {
+        throw new Error('Unexpected error');
+      }
+    });
+
+    await updateProfileUser(req, res);
+
+    expect(res.error).toHaveBeenCalledWith(500, "Errore durante l'aggiornamento del profilo");
+    expect(res.success).not.toHaveBeenCalled();
+  });
+
+  it('returns error 500 if an unexpected error occurs during save', async () => {
+    const req = {
+      user: {
+        id: 1,
+        name: 'Mario',
+        email: 'mario@example.com',
+        save: jest.fn().mockRejectedValue({ message: 'Unknown failure' })
+      },
+      body: { name: 'Luigi', email: 'luigi@example.com' }
+    };
+
+    await updateProfileUser(req, res);
+
+    expect(res.error).toHaveBeenCalledWith(500, "Errore durante l'aggiornamento del profilo");
+    expect(res.success).not.toHaveBeenCalled();
+  });
+
+  it('returns error 401 if user not present on getProfileUser', async () => {
+    const req = {};
+
+    await getProfileUser(req, res);
+
+    expect(res.error).toHaveBeenCalledWith(401, 'Utente non trovato');
+    expect(res.success).not.toHaveBeenCalled();
+  });
+
 });

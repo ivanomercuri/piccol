@@ -16,9 +16,9 @@ exports.updateProfileUser = async (req, res) => {
     return res.error(401, 'Utente non trovato');
   }
 
-  const {name, email} = req.body;
-
   try {
+    const {name, email} = req.body;
+    // If no fields are provided, return the current user profile
     if (name) user.name = name;
     if (email) user.email = email;
     await user.save();

@@ -73,5 +73,13 @@ router.patch(
   profileUserController.changePassword
 );
 
+// Route: User logout
+// POST /logout
+router.post(
+  '/logout',
+  authUserMiddleware,
+  authUserController.logout
+);
+
 // Export the router
 module.exports = router;
