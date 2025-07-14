@@ -55,3 +55,18 @@ exports.changePassword = async (req, res) => {
     return res.error(500, 'Errore durante il cambio della password');
   }
 }
+
+exports.logout = async (req, res) => {
+  // Invalidate the user's session or token
+  const { user } = req;
+  if (!user) {
+    return res.error(401, 'Utente non trovato');
+  }
+  try {
+    user.current_token = null;
+    await user.save();
+    return res.success({}, 'Logout effettuato con successo');
+  } catch (err) {
+    return res.error(500, 'Errore durante il logout');
+  }
+}
