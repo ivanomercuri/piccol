@@ -20,6 +20,11 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       unique: true,
     },
+    level: {
+      type: DataTypes.ENUM('superadmin', 'admin'),
+      allowNull: false,
+      defaultValue: 'admin'
+    },
     // Hashed password
     password: {
       type: DataTypes.STRING,

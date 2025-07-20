@@ -15,18 +15,28 @@ module.exports = {
     // Insert user records into the 'users' table
     return queryInterface.bulkInsert('users', [
       {
-        name: 'Mario Rossi',
-        email: 'mario@example.com',
+        name: 'Master',
+        email: 'master@example.com',
+        level: 'superadmin', // Assuming level is a column in the users table
         password: hashedPassword,
         createdAt: new Date(),
-        updatedAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        name: 'Mario Rossi',
+        email: 'mario@example.com',
+        level: 'admin',
+        password: hashedPassword,
+        createdAt: new Date(),
+        updatedAt: new Date()
       },
       {
         name: 'Luigi Verdi',
         email: 'luigi@example.com',
+        level: 'admin',
         password: hashedPassword,
         createdAt: new Date(),
-        updatedAt: new Date(),
+        updatedAt: new Date()
       }
     ], {});
   },

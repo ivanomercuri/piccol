@@ -7,6 +7,7 @@ const responseFormatter = require('./middlewares/responseFormatter');
 
 const adminRoutes = require('./routes/adminRoutes');
 const customerRoutes = require('./routes/customerRoutes');
+const productRoutes = require('./routes/productRoutes');
 const listRoutes = require('./routes/listRoutes');
 const noPathMiddleware = require('./middlewares/noPathMiddleware');
 const errorMiddleware = require('./middlewares/errorMiddleware');
@@ -17,6 +18,7 @@ app.use(express.json());
 
 app.use('/', customerRoutes);
 app.use('/admin', adminRoutes);
+app.use('/products', productRoutes);
 app.use(listRoutes);
 
 app.use(noPathMiddleware);

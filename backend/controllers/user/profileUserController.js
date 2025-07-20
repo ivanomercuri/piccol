@@ -5,8 +5,8 @@ exports.getProfileUser = (req, res) => {
   if (!user) {
     return res.error(401, 'Utente non trovato');
   }
-  const {id, name, email} = user;
-  const returnUser = {id, name, email};
+  const {id, name, email, level} = user;
+  const returnUser = {id, name, email, level};
   return res.success(returnUser);
 }
 

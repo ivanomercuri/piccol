@@ -1,6 +1,14 @@
+const logger = require('../config/logger');
 
 // Global error handling middleware
 function errorHandler(err, req, res) {
+
+  logger.error('Errore:', {
+    message: err.message,
+    stack: err.stack,
+    path: req.originalUrl,
+    method: req.method
+  });
 
   // Handle JSON syntax errors
   if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
