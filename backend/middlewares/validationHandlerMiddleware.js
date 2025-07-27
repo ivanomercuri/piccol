@@ -21,7 +21,7 @@ module.exports = (req, res, next) => {
     }
   }
 
-  // Unico errore per ogni campo
+  /*// Unico errore per ogni campo
   const uniqueErrors = [];
   const seen = new Set();
   for (const err of allErrors) {
@@ -30,10 +30,10 @@ module.exports = (req, res, next) => {
       uniqueErrors.push(err);
       seen.add(key);
     }
-  }
+  }*/
 
-  if (uniqueErrors.length > 0) {
-    return res.error(400, uniqueErrors.map(({ msg, path }) => ({ id: path, message: msg })));
+  if (allErrors.length > 0) {
+    return res.error(400, allErrors.map(({ msg, path }) => ({ id: path, message: msg })));
   }
 
   next();
