@@ -11,7 +11,7 @@ const profileUserController = require("../controllers/user/profileUserController
 
 // Import middlewares
 const authUserMiddleware = require('../middlewares/authUserMiddleware');
-const handleValidationErrors = require('../middlewares/validationHandler');
+const handleValidationErrors = require('../middlewares/validationHandlerMiddleware');
 
 // Route: Get example (protected route)
 // GET /

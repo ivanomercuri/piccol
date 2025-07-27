@@ -19,5 +19,5 @@ exports.getProducts = async (req, res) => {
 }
 
 exports.createProduct = async (req, res) => {
-
+  return res.success({});
 }

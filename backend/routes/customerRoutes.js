@@ -8,7 +8,7 @@ const router = express.Router();
 const authCustomerController = require("../controllers/customer/authCustomerController");
 
 // Import middlewares
-const handleValidationErrors = require('../middlewares/validationHandler');
+const handleValidationErrors = require('../middlewares/validationHandlerMiddleware');
 
 // Route: Register a new customer
 // POST /register
