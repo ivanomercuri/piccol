@@ -11,18 +11,37 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   phpmyadmin:
-    image: phpmyadmin/phpmyadmin
+    image: lscr.io/linuxserver/phpmyadmin:latest   # multi-arch (arm64 + amd64)
     container_name: phpmyadmin
     restart: unless-stopped
     environment:
-      PMA_HOST: db
-      MYSQL_ROOT_PASSWORD: rootpassword
+      - TZ=Europe/Rome
+      - PMA_HOST=db
+      - PMA_PORT=3306
+      - PMA_ARBITRARY=1            # opzionale: consente host manuali nella UI
+      - PUID=1000
+      - PGID=1000
     ports:
       - "8080:80"
+    volumes:
+      - ./configs/config.user.inc.php:/config/phpmyadmin/config.user.inc.php
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   backend:
     build: ./backend
@@ -38,8 +57,15 @@ services:
       - DB_USER=user
       - DB_PASSWORD=password
       - DB_NAME=mydatabase
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5000" ]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   test_backend:
     build: ./backend
@@ -49,7 +75,8 @@ services:
       - /app/node_modules
     command: [ "npm", "run", "test" ]
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
@@ -68,3 +95,4 @@ services:
 
 volumes:
   mysql-data:
+
