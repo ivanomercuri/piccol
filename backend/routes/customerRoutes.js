@@ -10,6 +10,10 @@ const authCustomerController = require("../controllers/customer/authCustomerCont
 // Import middlewares
 const handleValidationErrors = require('../middlewares/validationHandlerMiddleware');
 
+router.get('/', (req, res) => {
+    res.success("𝕴𝖙 𝖂𝖔𝖗𝖐𝖘!");
+});
+
 // Route: Register a new customer
 // POST /register
 router.post(
