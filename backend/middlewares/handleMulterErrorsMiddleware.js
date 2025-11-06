@@ -1,5 +1,4 @@
 const InvalidImageTypeError = require('../classes/InvalidImageTypeError');
-
 module.exports = (err, req, res, next) => {
   if (err.code === 'LIMIT_FILE_SIZE') {
     req.validationErrors = req.validationErrors || [];
@@ -9,6 +8,5 @@ module.exports = (err, req, res, next) => {
     });
     return next();
   }
-
-  next(err); // altri errori reali
+  next(err); 
 };

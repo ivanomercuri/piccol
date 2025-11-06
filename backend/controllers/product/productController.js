@@ -1,5 +1,4 @@
 const { Product } = require('../../models');
-
 exports.getProducts = async (req, res) => {
   try {
     let products;
@@ -17,7 +16,6 @@ exports.getProducts = async (req, res) => {
     return res.error(403, 'Errore server', err);
   }
 }
-
 exports.createProduct = async (req, res) => {
   return res.success({});
 }

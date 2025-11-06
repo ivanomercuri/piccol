@@ -2,7 +2,6 @@ const express = require("express");
 const productRoutes = express.Router();
 const {uploadImage} = require('../middlewares/uploadMiddleware');
 const { body } = require("express-validator");
-
 const handleValidationErrors = require('../middlewares/validationHandlerMiddleware');
 const checkImageUpload = require('../middlewares/checkImageUploadMiddleware');
 const authUserMiddleware = require('../middlewares/authUserMiddleware');
@@ -11,15 +10,12 @@ const requireFileMiddleware = require('../middlewares/requireFileMiddleware');
 const handleMulterErrorsMiddleware = require('../middlewares/handleMulterErrorsMiddleware');
 const checkImageDimensions = require('../middlewares/checkImageDimensionsMiddleware');
 const skipIfValidationErrors = require('../middlewares/skipIfValidationErrorsMiddleware');
-
 const productController = require("../controllers/product/productController");
-
 productRoutes.get(
   '/',
   authUserMiddleware,
   productController.getProducts
 );
-
 productRoutes.post(
   '/new',
   authUserMiddleware,
@@ -45,5 +41,4 @@ productRoutes.post(
   handleValidationErrors,
   productController.createProduct
 );
-
 module.exports = productRoutes;

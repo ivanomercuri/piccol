@@ -1,11 +1,8 @@
 const sizeOf = require('image-size');
-
 module.exports = function checkImageDimensions({ field = 'image', maxWidth = 1920, maxHeight = 1080 }) {
   return (req, res, next) => {
     req.validationErrors = req.validationErrors || [];
-
     const files = (req.files || []).filter(f => f.fieldname === field);
-
     for (const file of files) {
       try {
         const dimensions = sizeOf(file.buffer);
@@ -23,7 +20,6 @@ module.exports = function checkImageDimensions({ field = 'image', maxWidth = 192
         });
       }
     }
-
     next();
   };
 };

@@ -1,5 +1,4 @@
 'use strict';
-
 module.exports = (sequelize, DataTypes) => {
   const Product = sequelize.define('Product', {
     id: {
@@ -41,13 +40,11 @@ module.exports = (sequelize, DataTypes) => {
     tableName: 'products',
     timestamps: true
   });
-
   Product.associate = function(models) {
     Product.belongsTo(models.User, {
       foreignKey: 'createdBy',
       as: 'creator'
     });
   };
-
   return Product;
 };
