@@ -1,3 +1,3 @@
 module.exports = (req, res) => {
-  return res.error(404, "Non trovato");
+  return res.error(404, 'Non trovato');
 };

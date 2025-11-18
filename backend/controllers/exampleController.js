@@ -5,11 +5,13 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
 });
+
 exports.getExample = async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT NOW() as currentTime');
+
     res.json({
-      'test': 'ina'
+      test: 'ina',
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

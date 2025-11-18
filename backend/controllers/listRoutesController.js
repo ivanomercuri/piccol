@@ -120,30 +120,32 @@ function listRoutes(appOrRouter, options = {}){
 */
 
 function printRegisteredRoutes(routerStack, parentPath = '') {
-    routerStack.forEach((middleware) => {
-        if (middleware.route) {
-            console.debug(
-                middleware.route.stack[0].method.toUpperCase(),
-                `${parentPath}${middleware.route.path}`
-            );
-        } else if (middleware.name === 'router') {
-            printRegisteredRoutes(
-                middleware.handle.stack,
-                `${parentPath}${middleware.path}`
-            );
-        }
-    });
+  routerStack.forEach((middleware) => {
+    if (middleware.route) {
+      console.debug(
+        middleware.route.stack[0].method.toUpperCase(),
+        `${parentPath}${middleware.route.path}`
+      );
+    } else if (middleware.name === 'router') {
+      printRegisteredRoutes(
+        middleware.handle.stack,
+        `${parentPath}${middleware.path}`
+      );
+    }
+  });
 }
 
 module.exports = {
-    listRoutes: (req, res) => {
-        if (process.env.SHOW_ROUTES !== 'true') {
-            return res.error(403, 'Accesso negato');
-        }
-
-        const app = req.app;
-        //const routes = listRoutes(app);
-        printRegisteredRoutes(app.router.stack);
-        return res.success([]);
+  listRoutes: (req, res) => {
+    if (process.env.SHOW_ROUTES !== 'true') {
+      return res.error(403, 'Accesso negato');
     }
+
+    const app = req.app;
+
+    //const routes = listRoutes(app);
+    printRegisteredRoutes(app.router.stack);
+
+    return res.success([]);
+  },
 };

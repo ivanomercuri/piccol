@@ -1,17 +1,18 @@
 'use strict';
+
 module.exports = {
-  async up (queryInterface, Sequelize) {
+  async up(queryInterface, Sequelize) {
     await queryInterface.addColumn('products', 'createdBy', {
       type: Sequelize.INTEGER,
       allowNull: false,
       references: {
         model: 'users',
-        key: 'id'
+        key: 'id',
       },
-      after: 'available'
+      after: 'available',
     });
   },
-  async down (queryInterface, Sequelize) {
+  async down(queryInterface, Sequelize) {
     await queryInterface.removeColumn('products', 'createdBy');
-  }
+  },
 };
