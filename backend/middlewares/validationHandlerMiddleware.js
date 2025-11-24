@@ -20,10 +20,17 @@ module.exports = (req, res, next) => {
   }
 
   if (allErrors.length > 0) {
-    return res.error(
-      400,
-      allErrors.map(({ msg, path }) => ({ id: path, message: msg }))
-    );
+    const uniqueErrors = [];
+    const seenPaths = new Set();
+
+    for (const error of allErrors) {
+      if (!seenPaths.has(error.path)) {
+        seenPaths.add(error.path);
+        uniqueErrors.push({ id: error.path, message: error.msg });
+      }
+    }
+
+    return res.error(400, uniqueErrors);
   }
   next();
 };

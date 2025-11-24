@@ -3,26 +3,16 @@ const productRoutes = express.Router();
 const { uploadImage } = require('../middlewares/uploadMiddleware');
 const { body } = require('express-validator');
 const handleValidationErrors = require('../middlewares/validationHandlerMiddleware');
-const checkImageUpload = require('../middlewares/checkImageUploadMiddleware');
+const validateProductImageMiddleware = require('../middlewares/validateProductImageMiddleware');
 const authUserMiddleware = require('../middlewares/authUserMiddleware');
-const checkNumberFiles = require('../middlewares/checkNumberFilesMiddleware');
-const requireFileMiddleware = require('../middlewares/requireFileMiddleware');
 const handleMulterErrorsMiddleware = require('../middlewares/handleMulterErrorsMiddleware');
-const checkImageDimensions = require('../middlewares/checkImageDimensionsMiddleware');
-const skipIfValidationErrors = require('../middlewares/skipIfValidationErrorsMiddleware');
 const productController = require('../controllers/product/productController');
 
 // Middleware per la gestione e validazione dell'upload dell'immagine
 const imageUploadAndValidation = [
-  uploadImage.array('image', 2),
+  uploadImage.array('image'),
   handleMulterErrorsMiddleware,
-  skipIfValidationErrors,
-  checkNumberFiles('image', 1, 'Devi caricare una sola immagine del prodotto'),
-  skipIfValidationErrors,
-  requireFileMiddleware('image', '', "L'immagine del prodotto è richiesta"),
-  checkImageDimensions({ field: 'image' }),
-  skipIfValidationErrors,
-  checkImageUpload,
+  validateProductImageMiddleware,
 ];
 
 // Middleware per la validazione dei campi del prodotto
