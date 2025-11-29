@@ -7,6 +7,7 @@ const imageFileFilter = (req, file, cb) => {
 
     req.multerFileErrors.push({
       msg: `Il file ${file.originalname} non è un'immagine JPG o PNG`,
+      filename: file.originalname,
       path: file.fieldname,
     });
   }

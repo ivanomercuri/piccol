@@ -2,41 +2,31 @@ const imgSize = require('image-size');
 const sizeOf = typeof imgSize === 'function' ? imgSize : imgSize.imageSize;
 
 module.exports = (req, res, next) => {
+    // Inizializza l'array
     req.validationErrors = req.validationErrors || [];
 
-    // 1. Check Multer Errors (e.g. invalid file type from fileFilter)
+    // 1. Check Multer Errors (Errori tipo file non valido intercettati prima)
     if (req.multerFileErrors && req.multerFileErrors.length > 0) {
-        req.validationErrors.push(...req.multerFileErrors);
+        // Mappiamo gli errori di multer per assicurarci che abbiano la struttura coerente
+        const formattedMulterErrors = req.multerFileErrors.map(err => ({
+            ...err,
+            filename: err.filename || err.originalname || 'unknown_file' // Tentiamo di recuperare il nome se esiste
+        }));
+        req.validationErrors.push(...formattedMulterErrors);
     }
 
     const field = 'image';
     const files = (req.files || []).filter((f) => f.fieldname === field);
     const count = files.length;
 
-    // 2. Check Number of Files (Max 1)
-    if (count > 1) {
-        req.validationErrors.push({
-            msg: 'Devi caricare una sola immagine del prodotto',
-            path: field,
-        });
-    }
-
     // 3. Check Required File
     if (count === 0) {
-        // Only add required error if there are no other errors for this field yet?
-        // The original logic had separate middlewares.
-        // requireFileMiddleware adds error if file not found.
-        // Let's stick to the plan: add error if count is 0.
-        // However, if we have multer errors (like invalid type), maybe we shouldn't say "required"?
-        // But if invalid type, multer filters it out, so count might be 0.
-        // If multer filtered it out, we have an error in req.multerFileErrors.
-        // So if we have multer errors, we might not want to add "required" error.
-        // Let's check if we already have errors.
         const hasErrors = req.validationErrors.length > 0;
         if (!hasErrors) {
             req.validationErrors.push({
                 msg: "L'immagine del prodotto è richiesta",
                 path: field,
+                filename: null // NULL perché il file non esiste proprio
             });
         }
     }
@@ -55,20 +45,17 @@ module.exports = (req, res, next) => {
                 req.validationErrors.push({
                     msg: `L'immagine non può superare ${maxWidth}x${maxHeight}px`,
                     path: field,
+                    filename: file.originalname // QUI inseriamo il nome del file colpevole
                 });
-                break;
+                // Non mettiamo il break se vogliamo validare anche altri file,
+                // ma visto che ne accetti max 1, il break ha senso se count > 1 è già fallito.
             }
         } catch (err) {
-            let msg = "Impossibile leggere le dimensioni dell'immagine";
-            if (err.message.includes('Offset is outside the bounds of the DataView') || err.message === 'File vuoto') {
-                msg = "Il file non è un'immagine valida o è corrotto";
-            } else {
-                msg += ": " + err.message;
-            }
 
             req.validationErrors.push({
-                msg: msg,
+                msg: err.message,
                 path: field,
+                filename: file.originalname // QUI inseriamo il nome del file corrotto
             });
         }
     }
