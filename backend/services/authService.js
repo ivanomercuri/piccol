@@ -16,7 +16,7 @@ async function authenticate(entityModel, email, password) {
 
   const token = jwt.sign(
     { id: user.id, email: user.email },
-    process.env.JWT_SECRET,
+    process.env.JWT_SECRET
     //{ expiresIn: '1h' }
   );
 

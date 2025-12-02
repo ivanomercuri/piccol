@@ -1,30 +1,32 @@
 const multer = require('multer');
 const storage = multer.memoryStorage();
-const maxSize = parseInt(process.env.MAX_FILE_SIZE, 10);
-const imageFileFilter = (req, file, cb) => {
-  if (file.mimetype !== 'image/jpeg' && file.mimetype !== 'image/png') {
-    req.multerFileErrors = req.multerFileErrors || [];
 
-    req.multerFileErrors.push({
+const imageFileFilter = (req, file, cb) => {
+  // Questo filtro ora si occupa solo del tipo di file.
+  // Il controllo sulla dimensione verrà fatto in un middleware successivo.
+  if (file.mimetype !== 'image/jpeg' && file.mimetype !== 'image/png') {
+    // Aggiungiamo un errore specifico che verrà raccolto più avanti.
+    req.validationErrors = req.validationErrors || [];
+
+    req.validationErrors.push({
       msg: `Il file ${file.originalname} non è un'immagine JPG o PNG`,
       filename: file.originalname,
       path: file.fieldname,
     });
   }
+  // Accettiamo comunque il file per permettere al flusso di continuare
+  // e raccogliere tutti gli errori in una volta sola.
   cb(null, true);
 };
-const upload = multer({
-  storage,
-});
+
 const uploadImage = multer({
   storage,
   fileFilter: imageFileFilter,
-  limits: {
-    fileSize: maxSize * 1024 * 1024,
-  },
+  // Rimosso il limite di dimensione da Multer.
+  // Sarà gestito nel validateProductImageMiddleware.
 });
 
+// Esportiamo solo l'istanza che ci serve.
 module.exports = {
-  upload,
   uploadImage,
 };

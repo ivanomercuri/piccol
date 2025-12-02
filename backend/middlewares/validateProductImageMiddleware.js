@@ -1,64 +1,72 @@
 const imgSize = require('image-size');
+const { maxWidth, maxHeight } = require('#image-config');
 const sizeOf = typeof imgSize === 'function' ? imgSize : imgSize.imageSize;
 
+// Leggiamo la dimensione massima dal file di ambiente
+const maxSizeInBytes = parseInt(process.env.MAX_FILE_SIZE, 10) * 1024 * 1024;
+
 module.exports = (req, res, next) => {
-    // Inizializza l'array
-    req.validationErrors = req.validationErrors || [];
+  // Inizializza l'array degli errori se non esiste già
+  req.validationErrors = req.validationErrors || [];
 
-    // 1. Check Multer Errors (Errori tipo file non valido intercettati prima)
-    if (req.multerFileErrors && req.multerFileErrors.length > 0) {
-        // Mappiamo gli errori di multer per assicurarci che abbiano la struttura coerente
-        const formattedMulterErrors = req.multerFileErrors.map(err => ({
-            ...err,
-            filename: err.filename || err.originalname || 'unknown_file' // Tentiamo di recuperare il nome se esiste
-        }));
-        req.validationErrors.push(...formattedMulterErrors);
+  const files = req.files || [];
+  const imageField = 'image';
+
+  // Se non ci sono file e non ci sono già errori di altro tipo,
+  // aggiungiamo l'errore di file mancante.
+  if (files.length === 0 && req.validationErrors.length === 0) {
+    req.validationErrors.push({
+      msg: "L'immagine del prodotto è richiesta",
+      path: imageField,
+      filename: '_generale_', // Usiamo un placeholder
+    });
+
+    return next(); // Passiamo al gestore di validazione
+  }
+
+  for (const file of files) {
+    // 1. Controllo sulla dimensione del file (precedentemente in Multer)
+    if (file.size > maxSizeInBytes) {
+      req.validationErrors.push({
+        msg: `Il file supera la dimensione massima di ${process.env.MAX_FILE_SIZE} MB`,
+        path: imageField,
+        filename: file.originalname,
+      });
+      // Continuiamo il ciclo per controllare anche gli altri file
+      continue;
     }
 
-    const field = 'image';
-    const files = (req.files || []).filter((f) => f.fieldname === field);
-    const count = files.length;
+    // 2. Controllo sulle dimensioni dell'immagine (larghezza x altezza)
+    // Questo blocco viene eseguito solo se il file è un'immagine valida.
+    // Gli errori di tipo file (es. PDF) sono già stati aggiunti in uploadMiddleware.
+    /* ------------------------------------------------------------------
+        | NOTA IMPORTANTE: Questo controllo del mimetype NON è ridondante.
+        | Sebbene uploadMiddleware abbia già validato il tipo, ha lasciato passare
+        | i file non validi (es. PDF) per raccogliere gli errori senza bloccare il flusso.
+        | Dobbiamo filtrare nuovamente qui perché la libreria 'image-size' andrebbe
+        | in crash (o darebbe errori fuorvianti) se provasse a leggere il buffer di un PDF.
+        | ------------------------------------------------------------------*/
+    if (file.mimetype === 'image/jpeg' || file.mimetype === 'image/png') {
+      try {
+        const dimensions = sizeOf(file.buffer);
 
-    // 3. Check Required File
-    if (count === 0) {
-        const hasErrors = req.validationErrors.length > 0;
-        if (!hasErrors) {
-            req.validationErrors.push({
-                msg: "L'immagine del prodotto è richiesta",
-                path: field,
-                filename: null // NULL perché il file non esiste proprio
-            });
+        if (dimensions.width > maxWidth || dimensions.height > maxHeight) {
+          req.validationErrors.push({
+            msg: `Le dimensioni dell'immagine non possono superare ${maxWidth}x${maxHeight}px`,
+            path: imageField,
+            filename: file.originalname,
+          });
         }
+      } catch (err) {
+        // Questo catch gestisce file corrotti che sembrano immagini ma non lo sono.
+        req.validationErrors.push({
+          msg: 'Il file è corrotto o non è un formato di immagine valido',
+          path: imageField,
+          filename: file.originalname,
+        });
+      }
     }
+  }
 
-    // 4. Check Dimensions
-    const maxWidth = 1920;
-    const maxHeight = 1080;
-
-    for (const file of files) {
-        try {
-            if (!file.buffer || file.buffer.length === 0) {
-                throw new Error('File vuoto');
-            }
-            const dimensions = sizeOf(file.buffer);
-            if (dimensions.width > maxWidth || dimensions.height > maxHeight) {
-                req.validationErrors.push({
-                    msg: `L'immagine non può superare ${maxWidth}x${maxHeight}px`,
-                    path: field,
-                    filename: file.originalname // QUI inseriamo il nome del file colpevole
-                });
-                // Non mettiamo il break se vogliamo validare anche altri file,
-                // ma visto che ne accetti max 1, il break ha senso se count > 1 è già fallito.
-            }
-        } catch (err) {
-
-            req.validationErrors.push({
-                msg: err.message,
-                path: field,
-                filename: file.originalname // QUI inseriamo il nome del file corrotto
-            });
-        }
-    }
-
-    next();
+  next();
 };

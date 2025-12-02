@@ -6,6 +6,9 @@
     "test": "jest",
     "lint": "eslint . --fix"
   },
+  "imports": {
+    "#image-config": "./config/imageConfig.js"
+  },
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
