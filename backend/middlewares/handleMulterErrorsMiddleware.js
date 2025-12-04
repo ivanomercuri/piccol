@@ -1,27 +1,33 @@
 const multer = require('multer');
 
 /**
- * Questo middleware intercetta errori generati da Multer durante il processo di upload.
- * NOTA: il controllo LIMIT_FILE_SIZE è stato spostato in validateProductImageMiddleware
- * per poter associare l'errore al nome del file. Questo middleware gestisce
- * altri eventuali errori di Multer (es. LIMIT_FILE_COUNT, ecc.).
+ * Questo middleware intercetta errori "fatali" generati da Multer.
+ * Se l'errore è un superamento dell'hard limit, lo contrassegna come "fatale"
+ * per essere gestito in via prioritaria.
  */
 module.exports = (err, req, res, next) => {
-  // Gestiamo specificamente gli errori generati da Multer
   if (err instanceof multer.MulterError) {
     req.validationErrors = req.validationErrors || [];
+    let errorMessage = err.message;
+    const hardLimitMB = 10; // Coerente con uploadMiddleware
+    let isFatal = false;
 
-    // Aggiungiamo l'errore alla lista che verrà processata dal validationHandlerMiddleware
+    // Se l'errore è il superamento dell'hard limit, lo consideriamo un evento di sicurezza.
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      errorMessage = `Operazione non permessa.`;
+
+      isFatal = true; // Contrassegniamo l'errore come fatale.
+    }
+
     req.validationErrors.push({
-      msg: err.message, // Usiamo il messaggio di default fornito da Multer
-      filename: err.field || '_generale_', // Usiamo il campo o un placeholder
-      path: 'image',
+      msg: errorMessage,
+      isFatal: isFatal, // Aggiungiamo il flag all'oggetto errore.
     });
 
-    // Passiamo al prossimo middleware che gestirà la validazione
+    // Continuiamo il flusso per permettere al validationHandler di gestire la risposta.
     return next();
   }
 
-  // Se non è un errore di Multer, lo passiamo al gestore di errori globale
+  // Se non è un errore di Multer, lo passiamo al gestore di errori globale.
   next(err);
 };

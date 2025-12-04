@@ -1,9 +1,7 @@
 const multer = require('multer');
-const storage = multer.memoryStorage();
 
 const imageFileFilter = (req, file, cb) => {
-  // Questo filtro ora si occupa solo del tipo di file.
-  // Il controllo sulla dimensione verrà fatto in un middleware successivo.
+  // Questo filtro si occupa del tipo di file.
   if (file.mimetype !== 'image/jpeg' && file.mimetype !== 'image/png') {
     // Aggiungiamo un errore specifico che verrà raccolto più avanti.
     req.validationErrors = req.validationErrors || [];
@@ -13,20 +11,30 @@ const imageFileFilter = (req, file, cb) => {
       filename: file.originalname,
       path: file.fieldname,
     });
+
+    // Diciamo a Multer di non accettare il file, ma il nostro gestore di errori
+    // personalizzato lo trasformerà in un errore di validazione.
+    return cb(null, false);
   }
-  // Accettiamo comunque il file per permettere al flusso di continuare
-  // e raccogliere tutti gli errori in una volta sola.
+  // Se il tipo di file è corretto, procedi.
   cb(null, true);
 };
 
+// Impostiamo un limite di sicurezza "hard" per proteggere il server da file enormi.
+// Questo limite è più alto del limite di business (3MB).
+const hardLimitMB = 10;
+const hardLimitBytes = hardLimitMB * 1024 * 1024;
+
 const uploadImage = multer({
-  storage,
+  // Usiamo lo storage su disco di default. Multer creerà una cartella temporanea.
+  // Questo evita di caricare i file in RAM.
+  dest: 'uploads/',
   fileFilter: imageFileFilter,
-  // Rimosso il limite di dimensione da Multer.
-  // Sarà gestito nel validateProductImageMiddleware.
+  limits: {
+    fileSize: hardLimitBytes,
+  },
 });
 
-// Esportiamo solo l'istanza che ci serve.
 module.exports = {
   uploadImage,
 };

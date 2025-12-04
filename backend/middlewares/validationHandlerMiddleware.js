@@ -4,28 +4,31 @@ module.exports = (req, res, next) => {
   const errors = validationResult(req).array();
   const extraErrors = req.validationErrors || [];
 
-  // Uniamo tutti gli errori
   const allErrors = [...errors, ...extraErrors];
 
   if (allErrors.length > 0) {
+    // --- GESTIONE ERRORE FATALE ---
+    // Cerchiamo se tra gli errori ce n'è uno contrassegnato come "fatale".
+    const fatalError = allErrors.find((err) => err.isFatal);
+
+    if (fatalError) {
+      return res.error(400, fatalError.msg);
+    }
+    // --- FINE GESTIONE ERRORE FATALE ---
+
+    // Se non ci sono errori fatali, procediamo con la logica di raggruppamento standard.
     const groupedErrors = allErrors.reduce((acc, error) => {
       const { path, msg, filename } = error;
 
-      // Caso speciale: per il campo 'image', accumuliamo gli errori per file.
       if (path === 'image') {
-        // Se è il primo errore per 'image', inizializziamo la struttura.
         if (!acc.image) {
           acc.image = { id: 'image', message: [] };
         }
-
         const currentFilename = filename || '_generale_';
-        // Controlliamo se esiste già un errore per questo specifico filename.
         const hasErrorForFile = acc.image.message.some(
           (imgError) => imgError.filename === currentFilename
         );
 
-        // Se non c'è ancora un errore per questo file, lo aggiungiamo.
-        // Altrimenti, lo ignoriamo per evitare duplicati.
         if (!hasErrorForFile) {
           acc.image.message.push({
             filename: currentFilename,
@@ -33,7 +36,6 @@ module.exports = (req, res, next) => {
           });
         }
       } else {
-        // Caso standard: per tutti gli altri campi, registriamo solo il primo errore.
         if (!acc[path]) {
           acc[path] = { id: path, message: msg };
         }
@@ -46,5 +48,6 @@ module.exports = (req, res, next) => {
 
     return res.error(400, finalErrors);
   }
+
   next();
 };
