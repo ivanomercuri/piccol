@@ -6,12 +6,18 @@ const handleValidationErrors = require('../middlewares/validationHandlerMiddlewa
 const validateProductImageMiddleware = require('../middlewares/validateProductImageMiddleware');
 const authUserMiddleware = require('../middlewares/authUserMiddleware');
 const handleMulterErrorsMiddleware = require('../middlewares/handleMulterErrorsMiddleware');
+const checkNumberFilesMiddleware = require('../middlewares/checkNumberFilesMiddleware');
 const productController = require('../controllers/product/productController');
 
 // Middleware per la gestione e validazione dell'upload dell'immagine
 const imageUploadAndValidation = [
   uploadImage.array('image'),
   handleMulterErrorsMiddleware,
+  checkNumberFilesMiddleware(
+    'image',
+    1,
+    'Devi caricare una sola immagine del prodotto'
+  ),
   validateProductImageMiddleware,
 ];
 
