@@ -1,122 +1,137 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Questo file fornisce indicazioni a Claude Code (claude.ai/code) per lavorare con il codice di questo repository.
 
-## Project overview
+## Panoramica del progetto
 
-Piccol is an e-commerce project built as a Node.js/Express portfolio piece showcasing a strict layered
-backend architecture. The backend is the actively developed part; the frontend (React + Vite) is currently
-just the Vite scaffold and is **not** the focus of work — do not add frontend features unless explicitly
-asked.
+Piccol è un progetto e-commerce costruito come portfolio piece Node.js/Express, per mostrare un'architettura
+backend rigorosamente a livelli. Il backend è la parte attivamente sviluppata; il frontend (React + Vite) è
+al momento solo lo scaffold di Vite e **non** è l'oggetto del lavoro — non aggiungere funzionalità frontend
+a meno che non venga esplicitamente richiesto.
 
-There is an `AGENTS.md` at the repo root that is the single source of truth for architecture rules on this
-project — read it. The summary below reflects it plus details found in the actual code.
+Alla radice del repo c'è un `AGENTS.md` che è la fonte di verità unica per le regole architetturali di
+questo progetto — leggilo. Il riepilogo qui sotto lo riflette, con dettagli aggiuntivi trovati nel codice
+reale.
 
-## Commands
+## Uso di Git
 
-All commands run from `backend/` unless noted.
+Quando esegui operazioni Git in questo repository (messaggi di commit, descrizioni di pull request, nomi di
+branch descrittivi, commenti su PR/issue), scrivi il testo **esclusivamente in italiano**. Questo vale solo
+per i testi rivolti a chi legge la cronologia Git/GitHub — codice e commenti nel codice restano in inglese
+come da convenzione del progetto (vedi sotto).
+
+## Comandi
+
+Tutti i comandi vanno eseguiti da `backend/` salvo diversa indicazione.
 
 ```bash
-npm run dev     # nodemon with debugger on 0.0.0.0:9229, starts server.js
-npm test        # jest (test files live in backend/__tests__/*.test.js)
-npm test -- authService.test.js   # run a single test file
+npm run dev     # nodemon con debugger su 0.0.0.0:9229, avvia server.js
+npm test        # jest (i file di test sono in backend/__tests__/*.test.js)
+npm test -- authService.test.js   # esegue un singolo file di test
 npm run lint    # eslint . --fix
 ```
 
-Whole stack (MySQL, phpMyAdmin, backend, backend test runner, frontend) via Docker Compose from the repo
-root:
+Stack completo (MySQL, phpMyAdmin, backend, test runner backend, frontend) via Docker Compose dalla radice
+del repo:
 
 ```bash
 docker compose up            # db, phpmyadmin (8080), backend (5001->5000, debug 9229), frontend (3000)
-docker compose run --rm test_backend   # runs `npm test` in a container against the dockerized db
+docker compose run --rm test_backend   # esegue `npm test` in un container contro il db dockerizzato
 ```
 
-DB host is `db` inside Docker, `localhost` from the host machine, port `3306`. Sequelize config is in
-`backend/config/config.json` (currently only a `development` block, root/rootpassword/mydatabase).
+L'host del DB è `db` dentro Docker, `localhost` dalla macchina host, porta `3306`. La config Sequelize è in
+`backend/config/config.json` (al momento solo un blocco `development`, root/rootpassword/mydatabase).
 
-Sequelize CLI (run from `backend/`):
+Sequelize CLI (da eseguire da `backend/`):
 
 ```bash
 npx sequelize-cli db:migrate
 npx sequelize-cli db:seed:all
 ```
 
-Required env vars (see `backend/.env.example`): `JWT_SECRET`, `SHOW_ROUTES`, `MAX_FILE_SIZE` (MB, business
-limit for uploaded images), `MAX_FILE_HARD_SIZE` (MB, multer hard limit — currently hardcoded to 10 in
-`uploadMiddleware.js`/`handleMulterErrorsMiddleware.js` rather than actually read from this var).
+Variabili d'ambiente richieste (vedi `backend/.env.example`): `JWT_SECRET`, `SHOW_ROUTES`, `MAX_FILE_SIZE`
+(MB, limite di business per le immagini caricate), `MAX_FILE_HARD_SIZE` (MB, limite hard di multer —
+attualmente hardcoded a 10 in `uploadMiddleware.js`/`handleMulterErrorsMiddleware.js` invece di essere
+letto realmente da questa variabile).
 
-## Architecture
+## Architettura
 
-### Layering (enforced by convention, see AGENTS.md)
+### Livelli (imposti per convenzione, vedi AGENTS.md)
 
-`routes/` → `controllers/` (HTTP only: parse input, call services, format response) → `services/`
-(business logic, DB transactions) → `models/` (Sequelize). Controllers are grouped by domain directory
-(`controllers/user/`, `controllers/customer/`, `controllers/product/`). Never put business logic in a
-controller — extend or add a service instead. `classes/` holds custom Error subclasses (e.g.
-`InvalidImageTypeError`); user-facing strings (validation messages, API errors) are in Italian, code and
-comments are in English.
+`routes/` → `controllers/` (solo HTTP: parsing input, chiamata ai services, formattazione risposta) →
+`services/` (logica di business, transazioni DB) → `models/` (Sequelize). I controller sono raggruppati per
+directory di dominio (`controllers/user/`, `controllers/customer/`, `controllers/product/`). Non mettere mai
+logica di business in un controller — estendi o aggiungi un service. `classes/` contiene sottoclassi
+custom di `Error` (es. `InvalidImageTypeError`); le stringhe rivolte all'utente (messaggi di validazione,
+errori API) sono in italiano, codice e commenti sono in inglese.
 
-### Two parallel identity models
+### Due modelli di identità paralleli
 
-There are two separate authenticated entities with independent tables, routes and controllers — they are
-**not** a shared "User" hierarchy:
+Ci sono due entità autenticate separate, con tabelle, route e controller indipendenti — **non** sono una
+gerarchia condivisa di tipo "User":
 
-- **User** (`models/user.js`) — internal/admin accounts, `level` enum `admin`/`superadmin`, mounted at
-  `/admin/user` (see `routes/adminRoutes.js` → `routes/userRoutes.js`). `authUserMiddleware` protects these
-  routes and attaches `req.user`.
-- **Customer** (`models/customer.js`) — storefront customers, mounted at `/` (`routes/customerRoutes.js`).
+- **User** (`models/user.js`) — account interni/admin, `level` enum `admin`/`superadmin`, montato su
+  `/admin/user` (vedi `routes/adminRoutes.js` → `routes/userRoutes.js`). `authUserMiddleware` protegge
+  queste route e valorizza `req.user`.
+- **Customer** (`models/customer.js`) — clienti dello storefront, montato su `/` (`routes/customerRoutes.js`).
 
-Both share the same auth mechanics via `services/authService.js` (`authenticate(entityModel, email,
-password)`) and `services/registerService.js` (`registerEntity(entityModel, userData, tokenPayloadFields)`)
-— generic functions parameterized by Sequelize model, reused across both domains. Do not duplicate
-login/register logic per-entity; extend these shared services instead.
+Entrambi condividono la stessa meccanica di autenticazione tramite `services/authService.js`
+(`authenticate(entityModel, email, password)`) e `services/registerService.js`
+(`registerEntity(entityModel, userData, tokenPayloadFields)`) — funzioni generiche parametrizzate sul
+modello Sequelize, riusate su entrambi i domini. Non duplicare la logica di login/registrazione per singola
+entità — estendi questi services condivisi.
 
-**Token invalidation pattern**: JWTs are stateful. On login/register, the signed token is also written to
-the entity's `current_token` column. `authUserMiddleware` decodes the JWT *and* checks it matches
-`current_token` in the DB — this is what makes logout / password-change invalidate old tokens (logout sets
-`current_token = null`; password/2FA-style flows should do the same for any entity whose credentials
-change).
+**Pattern di invalidazione del token**: i JWT sono stateful. Al login/registrazione, il token firmato viene
+scritto anche nella colonna `current_token` dell'entità. `authUserMiddleware` decodifica il JWT *e*
+verifica che corrisponda a `current_token` nel DB — questo è ciò che rende possibile invalidare i vecchi
+token al logout / cambio password (il logout imposta `current_token = null`; i flussi di
+password/2FA dovrebbero fare lo stesso per qualsiasi entità le cui credenziali cambiano).
 
-### Response and error conventions
+### Convenzioni di risposta ed errore
 
-`middlewares/responseFormatter.js` runs first in the app.js chain and monkey-patches `res.success(data,
-message, code)` / `res.error(code, message, err)` onto every response — controllers and route handlers use
-these instead of raw `res.json`. `res.error` logs via Winston (`config/logger.js`, writes to
-`backend/logs/`) whenever an `Error` instance is passed. `middlewares/errorMiddleware.js` is the last
-middleware in `index.js` and is the catch-all `next(err)` handler (also normalizes JSON body-parse
-SyntaxErrors to a 400). `middlewares/noPathMiddleware.js` handles unmatched routes (404). Always resolve
-errors through this res.success/res.error pair rather than inventing a new response shape.
+`middlewares/responseFormatter.js` viene eseguito per primo nella catena di app.js e monkey-patcha
+`res.success(data, message, code)` / `res.error(code, message, err)` su ogni risposta — controller e route
+handler usano questi metodi invece del `res.json` grezzo. `res.error` logga via Winston
+(`config/logger.js`, scrive in `backend/logs/`) ogni volta che viene passata un'istanza di `Error`.
+`middlewares/errorMiddleware.js` è l'ultimo middleware in `index.js` ed è il gestore catch-all di
+`next(err)` (normalizza anche i SyntaxError di parsing JSON del body in un 400).
+`middlewares/noPathMiddleware.js` gestisce le route non trovate (404). Risolvi sempre gli errori tramite
+questa coppia res.success/res.error invece di inventare un nuovo formato di risposta.
 
-### Validation error accumulation pattern
+### Pattern di accumulo degli errori di validazione
 
-Multer-based file upload validation doesn't fit express-validator's model, so this codebase accumulates
-errors on `req.validationErrors` (an array of `{ msg, path, filename?, isFatal? }`) across multiple
-middlewares, then merges them with express-validator's own errors in
-`middlewares/validationHandlerMiddleware.js`, which groups them by field (image errors are grouped by
-filename) before calling `res.error(400, ...)`. The chain for product image upload
-(`routes/productRoutes.js`) is: `uploadMiddleware` (mimetype filter, hard size limit) →
-`handleMulterErrorsMiddleware` (catches MulterError, e.g. hard-limit overflow, flags it `isFatal`) →
-`validateProductImageMiddleware` (business-level size limit from `MAX_FILE_SIZE`, dimension check against
-`config/imageConfig.js` maxWidth/maxHeight via the `image-size` package, cleans up temp files on failure) →
-express-validator field checks → `validationHandlerMiddleware`. When adding new upload-adjacent validation,
-push onto `req.validationErrors` rather than throwing, so it merges into the same grouped error response.
+La validazione dell'upload file basata su Multer non si adatta al modello di express-validator, quindi
+questo codebase accumula errori su `req.validationErrors` (un array di `{ msg, path, filename?, isFatal? }`)
+attraverso più middleware, per poi unirli agli errori di express-validator in
+`middlewares/validationHandlerMiddleware.js`, che li raggruppa per campo (gli errori sulle immagini sono
+raggruppati per filename) prima di chiamare `res.error(400, ...)`. La catena per l'upload immagine prodotto
+(`routes/productRoutes.js`) è: `uploadMiddleware` (filtro mimetype, limite hard di dimensione) →
+`handleMulterErrorsMiddleware` (intercetta MulterError, es. superamento del limite hard, lo marca
+`isFatal`) → `validateProductImageMiddleware` (limite di dimensione di business da `MAX_FILE_SIZE`,
+controllo dimensioni contro `config/imageConfig.js` maxWidth/maxHeight tramite il pacchetto `image-size`,
+pulisce i file temporanei in caso di fallimento) → controlli sui campi di express-validator →
+`validationHandlerMiddleware`. Quando aggiungi nuova validazione legata all'upload, accoda su
+`req.validationErrors` invece di lanciare un'eccezione, così si unisce alla stessa risposta di errore
+raggruppata.
 
-### Data model
+### Modello dati
 
-`User` –< `Product` (`createdBy` FK, `as: 'creator'`). Migrations already exist for `categories`,
-`product_images`, and a product↔categories join table (`backend/migrations/2025120423*`), but there are no
-corresponding Sequelize models/associations yet — if asked to work on categories or product images, you'll
-need to add the models first. `models/index.js` auto-loads every `*.js` file in `models/` (excluding
-`.test.js`) and wires up `.associate` — new models just need to be dropped in that directory.
+`User` –< `Product` (FK `createdBy`, `as: 'creator'`). Esistono già migrazioni per `categories`,
+`product_images` e una tabella di join prodotto↔categorie (`backend/migrations/2025120423*`), ma non ci
+sono ancora i modelli/associazioni Sequelize corrispondenti — se ti viene chiesto di lavorare su categorie
+o immagini prodotto, dovrai prima aggiungere i modelli. `models/index.js` carica automaticamente ogni file
+`*.js` in `models/` (escludendo `.test.js`) e collega `.associate` — i nuovi modelli vanno semplicemente
+aggiunti in quella directory.
 
-### Known incomplete piece
+### Parte nota come incompleta
 
-`controllers/product/productController.js#createProduct` is a stub (`return res.success({})`) even though
-its full route (`POST /products/new`) already wires up auth, image upload/validation, and field validation
-— the actual product-creation logic (and category/product_images handling) has not been implemented yet.
+`controllers/product/productController.js#createProduct` è uno stub (`return res.success({})`) anche se la
+sua route completa (`POST /products/new`) collega già auth, upload/validazione immagine e validazione
+campi — la logica vera e propria di creazione prodotto (e la gestione di categorie/product_images) non è
+ancora stata implementata.
 
-### Route mounting (`backend/index.js`)
+### Mounting delle route (`backend/index.js`)
 
-`/` → customer routes, `/admin` → admin routes (currently only `/admin/user`), `/products` → product
-routes, plus `listRoutes` (debug route listing, gated behind `SHOW_ROUTES=true` env var, only meaningful
-outside production).
+`/` → route customer, `/admin` → route admin (al momento solo `/admin/user`), `/products` → route
+prodotto, più `listRoutes` (elenco route di debug, dietro la variabile d'ambiente `SHOW_ROUTES=true`,
+significativo solo fuori produzione).
