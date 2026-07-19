@@ -22,10 +22,15 @@ come da convenzione del progetto (vedi sotto).
 
 ## Commenti nel codice
 
-Quando implementi nuova funzionalità (non solo piccoli fix), aggiungi commenti nel codice che spieghino cosa
-fa quella parte e perché — in inglese, come da convenzione del progetto per codice e commenti. Questo vale
-in particolare per logica non banale, wiring di middleware/route, e nuovi test: un commento in più aiuta chi
-legge il codice in futuro a capire l'intento senza dover ricostruire il contesto dalla cronologia Git.
+Quando implementi nuova funzionalità (non solo piccoli fix), commenta il codice in modo **verboso e
+diffuso**: non basta un singolo commento in cima al file o sopra un blocco — spiega cosa fa e perché ogni
+parte non banale, funzione per funzione, test per test, man mano che scrivi. Vale per logica applicativa,
+wiring di middleware/route, e per i test (ogni `it`/`describe` dovrebbe avere un commento che spiega cosa
+sta verificando e perché quel caso è rilevante, non solo il nome del test).
+
+**Scrivi questi commenti in italiano.** Questo sostituisce, specificamente per i commenti, la convenzione
+"codice e commenti in inglese" indicata in AGENTS.md — i nomi di variabili/funzioni restano in inglese, ma
+il testo dei commenti va in italiano.
 
 ## Comandi
 

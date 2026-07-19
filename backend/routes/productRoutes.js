@@ -13,8 +13,15 @@ const productController = require('../controllers/product/productController');
 const imageUploadAndValidation = [
   uploadImage.array('image'),
   handleMulterErrorsMiddleware,
-  // checkNumberFilesMiddleware existed but was never wired into this route, so
-  // the "only 1 image per product" rule was not actually enforced anywhere.
+  // checkNumberFilesMiddleware è una factory generica già presente nel progetto
+  // (middlewares/checkNumberFilesMiddleware.js), ma prima di questa riga non era
+  // collegata a NESSUNA route: di conseguenza il limite "una sola immagine per
+  // prodotto" non veniva applicato davvero, ed era possibile inviare un numero
+  // arbitrario di file nel campo `image` senza ricevere alcun errore.
+  // La colleghiamo qui, subito dopo handleMulterErrorsMiddleware (così un errore
+  // "fatale" di Multer è già stato intercettato) e prima di
+  // validateProductImageMiddleware (che valida dimensione/formato dei singoli
+  // file), in modo che il conteggio venga controllato per primo.
   checkNumberFilesMiddleware(
     'image',
     1,
