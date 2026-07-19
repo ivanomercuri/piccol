@@ -13,6 +13,8 @@ const productController = require('../controllers/product/productController');
 const imageUploadAndValidation = [
   uploadImage.array('image'),
   handleMulterErrorsMiddleware,
+  // checkNumberFilesMiddleware existed but was never wired into this route, so
+  // the "only 1 image per product" rule was not actually enforced anywhere.
   checkNumberFilesMiddleware(
     'image',
     1,

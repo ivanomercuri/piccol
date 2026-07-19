@@ -20,6 +20,13 @@ branch descrittivi, commenti su PR/issue), scrivi il testo **esclusivamente in i
 per i testi rivolti a chi legge la cronologia Git/GitHub — codice e commenti nel codice restano in inglese
 come da convenzione del progetto (vedi sotto).
 
+## Commenti nel codice
+
+Quando implementi nuova funzionalità (non solo piccoli fix), aggiungi commenti nel codice che spieghino cosa
+fa quella parte e perché — in inglese, come da convenzione del progetto per codice e commenti. Questo vale
+in particolare per logica non banale, wiring di middleware/route, e nuovi test: un commento in più aiuta chi
+legge il codice in futuro a capire l'intento senza dover ricostruire il contesto dalla cronologia Git.
+
 ## Comandi
 
 Tutti i comandi vanno eseguiti da `backend/` salvo diversa indicazione.

@@ -1,3 +1,5 @@
+// checkNumberFilesMiddleware had no test coverage before this file was added,
+// even though it's a factory used to cap uploads per field (e.g. 1 image per product).
 const checkNumberFilesMiddleware = require('../middlewares/checkNumberFilesMiddleware');
 
 describe('checkNumberFilesMiddleware', () => {

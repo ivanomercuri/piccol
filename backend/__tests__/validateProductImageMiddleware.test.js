@@ -1,5 +1,6 @@
-// Mock dependencies (dichiarati prima del require del middleware, così
-// `unlinkFile = util.promisify(fs.unlink)` cattura già la versione mockata)
+// Mocks are declared before requiring the middleware under test: the middleware
+// captures `unlinkFile = util.promisify(fs.unlink)` at module load time, so
+// mocking fs.unlink afterwards would not intercept the calls it makes.
 jest.mock('image-size', () => jest.fn());
 
 jest.mock('fs', () => ({
@@ -63,7 +64,7 @@ describe('validateProductImageMiddleware', () => {
   it('should NOT add required error if other errors exist (e.g. file rejected upstream for invalid type)', () => {
     req.validationErrors = [{ msg: 'Invalid type', path: 'image' }];
 
-    req.files = []; // Il file è stato scartato dal filtro mimetype a monte
+    req.files = []; // the file was rejected by the mimetype filter upstream
 
     validateProductImageMiddleware(req, res, next);
 
