@@ -5,5 +5,12 @@
     "database": "mydatabase",
     "host": "db",
     "dialect": "mysql"
+  },
+  "test": {
+    "username": "root",
+    "password": "rootpassword",
+    "database": "mydatabase_test",
+    "host": "db",
+    "dialect": "mysql"
   }
 }

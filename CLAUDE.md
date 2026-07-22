@@ -43,6 +43,12 @@ npm test -- authService.test.js   # esegue un singolo file di test
 npm run lint    # eslint . --fix
 ```
 
+`npm test` esegue prima uno script `pretest` che crea (se non esiste già) e migra automaticamente un
+database di test separato, `mydatabase_test` (stesso host/credenziali di `development`, vedi
+`config/config.json` blocco `test`) — necessario perché parte della suite (vedi sotto) parla con un DB
+reale, non mockato. Va eseguito con accesso al servizio `db` di Docker Compose (es. da dentro il container
+`backend`), non funziona dalla macchina host se `db` non è risolvibile.
+
 Stack completo (MySQL, phpMyAdmin, backend, test runner backend, frontend) via Docker Compose dalla radice
 del repo:
 
@@ -52,7 +58,8 @@ docker compose run --rm test_backend   # esegue `npm test` in un container contr
 ```
 
 L'host del DB è `db` dentro Docker, `localhost` dalla macchina host, porta `3306`. La config Sequelize è in
-`backend/config/config.json` (al momento solo un blocco `development`, root/rootpassword/mydatabase).
+`backend/config/config.json`: blocco `development` (`mydatabase`) e blocco `test` (`mydatabase_test`),
+stesso host/credenziali (root/rootpassword) per entrambi.
 
 Sequelize CLI (da eseguire da `backend/`):
 
@@ -128,12 +135,13 @@ raggruppata.
 
 ### Modello dati
 
-`User` –< `Product` (FK `createdBy`, `as: 'creator'`). Esistono già migrazioni per `categories`,
-`product_images` e una tabella di join prodotto↔categorie (`backend/migrations/2025120423*`), ma non ci
-sono ancora i modelli/associazioni Sequelize corrispondenti — se ti viene chiesto di lavorare su categorie
-o immagini prodotto, dovrai prima aggiungere i modelli. `models/index.js` carica automaticamente ogni file
-`*.js` in `models/` (escludendo `.test.js`) e collega `.associate` — i nuovi modelli vanno semplicemente
-aggiunti in quella directory.
+`User` –< `Product` (FK `createdBy`, `as: 'creator'`). `Product` ha anche `hasMany` verso `ProductImage`
+(`as: 'images'`, FK `product_id`, `ON DELETE CASCADE` a livello DB) e `belongsToMany` verso `Category`
+tramite la tabella di join `ProductCategory` (`as: 'categories'`, indice univoco su
+`product_id`+`category_id`). `Category` e `ProductImage` sono `paranoid: true` (hanno `deletedAt`),
+`ProductCategory` no (righe di join, cancellazione fisica). `models/index.js` carica automaticamente ogni
+file `*.js` in `models/` (escludendo `.test.js`) e collega `.associate` — i nuovi modelli vanno
+semplicemente aggiunti in quella directory.
 
 ### Parte nota come incompleta
 
@@ -141,6 +149,31 @@ aggiunti in quella directory.
 sua route completa (`POST /products/new`) collega già auth, upload/validazione immagine e validazione
 campi — la logica vera e propria di creazione prodotto (e la gestione di categorie/product_images) non è
 ancora stata implementata.
+
+### Struttura della suite di test
+
+`backend/__tests__/` contiene due categorie di test, distinguibili dal nome file:
+
+- **Unità con mock, nessun DB reale** (`*.test.js`, es. `authUserMiddleware.test.js`,
+  `productController.test.js`): mockano modelli/services/dipendenze esterne con `jest.mock`, non aprono
+  connessioni. È lo stile usato dai test già presenti prima di questa sessione — preferiscilo per logica
+  applicativa pura (controller, middleware, services).
+- **Modelli contro un DB reale** (`*.model.test.js`, es. `product.model.test.js`): richiedono
+  `../models` così com'è (nessun mock), verificano vincoli che vivono nel DB (unique, FK, allowNull,
+  associazioni) contro `mydatabase_test`. Ogni file traccia gli id che crea e li ripulisce in
+  `afterEach`/`afterAll` (con `force: true, paranoid: false` per i modelli `paranoid`, altrimenti una riga
+  soft-deleted da un test blocca lo `UNIQUE` per la run successiva), e chiude sempre la connessione con
+  `sequelize.close()` in `afterAll` — altrimenti Jest resta appeso.
+- **Route end-to-end con supertest** (`*Routes.test.js`, es. `userRoutes.test.js`): fanno richieste HTTP
+  vere contro `require('../index')` (l'app Express, senza `.listen()` — supertest ci gira attorno da solo),
+  attraversando l'intero stack fino al DB di test. Usano email/dati univoci per evitare collisioni tra
+  test file eseguiti in parallelo, e ripuliscono le righe create in `afterAll`. `productRoutes.test.js`
+  ripulisce anche i file caricati in `backend/uploads/` dal test che supera la validazione (dato che
+  `createProduct` è uno stub e non lo fa da solo, vedi sopra).
+
+Quando aggiungi un test che tocca il DB (modello o route), segui questi due accorgimenti o la suite smette
+di essere ripetibile: (1) usa dati univoci (email/nomi con timestamp o suffisso random) invece di valori
+fissi, (2) ripulisci sempre quello che crei.
 
 ### Mounting delle route (`backend/index.js`)
 

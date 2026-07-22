@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "nodemon --inspect=0.0.0.0:9229 server.js",
-    "test": "jest",
+    "pretest": "NODE_ENV=test sequelize-cli db:create && NODE_ENV=test sequelize-cli db:migrate",
+    "test": "NODE_ENV=test jest",
     "lint": "eslint . --fix"
   },
   "imports": {

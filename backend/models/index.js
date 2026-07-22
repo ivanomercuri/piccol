@@ -8,7 +8,11 @@ const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.json')[env];
 const db = {};
 
-config.logging = console.log;
+// In test disattiviamo il logging SQL di Sequelize: con la nuova suite di
+// test che parla con un DB reale (models/*.model.test.js, routes/*.test.js),
+// lasciare console.log qui sommergerebbe l'output di `npm test` con ogni
+// singola query eseguita, rendendo illeggibili i risultati dei test.
+config.logging = env === 'test' ? false : console.log;
 let sequelize;
 
 if (config.use_env_variable) {
