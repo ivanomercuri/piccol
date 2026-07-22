@@ -1,0 +1,418 @@
+{
+  "info": {
+    "_postman_id": "ab569e55-4533-4e9c-ab16-7ba05d00d4af",
+    "name": "API 1 Piccol",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "44931666"
+  },
+  "variable": [
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Register Customer",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"firstName\": \"mario\",\n    \"lastName\": \"rossi\",\n    \"address\": \"via delle betulle\",\n    \"email\": \"mario3@rossi.it\",\n    \"password\": \"123456\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "localhost:5001/register",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Login Customer",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"mario3@rossi.it\",\n    \"password\": \"password123\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "localhost:5001/login",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Register User",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"Mario Rossi\",\n    \"email\": \"mario3@rossi.it\",\n    \"password\": \"123456\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "localhost:5001/admin/user/register",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "admin",
+            "user",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Login User",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// La rotta POST /admin/user/login risponde con res.success(token),",
+              "// quindi il JWT si trova in response.data come stringa semplice (non",
+              "// dentro un oggetto). Se il login va a buon fine lo salviamo come",
+              "// collection variable \"token\": tutte le richieste protette di questa",
+              "// collection lo leggono già via {{token}} nell'auth Bearer, quindi da",
+              "// qui in poi non serve più copiarlo e incollarlo a mano.",
+              "const response = pm.response.json();",
+              "",
+              "if (pm.response.code === 200 && response.success && response.data) {",
+              "    pm.collectionVariables.set('token', response.data);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"master@example.com\",\n    \"password\": \"password123\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "localhost:5001/admin/user/login",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "admin",
+            "user",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Logged User",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "localhost:5001/admin/user",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "admin",
+            "user"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update User",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"marione\",\n    \"email\": \"a@t.ete\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "localhost:5001/admin/user",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "admin",
+            "user"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update User Password",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"oldPassword\": \"123456\",\n    \"newPassword\": \"1234567\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "localhost:5001/admin/user/password",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "admin",
+            "user",
+            "password"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Logout User",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "localhost:5001/admin/user/logout",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "admin",
+            "user",
+            "logout"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Routes",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "localhost:5001/routes",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "routes"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Products",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "localhost:5001/products",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "products"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "New Product",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "name",
+              "value": "Prodotto di prova",
+              "type": "text"
+            },
+            {
+              "key": "description",
+              "value": "Descrizione di prova per il prodotto",
+              "type": "text"
+            },
+            {
+              "key": "price",
+              "value": "19.99",
+              "type": "text"
+            },
+            {
+              "key": "quantity",
+              "value": "10",
+              "type": "text"
+            },
+            {
+              "key": "image",
+              "type": "file",
+              "uuid": "186b4c1a-06c4-4153-bc50-ef5d5ed96d6d",
+              "src": [],
+              "description": "Il backend accetta solo file JPG o PNG (uploadMiddleware.js filtra il mimetype): il precedente 86015.webp veniva rifiutato. Allega qui un file .jpg/.png locale prima di inviare la richiesta."
+            }
+          ]
+        },
+        "url": {
+          "raw": "localhost:5001/products/new",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            "products",
+            "new"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "It Works!",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5001/",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "5001",
+          "path": [
+            ""
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
