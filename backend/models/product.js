@@ -65,6 +65,25 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'createdBy',
       as: 'creator',
     });
+
+    // Un prodotto può avere più immagini (tabella `product_images`,
+    // ognuna con il proprio sort_order); la FK CASCADE è già gestita a
+    // livello di DB dalla migrazione, qui serve solo per poter fare
+    // `Product.findAll({ include: 'images' })`.
+    Product.hasMany(models.ProductImage, {
+      foreignKey: 'product_id',
+      as: 'images',
+    });
+
+    // Relazione N:N con Category tramite la tabella di join
+    // `product_categories` (vedi models/productCategory.js per i dettagli
+    // sul vincolo di unicità della coppia product_id/category_id).
+    Product.belongsToMany(models.Category, {
+      through: models.ProductCategory,
+      foreignKey: 'product_id',
+      otherKey: 'category_id',
+      as: 'categories',
+    });
   };
 
   return Product;
