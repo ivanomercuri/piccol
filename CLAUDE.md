@@ -9,9 +9,8 @@ backend rigorosamente a livelli. Il backend è la parte attivamente sviluppata; 
 al momento solo lo scaffold di Vite e **non** è l'oggetto del lavoro — non aggiungere funzionalità frontend
 a meno che non venga esplicitamente richiesto.
 
-Alla radice del repo c'è un `AGENTS.md` che è la fonte di verità unica per le regole architetturali di
-questo progetto — leggilo. Il riepilogo qui sotto lo riflette, con dettagli aggiuntivi trovati nel codice
-reale.
+Alla radice del repo c'è @./AGENTS.md, la fonte di verità unica per le regole architetturali di questo
+progetto. Il riepilogo qui sotto lo riflette, con dettagli aggiuntivi trovati nel codice reale.
 
 ## Uso di Git
 
@@ -74,15 +73,6 @@ attualmente hardcoded a 10 in `uploadMiddleware.js`/`handleMulterErrorsMiddlewar
 letto realmente da questa variabile).
 
 ## Architettura
-
-### Livelli (imposti per convenzione, vedi AGENTS.md)
-
-`routes/` → `controllers/` (solo HTTP: parsing input, chiamata ai services, formattazione risposta) →
-`services/` (logica di business, transazioni DB) → `models/` (Sequelize). I controller sono raggruppati per
-directory di dominio (`controllers/user/`, `controllers/customer/`, `controllers/product/`). Non mettere mai
-logica di business in un controller — estendi o aggiungi un service. `classes/` contiene sottoclassi
-custom di `Error` (es. `InvalidImageTypeError`); le stringhe rivolte all'utente (messaggi di validazione,
-errori API) sono in italiano, codice e commenti sono in inglese.
 
 ### Due modelli di identità paralleli
 

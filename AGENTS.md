@@ -67,3 +67,36 @@ However, keep these integration rules in mind while building the Backend:
 - **Communication:**
     - The Backend must serve **pure JSON** (No Server-Side Rendering).
     - **CORS:** The backend must allow requests from `http://localhost:3000`.
+
+## 7. Data Design & Trade-off Protocol
+
+Before creating or modifying a Sequelize model, or writing any Service method
+that touches shared/mutable data, check these 5 categories. If one applies,
+STOP and present 2 options with pros/cons in the response — do NOT implement
+a solution directly without an explicit decision from the developer.
+
+1. **Time** — Could this field be referenced elsewhere as if it were fixed,
+   while actually changing later? (e.g. product price referenced by past
+   orders → snapshot vs live reference)
+2. **Deletion** — What breaks elsewhere if this row is deleted? (e.g. a
+   deleted address referenced by an order → copy fields, don't rely on FK only)
+3. **Concurrency** — What happens if two requests touch this data at the
+   same instant? (e.g. last item in stock → use a Sequelize transaction
+   with row locking: `transaction.LOCK.UPDATE`)
+4. **Duplication** — What happens if this operation (payment, order
+   creation) arrives twice? (idempotency check needed)
+5. **State** — Can this record jump between states without passing through
+   intermediate ones? (define allowed transitions explicitly in the Service)
+
+### Rule: no implementation without explicit choice
+When one of the categories above applies, do not silently pick the solution
+that seems best. Present the trade-off, wait for an explicit choice, then implement.
+
+## 8. Design Decisions Log
+
+(append here every time a trade-off above gets resolved, with the reason —
+keep entries short, one line each)
+
+- `OrderItem.price` is a snapshot at purchase time, not a live reference to
+  `Product.price` — prevents past orders from being rewritten if a product
+  price changes later.
