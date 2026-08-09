@@ -67,10 +67,12 @@ npx sequelize-cli db:migrate
 npx sequelize-cli db:seed:all
 ```
 
-Variabili d'ambiente richieste (vedi `backend/.env.example`): `JWT_SECRET`, `SHOW_ROUTES`, `MAX_FILE_SIZE`
-(MB, limite di business per le immagini caricate), `MAX_FILE_HARD_SIZE` (MB, limite hard di multer —
-attualmente hardcoded a 10 in `uploadMiddleware.js`/`handleMulterErrorsMiddleware.js` invece di essere
-letto realmente da questa variabile).
+Variabili d'ambiente richieste (vedi `backend/.env.example`): `JWT_SECRET`, `JWT_EXPIRES_IN` (durata dei
+token, formato `jsonwebtoken` es. `1h`/`7d` — se assente ricade sul default `1h` in
+`services/tokenService.js`), `SHOW_ROUTES`, `MAX_FILE_SIZE` (MB, limite di business per le immagini
+caricate), `MAX_FILE_HARD_SIZE` (MB, limite hard di multer — attualmente hardcoded a 10 in
+`uploadMiddleware.js`/`handleMulterErrorsMiddleware.js` invece di essere letto realmente da questa
+variabile).
 
 ## Architettura
 

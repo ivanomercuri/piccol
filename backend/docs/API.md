@@ -135,7 +135,7 @@ Registra un nuovo cliente storefront.
 | `address` | string | sì |
 
 - **200** → `data`: token JWT (stringa), payload `{ id, email }`, **scade dopo 1 ora**
-  (`registerService.js` usa `expiresIn: '1h'`)
+  (`services/tokenService.js`, stessa policy usata da tutti gli endpoint di login/registrazione)
 - **400** → errori di validazione raggruppati per campo (uno per campo mancante)
 - **500** → errore generico (es. email già registrata → violazione `unique` a livello DB, il messaggio
   Sequelize grezzo finisce in `error`, non un messaggio "amichevole" in italiano)
@@ -149,8 +149,8 @@ Registra un nuovo cliente storefront.
 | `email` | string | sì |
 | `password` | string | sì |
 
-- **200** → `data`: token JWT (stringa), payload `{ id, email }`, **senza scadenza**
-  (`authService.js` non passa `expiresIn` — vedi [Problemi noti](#problemi-noti--comportamenti-da-tenere-a-mente))
+- **200** → `data`: token JWT (stringa), payload `{ id, email }`, **scade dopo 1 ora**
+  (`services/tokenService.js`)
 - **400** → errori di validazione (campi mancanti)
 - **401** → `Utente non trovato` oppure `Password errata`
 - **500** → errore generico
@@ -186,7 +186,7 @@ Nota: `level` non è impostabile in registrazione — viene sempre creato come `
 
 **Body** (JSON): `email`, `password` (entrambi obbligatori).
 
-- **200** → `data`: token JWT, payload `{ id, email }`, **senza scadenza**
+- **200** → `data`: token JWT, payload `{ id, email }`, **scade dopo 1 ora**
 - **400** → errori di validazione
 - **401** → `Utente non trovato` oppure `Password errata`
 - **500** → errore generico
@@ -249,8 +249,8 @@ route richiedono autenticazione **User** (`authUserMiddleware`); non sono access
 - Qualsiasi altro valore di `level` (non raggiungibile oggi, dato che l'enum del modello è solo
   `admin`/`superadmin`) → **403** `Non autorizzato`.
 
-- **200** → `data`: array di prodotti (`id`, `name`, `description`, `price`, `quantity`, `image_url`,
-  `available`, `createdBy`, `createdAt`, `updatedAt`)
+- **200** → `data`: array di prodotti (`id`, `name`, `description`, `price`, `quantity`, `available`,
+  `sku`, `createdBy`, `createdAt`, `updatedAt`)
 - **403** → `Errore server` in caso di eccezione (nota: usa 403 anche per errori generici, non 500 — vedi
   [Problemi noti](#problemi-noti--comportamenti-da-tenere-a-mente))
 
@@ -306,21 +306,11 @@ queste API (non sono bug "nascosti": sono osservabili leggendo il codice, ma fac
 
 - **`POST /products/new` è uno stub**: risponde 200 senza creare nulla. Vedi anche
   `CLAUDE.md` → "Parte nota come incompleta".
-- **Asimmetria sulla scadenza dei token**: i token emessi in registrazione scadono dopo 1 ora
-  (`registerService.js`, `expiresIn: '1h'`), quelli emessi al login **non scadono mai**
-  (`authService.js` non passa `expiresIn`). Un client che si aspetta lo stesso comportamento in entrambi i
-  flussi verrà sorpreso.
 - **Il cambio password non invalida il token corrente**: `PATCH /admin/user/password` non tocca
   `current_token`, quindi un vecchio JWT resta valido anche dopo il cambio password — al contrario di
   quanto succede al logout.
 - **`GET /products` restituisce 403 anche per errori inattesi**, non solo per autorizzazione mancante (il
   blocco `catch` chiama `res.error(403, 'Errore server', err)` invece di 500).
-- **Il modello `Product` dichiara ancora `image_url`**, ma la migrazione
-  `20251204231312-delete-image_url-from-products.js` rimuove quella colonna dal DB. Se le migrazioni sono
-  state applicate, qualunque query Sequelize su `Product` (incluso `GET /products`) fallirà con un errore
-  SQL "Unknown column" finché il modello non viene aggiornato per rimuovere il campo. La colonna `sku`
-  (aggiunta da `20251204225823-add-sku-to-products.js`) ha il problema opposto: esiste nel DB ma non è
-  dichiarata nel modello, quindi non è mai esposta nelle risposte API.
 - **Nessuna route di autenticazione protetta per `Customer`**: non esiste un `authCustomerMiddleware`, né
   endpoint di profilo/logout/cambio password lato storefront, nonostante il modello `Customer` abbia già
   la colonna `current_token` predisposta per lo stesso pattern usato da `User`.

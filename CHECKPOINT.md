@@ -16,6 +16,12 @@ avanzamento del lavoro.
 - Aggiunta la regola: testi Git (commit, PR, branch, commenti su issue/PR) **solo in italiano**.
 - Creato `backend/docs/API.md`: documentazione di tutte le rotte REST esistenti, con una sezione
   "Problemi noti" che elenca i comportamenti da tenere a mente (vedi sotto).
+- Aggiunta ad `AGENTS.md` la sezione "Data Design & Trade-off Protocol": prima di creare/modificare un
+  modello Sequelize o un service che tocca dati condivisi/mutabili, vanno valutate 5 categorie (Time,
+  Deletion, Concurrency, Duplication, State) e, se una si applica, presentate le opzioni con pro/contro
+  invece di implementare direttamente — più un "Design Decisions Log" per tracciare le scelte prese.
+  Applicato concretamente in questa sessione per la discussione sulla centralizzazione della firma dei
+  token (vedi sotto).
 
 **Dipendenze e sicurezza**
 
@@ -49,8 +55,28 @@ avanzamento del lavoro.
   uno script `pretest` prima di ogni `npm test`, isolato dal DB di sviluppo già popolato dal seed.
   Logging SQL disattivato in `NODE_ENV=test` (altrimenti l'output sarebbe illeggibile).
 - Il perché/come dettagliato di tutto questo è in `backend/docs/TESTING.md`.
-- Suite attuale: **26 file, 120 test, tutti verdi**, verificata anche per idempotenza (ripetibile senza
+- Suite attuale: **28 file, 134 test, tutti verdi**, verificata anche per idempotenza (ripetibile senza
   sporcare il DB, controllato rieseguendo la suite più volte di seguito).
+
+**Autenticazione: firma dei token centralizzata + contratto esplicito**
+
+- `authService.authenticate` e `registerService.registerEntity` firmavano i JWT separatamente: avevano
+  finito per divergere in silenzio (login senza scadenza, registrazione con scadenza di un'ora — la
+  "asimmetria" segnalata sotto in una versione precedente di questo file, **ora risolta**).
+- Aggiunto `services/tokenService.js`: punto unico di firma (`signToken`), scadenza letta da
+  `JWT_EXPIRES_IN` (nuova variabile d'ambiente, in `.env`/`.env.example`) invece che hardcoded — decisione
+  presa dopo che l'utente ha fatto notare che è una policy di sicurezza operativa, non una costante di
+  codice, quindi va poter cambiare per ambiente senza un redeploy. `DEFAULT_TOKEN_EXPIRES_IN = '1h'` resta
+  solo come fallback se la variabile manca.
+- Aggiunto `services/authContract.js`: `assertAuthCompatible(entityModel)` verifica che il modello passato
+  a `authService`/`registerService` abbia `email`/`password`/`current_token` prima di procedere — prima
+  era un contratto implicito mai controllato, un modello incompatibile avrebbe fallito silenziosamente
+  più a valle.
+- Discussione precedente all'implementazione (vedi il nuovo protocollo in `AGENTS.md`): valutata anche
+  l'ipotesi di unire i modelli `User`/`Customer` in uno solo per eliminare la duplicazione — scartata,
+  perché romperebbe la FK reale `Product.createdBy → users.id` e la separazione di dominio già
+  documentata in CLAUDE.md ("non sono una gerarchia condivisa"). Si è preferito centralizzare solo il
+  punto di firma del token, mantenendo i due modelli separati.
 
 **Database**
 
@@ -82,12 +108,13 @@ avanzamento del lavoro.
 - Configurata una chiave SSH ed25519 su questa macchina e aggiunta all'account GitHub
   `ivanomercuri`, necessaria perché non ce n'era nessuna (il push falliva con
   "Permission denied (publickey)").
-- **11 commit pushati su `origin/main`** finora (da `ccc57bb` a `43baea0`, tutti con messaggi in
-  italiano), più il lavoro sui test (vedi sopra) in un commit locale ancora da pushare al momento in cui
-  questo file è stato aggiornato — controlla `git log origin/main..HEAD` per lo stato reale.
-- Commit correlati fatti nella stessa sessione ma non ancora pushati sono stati **uniti in un solo
-  commit** (`git reset --soft` + ricommit) su richiesta esplicita, invece di restare separati — utile
-  saperlo se in futuro serve capire perché la cronologia non rispecchia 1:1 ogni singolo passaggio fatto.
+- **13 commit pushati su `origin/main`** finora (da `ccc57bb` a `46eff2e`, tutti con messaggi in
+  italiano) al momento in cui questo file è stato aggiornato — controlla `git log --oneline` /
+  `git log origin/main..HEAD` per lo stato reale, dato che il lavoro continua oltre questo checkpoint.
+- Commit correlati fatti nella stessa sessione ma non ancora pushati sono stati a volte **uniti in un
+  solo commit** (`git reset --soft` + ricommit) su richiesta esplicita, invece di restare separati —
+  utile saperlo se in futuro serve capire perché la cronologia non rispecchia 1:1 ogni singolo passaggio
+  fatto.
 
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
@@ -101,7 +128,6 @@ deciso come collegarli alla creazione prodotto (categorie multiple? righe in `pr
 Altri comportamenti noti ma **non corretti** (documentati in dettaglio in `backend/docs/API.md` →
 "Problemi noti", lasciati così di proposito perché non richiesto o perché la fix corretta non era ovvia):
 
-- I token da **login non scadono mai**, quelli da **registrazione scadono dopo 1 ora** — asimmetria.
 - **Il cambio password non invalida `current_token`** — un vecchio JWT resta valido dopo il cambio
   password, a differenza del logout. Contraddice il pattern descritto in `CLAUDE.md` stesso.
 - `GET /products` risponde **403** anche per errori generici imprevisti (dovrebbe essere 500).
@@ -130,3 +156,11 @@ Altri comportamenti noti ma **non corretti** (documentati in dettaglio in `backe
   e migra `mydatabase_test`): va lanciato dentro il container backend
   (`docker compose exec backend npm test`), non dalla macchina host se `db` non è risolvibile. Dettagli
   completi in `backend/docs/TESTING.md`.
+- Se il demone Docker sembra irraggiungibile (`docker ps` non risponde), probabilmente Docker Desktop si
+  è riavviato: va rilanciato lo stack con `docker compose up -d` prima di eseguire qualunque comando
+  `docker compose exec`. I test puramente mock (senza DB) possono comunque girare in locale con
+  `npx jest <file>` se `backend/node_modules` è popolato sull'host, bypassando `pretest`.
+- `JWT_EXPIRES_IN` è ora una variabile d'ambiente reale (non solo un valore hardcoded): se manca,
+  `services/tokenService.js` ricade su `1h` di default, ma va tenuta sincronizzata tra `.env`,
+  `.env.example` e — se cambia il valore in produzione — comunicata esplicitamente, dato che è una
+  policy di sicurezza (durata di validità dei token) e non solo un dettaglio tecnico.

@@ -2,6 +2,17 @@ const { authenticate } = require('../services/authService');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+// getAttributes() simula la forma di un modello Sequelize "compatibile":
+// authService.assertAuthCompatible (services/authContract.js) la interroga
+// prima di procedere, per verificare che email/password/current_token siano
+// colonne reali del modello. Senza questo, ogni test qui sotto fallirebbe
+// subito con "Il modello ... non è compatibile...".
+const compatibleAttributes = () => ({
+  email: {},
+  password: {},
+  current_token: {},
+});
+
 describe('authService.authenticate', () => {
   it('returns success and token if credentials are correct', async () => {
     const fakeUser = {
@@ -11,7 +22,11 @@ describe('authService.authenticate', () => {
       update: jest.fn(),
     };
 
-    const entityModel = { findOne: jest.fn().mockResolvedValue(fakeUser) };
+    const entityModel = {
+      name: 'FakeEntity',
+      getAttributes: compatibleAttributes,
+      findOne: jest.fn().mockResolvedValue(fakeUser),
+    };
 
     process.env.JWT_SECRET = 'testsecret';
 
@@ -29,7 +44,11 @@ describe('authService.authenticate', () => {
   });
 
   it('fails if user is not found', async () => {
-    const entityModel = { findOne: jest.fn().mockResolvedValue(null) };
+    const entityModel = {
+      name: 'FakeEntity',
+      getAttributes: compatibleAttributes,
+      findOne: jest.fn().mockResolvedValue(null),
+    };
 
     const result = await authenticate(
       entityModel,
@@ -48,10 +67,68 @@ describe('authService.authenticate', () => {
       update: jest.fn(),
     };
 
-    const entityModel = { findOne: jest.fn().mockResolvedValue(fakeUser) };
+    const entityModel = {
+      name: 'FakeEntity',
+      getAttributes: compatibleAttributes,
+      findOne: jest.fn().mockResolvedValue(fakeUser),
+    };
 
     const result = await authenticate(entityModel, 'test@example.com', 'wrong');
 
     expect(result.success).toBe(false);
+  });
+
+  it('issues a token that expires in 1 hour, same policy as registerEntity', async () => {
+    // Prima di questa modifica authenticate() firmava un token SENZA
+    // scadenza (asimmetria rispetto a registerEntity, documentata come
+    // "problema noto" in backend/docs/API.md): ora entrambi passano dallo
+    // stesso signToken (services/tokenService.js) e devono avere lo stesso
+    // claim `exp`.
+    const fakeUser = {
+      id: 1,
+      email: 'test@example.com',
+      password: await bcrypt.hash('password', 10),
+      update: jest.fn(),
+    };
+
+    const entityModel = {
+      name: 'FakeEntity',
+      getAttributes: compatibleAttributes,
+      findOne: jest.fn().mockResolvedValue(fakeUser),
+    };
+
+    process.env.JWT_SECRET = 'testsecret';
+
+    const result = await authenticate(
+      entityModel,
+      'test@example.com',
+      'password'
+    );
+
+    const decoded = jwt.decode(result.token);
+
+    expect(decoded.exp).toBeDefined();
+
+    // ~1 ora di validità (3600s), con un margine per i tempi di esecuzione
+    // del test.
+    expect(decoded.exp - decoded.iat).toBeCloseTo(3600, -1);
+  });
+
+  it('throws immediately if entityModel is missing a required auth field', async () => {
+    // Un modello "incompatibile" (qui: senza current_token) deve far
+    // fallire subito, con un errore chiaro — non silenziosamente più avanti
+    // nella funzione (vedi services/authContract.js).
+    const entityModel = {
+      name: 'IncompleteModel',
+      getAttributes: () => ({ email: {}, password: {} }),
+      findOne: jest.fn(),
+    };
+
+    await expect(
+      authenticate(entityModel, 'test@example.com', 'password')
+    ).rejects.toThrow(/IncompleteModel.*current_token/);
+
+    // Non deve nemmeno arrivare a interrogare il DB.
+    expect(entityModel.findOne).not.toHaveBeenCalled();
   });
 });
