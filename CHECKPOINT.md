@@ -176,6 +176,14 @@ Verificato con: `docker compose run --rm test_backend` (28/28 suite verdi), `doc
 npm run type-check` (pulito, nessun file `.ts` ancora da controllare), avvio reale di `npm run dev` nel
 container con richiesta HTTP di conferma (`200` su `GET /`).
 
+**Fase 2.1 (`classes/`) — completata.** `classes/InvalidImageTypeError.js` → `.ts`: aggiunta solo
+l'annotazione esplicita `field: string;` come class field (richiesta da `strict: true`, altrimenti TS non
+saprebbe il tipo di una proprietà assegnata solo nel costruttore), logica invariata. Il file non è ancora
+usato da nessuna parte nel codice applicativo (solo testato, vedi `__tests__/InvalidImageTypeError.test.js`
+— rimasto `.js`, la conversione dei test è Fase 3): confermato che `require('../classes/InvalidImageTypeError')`
+da un test `.js` risolve comunque il nuovo file `.ts` senza modifiche al test, grazie a `ts-jest` +
+`moduleFileExtensions` di default di Jest (28/28 suite ancora verdi).
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST

@@ -1,4 +1,6 @@
 class InvalidImageTypeError extends Error {
+  field: string;
+
   constructor(message = 'Solo file JPG o PNG sono ammessi') {
     super(message);
 
