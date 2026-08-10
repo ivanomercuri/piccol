@@ -1,8 +1,11 @@
-const { Customer } = require('../../models');
-const { authenticate } = require('../../services/authService');
-const { registerEntity } = require('../../services/registerService');
+import { Request, Response } from 'express';
+import models from '../../models';
+import { authenticate } from '../../services/authService';
+import { registerEntity } from '../../services/registerService';
 
-exports.register = async (req, res) => {
+const { Customer } = models;
+
+export const register = async (req: Request, res: Response) => {
   const { email, password, firstName, lastName, address } = req.body;
 
   try {
@@ -14,11 +17,11 @@ exports.register = async (req, res) => {
 
     return res.success(token);
   } catch (error) {
-    return res.error(500, error.message);
+    return res.error(500, (error as Error).message);
   }
 };
 
-exports.login = async (req, res) => {
+export const login = async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
   try {
@@ -30,6 +33,6 @@ exports.login = async (req, res) => {
       return res.error(401, user.message);
     }
   } catch (error) {
-    return res.error(500, error.message);
+    return res.error(500, (error as Error).message);
   }
 };

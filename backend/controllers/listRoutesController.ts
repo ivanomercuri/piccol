@@ -1,3 +1,5 @@
+import { Request, Response } from 'express';
+
 /**
  * Extracts all routes from an Express 5.1.0 app or Router.
  * If options.format = true, returns an array of formatted strings;
@@ -119,7 +121,8 @@ function listRoutes(appOrRouter, options = {}){
 }
 */
 
-function printRegisteredRoutes(routerStack, parentPath = '') {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function printRegisteredRoutes(routerStack: any[], parentPath = '') {
   routerStack.forEach((middleware) => {
     if (middleware.route) {
       console.debug(
@@ -136,7 +139,7 @@ function printRegisteredRoutes(routerStack, parentPath = '') {
 }
 
 module.exports = {
-  listRoutes: (req, res) => {
+  listRoutes: (req: Request, res: Response) => {
     if (process.env.SHOW_ROUTES !== 'true') {
       return res.error(403, 'Accesso negato');
     }
@@ -144,7 +147,10 @@ module.exports = {
     const app = req.app;
 
     //const routes = listRoutes(app);
-    printRegisteredRoutes(app.router.stack);
+    // `.router` è un dettaglio interno di Express 5, non presente nel tipo
+    // pubblico `Application` di @types/express — da qui il cast.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    printRegisteredRoutes((app as any).router.stack);
 
     return res.success([]);
   },

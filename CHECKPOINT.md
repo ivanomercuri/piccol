@@ -273,6 +273,33 @@ mantenuto — **scelta dall'utente: (b)**, loggata in `AGENTS.md` → Design Dec
 - Verificato con `docker compose run --rm test_backend` (28/28 verdi) e un round-trip HTTP reale
   registrazione+login attraverso il server in dev (righe poi ripulite dal DB).
 
+**Fase 2.5 (`controllers/`) — completata.** Convertiti tutti e 7 i file: `exampleController.ts` (non
+montato su nessuna route, verificato — resta così, solo tipizzato), `listRoutesController.ts` (il grosso
+blocco di codice morto dentro un commento JS gigante è stato preservato byte-per-byte, non toccato),
+`user/authUserController.ts`, `user/profileUserController.ts`, `customer/authCustomerController.ts`,
+`customer/profileCustomerController.ts` (era vuoto, 0 byte, non referenziato — convertito banalmente in
+un `.ts` altrettanto vuoto), `product/productController.ts`. Punti rilevanti:
+- **Nuovo file `types/express.d.ts`**: estensione ambient di Express, necessaria perché praticamente ogni
+  controller usa `res.success(...)`/`res.error(...)` (aggiunti a runtime da
+  `middlewares/responseFormatter.js`, non nel tipo `Response` di `@types/express`) e due controller
+  leggono `req.user` (valorizzato da `middlewares/authUserMiddleware.js`, non nel tipo `Request`).
+  `req.user` è tipizzato con un'interfaccia "duck-typed" minima (solo i campi usati), non l'intera classe
+  `User` di `models/user.ts` — stessa scelta già fatta in `services/` per `AuthUserInstance`, per non
+  dover riesportare i modelli come tipi (che avrebbe richiesto riaprire la Fase 2.3).
+- **`import { User } from '../../models'` non funziona**: `models/index.ts` usa `export = db` (Fase 2.3),
+  quindi l'unico import valido è quello di default (`import models from '../../models'; const { User } =
+  models;`) — un vero errore di compilazione emerso subito al primo controller convertito, corretto lì e
+  applicato allo stesso modo agli altri.
+- **`product/productController.ts` — gap pre-esistente segnalato, non corretto**: `getProducts` legge
+  `req.user.level`/`req.user.id` **senza** il controllo `if (!req.user) return res.error(401, ...)` che
+  invece `profileUserController.js` fa sempre prima di toccare `req.user` — incoerenza già presente nel
+  `.js` originale, resa visibile solo ora perché `req.user` è tipizzato opzionale. Risolto con
+  un'asserzione non-null (`req.user!`) per preservare il comportamento esatto (nessun controllo aggiunto),
+  con un commento che segnala il gap invece di correggerlo silenziosamente.
+- Verificato con `docker compose run --rm test_backend` (28/28 verdi) e un round-trip HTTP reale: login
+  superadmin → `GET /admin/user` (profilo) → `GET /products`, tutti e tre attraverso il codice appena
+  convertito.
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST
