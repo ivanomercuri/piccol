@@ -1,6 +1,6 @@
 # CHECKPOINT
 
-Stato del progetto **Piccol** al 2026-07-23, per orientarsi rapidamente in una nuova sessione. Non
+Stato del progetto **Piccol** al 2026-08-10, per orientarsi rapidamente in una nuova sessione. Non
 sostituisce `CLAUDE.md`/`AGENTS.md` (regole del progetto), `backend/docs/API.md` (documentazione API
 dettagliata) né `backend/docs/TESTING.md` (perché/come della suite di test) — li integra con lo stato di
 avanzamento del lavoro.
@@ -115,6 +115,66 @@ avanzamento del lavoro.
   solo commit** (`git reset --soft` + ricommit) su richiesta esplicita, invece di restare separati —
   utile saperlo se in futuro serve capire perché la cronologia non rispecchia 1:1 ogni singolo passaggio
   fatto.
+
+## Migrazione a TypeScript (in corso, branch `feature/migrazione-typescript`)
+
+Migrazione incrementale JS→TS decisa dall'utente, per layer, senza interrompere lo sviluppo delle
+feature esistenti (`allowJs: true` + `checkJs: false` in `tsconfig.json`: JS e TS convivono finché la
+migrazione non è completa). Piano completo (inventario file per layer, ordine di conversione, punti
+critici già individuati) discusso e confermato con l'utente prima di iniziare — vedi la cronologia di
+questa sessione se serve rivederlo per intero.
+
+**Fase 0 (piano) — completata.** Punti critici già individuati per le fasi successive (non ancora
+risolti, solo segnalati):
+- `models/index.js` carica i modelli con un filtro `file.slice(-3) === '.js'`: quando i modelli
+  diventeranno `.ts` questo filtro va rivisto esplicitamente, altrimenti smette di trovarli a runtime.
+- I modelli usano il pattern factory `sequelize.define(...)`, non le classi `extends Model`: la scelta
+  tra continuare con questo pattern (interfacce scritte a mano) o migrare a classi con
+  `InferAttributes`/`InferCreationAttributes` va decisa esplicitamente col developer prima di convertire
+  il primo modello (`customer.js`), come richiesto.
+- `services/authContract.js`: `assertAuthCompatible` (controllo runtime) andrà valutato per la
+  conversione a vincolo di tipo statico, passando dal Data Design & Trade-off Protocol di `AGENTS.md`
+  prima di implementare.
+- `config/config.json`, `migrations/`, `seeders/` restano `.js`/`.json`, fuori scope (Sequelize CLI li
+  esegue con `node` puro, senza transpilazione — niente `.sequelizerc` nel repo che la aggiunga).
+
+**Fase 1 (setup base) — completata, nessun file applicativo ancora convertito.**
+- Aggiunte le devDependency: `typescript` (pinnato a **6.0.3**, non l'ultima 7.0.2 — vedi nota sotto),
+  `ts-node`, `ts-jest`, `typescript-eslint`, e i pacchetti `@types/*` per le dipendenze che non
+  spediscono già i propri tipi (`node`, `express`, `jest`, `supertest`, `cors`, `jsonwebtoken`,
+  `multer`). `bcryptjs`, `sequelize`, `mysql2`, `express-validator`, `image-size`, `winston` hanno già i
+  propri `.d.ts` inclusi, niente `@types/` per loro.
+- `tsconfig.json` nuovo: `strict: true`, `allowJs: true`, `checkJs: false`, `module: "CommonJS"` **senza**
+  `moduleResolution` esplicito (impostarlo a `"Node"` genera un errore di deprecazione in TS 6, visibile
+  solo se dichiarato esplicitamente — lasciandolo implicito il default equivalente si applica senza
+  warning).
+- `jest.config.js`: `testMatch` esteso a `*.test.{js,ts}`, aggiunto `transform` per `ts-jest` sui soli
+  file `.ts` — i test `.js` esistenti proseguono invariati (verificato: 28 suite / 134 test ancora tutti
+  verdi dopo la modifica).
+- `eslint.config.js`: aggiunto `typescript-eslint`, **ma non con lo spread diretto** di
+  `tseslint.configs.recommended` — quel preset non è vincolato per file di default e finiva per applicare
+  regole TS (incluso il divieto di `require()`) a tutti i `.js` esistenti, rompendo il lint su tutto il
+  progetto. Corretto con `tseslint.config({ files: ['**/*.ts'], extends: [...] })`, che scopa il preset
+  ai soli `.ts`.
+- `package.json` → script `dev` aggiornato: `nodemon ... --ext js,ts,json --require
+  ts-node/register/transpile-only server.js` (così nodemon guarda anche i futuri `.ts` e il processo può
+  eseguirli senza un passaggio di build separato); nuovo script `type-check` (`tsc --noEmit`).
+- **Nessun cambiamento a `Dockerfile`**: `npm ci` installa già le devDependency (nessun `--omit=dev`), e
+  non c'è ancora una build TS separata da gestire nell'immagine.
+
+**Problema Docker incontrato e risolto in questa fase**: dopo aver ricostruito le immagini `backend`/
+`test_backend` con `docker compose build`, il container `backend` già esistente (avviato in una sessione
+precedente) continuava a fallire con `Cannot find module 'ts-node/register/transpile-only'` — il volume
+anonimo `/app/node_modules` viene **preservato da Docker Compose tra ricreazioni con `docker compose up`**,
+quindi il container "vedeva" ancora il `node_modules` di prima della build (senza `ts-node`). Risolto con
+`docker compose up -d --force-recreate --renew-anon-volumes backend`. Da ricordare per ogni futura fase
+che aggiunge dipendenze: dopo `docker compose build`, il container **long-running** `backend` va
+rigenerato con questo flag (i container effimeri creati con `docker compose run --rm ...` non hanno
+questo problema, ottengono sempre un volume fresco dall'immagine).
+
+Verificato con: `docker compose run --rm test_backend` (28/28 suite verdi), `docker compose exec backend
+npm run type-check` (pulito, nessun file `.ts` ancora da controllare), avvio reale di `npm run dev` nel
+container con richiesta HTTP di conferma (`200` su `GET /`).
 
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
