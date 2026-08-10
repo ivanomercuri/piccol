@@ -100,3 +100,11 @@ keep entries short, one line each)
 - `OrderItem.price` is a snapshot at purchase time, not a live reference to
   `Product.price` — prevents past orders from being rewritten if a product
   price changes later.
+- `services/authContract.ts` (TypeScript migration, Fase 2.4): kept the
+  runtime `assertAuthCompatible` check **alongside** the new static generic
+  constraint (`TInstance extends Model & AuthCompatibleAttributes` on
+  `authenticate`/`registerEntity`), instead of relying on types alone —
+  static types don't protect call sites still in `.js` during the
+  incremental migration, nor values typed `any` (e.g. `models/index.ts`'s
+  model dictionary), so the runtime check stays as a low-cost defense until
+  the whole call chain is TypeScript with no `any` in between.

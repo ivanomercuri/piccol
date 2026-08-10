@@ -241,6 +241,38 @@ loader (`index.ts`). Punti rilevanti:
   `creator`/`images`/`categories` in `product.model.test.js`) e avvio reale di `npm run dev` + richiesta
   HTTP di registrazione end-to-end (`POST /register`, riga poi ripulita dal DB).
 
+**Fase 2.4 (`services/`) — completata.** Ordine: `tokenService.ts` → `authContract.ts` →
+`authService.ts` → `registerService.ts` (dipendenze reali, non l'ordine letterale della richiesta
+iniziale). Per `authContract.ts`, applicato il Data Design & Trade-off Protocol come richiesto
+esplicitamente: presentate le opzioni (a) solo tipi statici vs (b) tipi statici + controllo runtime
+mantenuto — **scelta dall'utente: (b)**, loggata in `AGENTS.md` → Design Decisions Log. Punti rilevanti:
+- `tokenService.ts`: due cast espliciti e commentati, entrambi motivati da gap **pre-esistenti** resi
+  visibili dalla tipizzazione, non introdotti ora — `process.env.JWT_SECRET` è `string | undefined` ma
+  `jwt.sign()` non accetta `undefined` (nessuna guardia esisteva né viene aggiunta: se la variabile manca
+  a runtime, fallisce esattamente come prima); `expiresIn` richiede il tipo ristretto `StringValue` della
+  libreria `ms`, ma il valore arriva da env come `string` generica (la validazione del formato resta
+  quella di sempre, fatta da `ms` dentro jsonwebtoken).
+- `authContract.ts`: `AuthCompatibleAttributes` (interfaccia, statica) e `REQUIRED_FIELDS` (array,
+  runtime) descrivono lo stesso contratto in due punti diversi per scelta esplicita — vanno tenuti a mano
+  in sincronia se il contratto cambia (raro, è un contratto fondamentale e stabile).
+- `authService.ts`/`registerService.ts`: il vincolo generico (`TAttrs extends AuthCompatibleAttributes`
+  sulla FIRMA esterna) protegge davvero i chiamanti a compile-time, ma **all'interno del corpo** Sequelize
+  non riesce a risolvere un parametro generico ancora "aperto" per query (`where`) e accessi ai campi
+  (limite noto dei tipi TypeScript sugli indexed access non risolti — verificato empiricamente, non
+  presunto). Risolto con un cast interno verso il tipo concreto `AuthCompatibleAttributes`, poi un secondo
+  cast dell'istanza restituita verso un tipo con proprietà dot-accessibili dirette (`user.password`, non
+  `user.getDataValue('password')`) — necessario perché `authService.test.js` mocka `entityModel` con
+  oggetti letterali semplici, senza `getDataValue()`: usare quel metodo avrebbe fatto compilare il codice
+  ma rotto i mock esistenti a runtime (scoperto rieseguendo la suite, poi corretto). La firma esterna
+  resta comunque pienamente tipizzata; solo l'implementazione interna usa cast pragmatici.
+- **`id` non fa parte del contratto `AuthCompatibleAttributes`** (non era mai stato verificato nemmeno dal
+  vecchio `REQUIRED_FIELDS` runtime): è un'assunzione implicita pre-esistente su cui si basa
+  `signToken({ id: user.id, ... })`, mai stata resa esplicita. Segnalata con un commento nel codice invece
+  che corretta silenziosamente ampliando il contratto — da valutare se estendere `REQUIRED_FIELDS` in una
+  sessione futura, decisione lasciata aperta di proposito.
+- Verificato con `docker compose run --rm test_backend` (28/28 verdi) e un round-trip HTTP reale
+  registrazione+login attraverso il server in dev (righe poi ripulite dal DB).
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST
