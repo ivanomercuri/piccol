@@ -1,14 +1,30 @@
-const imgSize = require('image-size');
-const fs = require('fs');
-const util = require('util');
-const { maxWidth, maxHeight } = require('../config/imageConfig');
+import { Request, Response, NextFunction } from 'express';
+import sizeOf from 'image-size';
+import fs from 'fs';
+import util from 'util';
+import { maxWidth, maxHeight } from '../config/imageConfig';
 
-const sizeOf = typeof imgSize === 'function' ? imgSize : imgSize.imageSize;
+// Import di DEFAULT, non named: il file .js originale faceva
+// `typeof imgSize === 'function' ? imgSize : imgSize.imageSize` per gestire
+// forme diverse dell'export CJS/ESM di image-size — con esModuleInterop,
+// un import di default fa esattamente lo stesso lavoro automaticamente
+// (__importDefault "srotola" un export CJS che è già una funzione invece di
+// cercare .default su di esso). Verificato che serviva davvero: con un
+// named import (`{ imageSize }`) i test con `jest.mock('image-size', () =>
+// jest.fn())` fallivano, perché il mock è una funzione nuda senza una
+// proprietà `.imageSize` — esattamente il caso che la vecchia ternary
+// gestiva a mano.
 const unlinkFile = util.promisify(fs.unlink);
 
-const softLimitBytes = parseInt(process.env.MAX_FILE_SIZE, 10) * 1024 * 1024;
+// Cast: process.env.MAX_FILE_SIZE è `string | undefined`, ma parseInt
+// richiede una stringa. Nessun controllo esisteva prima su una variabile
+// mancante (avrebbe prodotto NaN, propagato silenziosamente nel confronto
+// `file.size > softLimitBytes` sempre falso) — comportamento invariato,
+// solo reso visibile dal cast invece che nascosto dietro `any` implicito.
+const softLimitBytes =
+  parseInt(process.env.MAX_FILE_SIZE as string, 10) * 1024 * 1024;
 
-const cleanupFiles = (files) => {
+const cleanupFiles = (files: Express.Multer.File[]) => {
   if (files && files.length > 0) {
     files.forEach((file) => {
       unlinkFile(file.path).catch((err) =>
@@ -18,12 +34,18 @@ const cleanupFiles = (files) => {
   }
 };
 
-module.exports = async (req, res, next) => {
+module.exports = async (req: Request, res: Response, next: NextFunction) => {
   if (req.validationErrors && req.validationErrors.length > 0 && !req.files) {
     return next();
   }
 
-  const files = req.files || [];
+  // Cast: `req.files` è tipizzato da @types/multer come File[] OPPURE come
+  // dizionario { [fieldname]: File[] } (dipende da quale metodo Multer
+  // viene usato in fase di routing — .array() vs .fields() — non
+  // conoscibile qui). Questa route usa sempre uploadImage.array('image')
+  // (verificato in routes/productRoutes.js), quindi è sempre un array a
+  // runtime: il cast riflette un fatto verificato, non un'assunzione.
+  const files = (req.files || []) as Express.Multer.File[];
   const imageField = 'image';
 
   req.validationErrors = req.validationErrors || [];
@@ -64,7 +86,7 @@ module.exports = async (req, res, next) => {
             filename: file.originalname,
           });
         }
-      } catch (err) {
+      } catch {
         // Questo catch ora gestisce sia file corrotti che l'errore che hai trovato.
         req.validationErrors.push({
           msg: 'Il file è corrotto o non è un formato di immagine valido',

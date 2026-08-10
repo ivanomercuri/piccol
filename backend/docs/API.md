@@ -319,3 +319,11 @@ queste API (non sono bug "nascosti": sono osservabili leggendo il codice, ma fac
 - **I file caricati per un prodotto non vengono mai ripuliti** in caso di successo della validazione, dato
   che `createProduct` non li usa né li elimina: restano accumulati in `backend/uploads/` (già visibile nel
   repo attuale con alcuni file di test manuali).
+- **`errorMiddleware.js` non viene mai invocato da Express come gestore d'errore**: dichiara solo 3
+  parametri (`err, req, res`) invece dei 4 richiesti (`err, req, res, next`) perché Express lo riconosca
+  come error-handler — Express lo tratta quindi come middleware normale e lo salta durante la propagazione
+  di `next(err)`. Effetto pratico: un body JSON malformato non riceve il `400` con
+  `{"error": "errore json: ..."}` descritto qui sopra, ma la pagina HTML di errore di default di Express
+  (stack trace incluso) — verificato empiricamente. Idem per qualunque altro errore propagato con
+  `next(err)`: niente log applicativo via Winston, solo il comportamento di default di Express. Scoperto
+  durante la migrazione a TypeScript (vedi `CHECKPOINT.md`), non ancora corretto.

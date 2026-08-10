@@ -1,6 +1,7 @@
-const logger = require('../config/logger');
+import { Request, Response, NextFunction } from 'express';
+import logger from '../config/logger';
 
-module.exports = (req, res, next) => {
+module.exports = (req: Request, res: Response, next: NextFunction) => {
   res.success = (data, message = '', code = 200) => {
     res.status(code).json({
       success: true,

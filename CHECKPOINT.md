@@ -300,6 +300,47 @@ un `.ts` altrettanto vuoto), `product/productController.ts`. Punti rilevanti:
   superadmin → `GET /admin/user` (profilo) → `GET /products`, tutti e tre attraverso il codice appena
   convertito.
 
+**Fase 2.6 (`middlewares/`) — completata.** Tutti i 10 file convertiti, ordine: `responseFormatter.ts` →
+`errorMiddleware.ts` → `noPathMiddleware.ts` → `authUserMiddleware.ts` → `skipIfValidationErrorsMiddleware.ts`
+→ `uploadMiddleware.ts` → `handleMulterErrorsMiddleware.ts` → `validateProductImageMiddleware.ts` →
+`validationHandlerMiddleware.ts` → `checkNumberFilesMiddleware.ts`. Estesa `types/express.d.ts` con
+`req.validationErrors` (usato da più file di questa fase) e `res.error`'s `message` allargato a `unknown`
+(passa anche array, non solo stringhe — visto in `validationHandlerMiddleware.ts`). Punti rilevanti,
+in ordine di importanza:
+
+- **Bug reale e attualmente in produzione, scoperto in questa fase**: `errorMiddleware.js` dichiara solo
+  3 parametri (`err, req, res`), non i 4 richiesti da Express (`err, req, res, next`) per essere
+  riconosciuto come error-handler — Express lo tratta quindi come middleware normale, mai invocato via
+  `next(err)`. **Verificato empiricamente** inviando un body JSON malformato al server reale in dev:
+  risponde con la pagina HTML di errore di default di Express (stack trace incluso) invece del
+  `res.error(400, 'errore json: ...')` documentato in CLAUDE.md — viola anche il principio "JSON puro"
+  di AGENTS.md §6. Come conseguenza, `logger.error(...)` in quel file non scrive mai nei log per errori
+  propagati. TypeScript non lo segnala (una funzione a 3 argomenti è strutturalmente compatibile con un
+  tipo a 4). **Preservato di proposito** (non corretto), con un commento molto esplicito nel file — è un
+  fix a comportamento reale, fuori scope per una sessione di sola tipizzazione.
+- **`image-size`: named import vs default import, altra lezione "il mock non è la libreria vera"** (stesso
+  tipo di problema di `getDataValue()` in Fase 2.4). Primo tentativo: `import { imageSize } from
+  'image-size'` — compila pulito, ma rompe 2 test (`validateProductImageMiddleware.test.js`, che mocka il
+  modulo con `jest.mock('image-size', () => jest.fn())`, una funzione nuda senza proprietà `.imageSize`).
+  Corretto con `import sizeOf from 'image-size'` (default import): con `esModuleInterop`,
+  `__importDefault` gestisce automaticamente sia il pacchetto reale (che ha un vero default export) sia il
+  mock (funzione nuda, "srotolata" automaticamente) — è l'equivalente TypeScript esatto del controllo
+  manuale `typeof imgSize === 'function' ? imgSize : imgSize.imageSize` che il file .js originale faceva
+  a mano. Verificato anche con dati reali (non mock): `productRoutes.test.js` non mocka `image-size` e usa
+  un PNG vero attraverso l'intera pipeline di upload — passato.
+- **`skipIfValidationErrorsMiddleware.js`**: non risulta montato su nessuna route (come
+  `exampleController.js`, Fase 2.5), e la sua logica non fa mai nulla (entrambi i rami chiamano `next()`
+  nonostante il nome). Segnalato in un commento, non corretto.
+- `validationHandlerMiddleware.ts`: durante la tipizzazione del `reduce` di raggruppamento errori, un
+  primo tentativo aveva aggiunto `else if (path)` per soddisfare TypeScript — **individuato e corretto
+  prima del commit** perché cambiava comportamento (nel .js originale, un errore senza `path` finiva
+  comunque sotto la chiave `"undefined"`, coercizione implicita di JS; il mio `if (path)` lo avrebbe
+  invece scartato in silenzio). Risolto con un cast (`path as string`) invece di una guardia, per
+  restare fedeli al comportamento originale.
+- Verificato con `docker compose run --rm test_backend` (28/28 verdi, incluso il fix di `image-size`) e
+  lint pulito (solo il warning pre-esistente su `hardLimitMB` non usato in
+  `handleMulterErrorsMiddleware.ts`, invariato dal file .js originale).
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST

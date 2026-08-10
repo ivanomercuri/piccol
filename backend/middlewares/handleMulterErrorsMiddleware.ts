@@ -1,11 +1,17 @@
-const multer = require('multer');
+import { Request, Response, NextFunction } from 'express';
+import multer from 'multer';
 
 /**
  * Questo middleware intercetta errori "fatali" generati da Multer.
  * Se l'errore è un superamento dell'hard limit, lo contrassegna come "fatale"
  * per essere gestito in via prioritaria.
  */
-module.exports = (err, req, res, next) => {
+module.exports = (
+  err: unknown,
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   if (err instanceof multer.MulterError) {
     req.validationErrors = req.validationErrors || [];
     let errorMessage = err.message;

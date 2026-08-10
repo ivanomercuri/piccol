@@ -1,6 +1,11 @@
-const multer = require('multer');
+import multer, { FileFilterCallback } from 'multer';
+import { Request } from 'express';
 
-const imageFileFilter = (req, file, cb) => {
+const imageFileFilter = (
+  req: Request,
+  file: Express.Multer.File,
+  cb: FileFilterCallback
+) => {
   // Questo filtro si occupa del tipo di file.
   if (file.mimetype !== 'image/jpeg' && file.mimetype !== 'image/png') {
     // Aggiungiamo un errore specifico che verrà raccolto più avanti.
@@ -35,6 +40,4 @@ const uploadImage = multer({
   },
 });
 
-module.exports = {
-  uploadImage,
-};
+export { uploadImage };
