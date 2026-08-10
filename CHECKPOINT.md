@@ -204,6 +204,43 @@ d'interoperabilità CJS/ESM da tenere a mente per **tutti** i file successivi fi
   container (`200` su `GET /`, log scritti correttamente da `errorMiddleware`/`responseFormatter` che
   richiedono ancora `logger` con `require()`).
 
+**Fase 2.3 (`models/`) — completata.** Discussa con l'utente la scelta tra due opzioni (pattern factory
+attuale + interfacce a mano, vs. classi ES `extends Model` con `InferAttributes`/`InferCreationAttributes`
+— pattern ufficiale Sequelize v6), scartando una terza opzione (`sequelize-typescript`, decorator-based,
+libreria in più). **Scelta dall'utente: classi + InferAttributes.** Convertiti tutti e 6 i modelli
+(`customer.ts`, `user.ts`, `productCategory.ts`, `productImage.ts`, `category.ts`, `product.ts`) più il
+loader (`index.ts`). Punti rilevanti:
+- **Il loader dinamico (`models/index.js`) filtra i file per estensione letterale `.js`** — esattamente il
+  punto critico segnalato in Fase 0, ma è dovuto emergere e essere risolto **subito**, al primo modello
+  convertito (`customer.ts`), non a fine fase come pianificato: senza il fix i test fallivano con
+  `Cannot read properties of undefined (reading 'destroy')` perché `db.Customer` restava `undefined`.
+  Filtro esteso ad accettare anche `.ts` (escludendo `.d.ts`).
+- **`Model.init()` in questa versione di Sequelize (6.37.8) richiede una entry per OGNI campo dichiarato
+  sulla classe**, inclusi `id`/`createdAt`/`updatedAt`/`deletedAt` — niente leniency implicita per i campi
+  "ben noti" come la documentazione ufficiale lascerebbe intendere. Resi espliciti in tutti i modelli
+  (stesso comportamento di default di Sequelize, solo scritto invece che implicito).
+- **`product.price` (DECIMAL) è tipizzato `string`, non `number`**: Sequelize+mysql2 restituisce i DECIMAL
+  come stringa per non perdere precisione, comportamento verificato (non assunto). Nessun codice
+  applicativo legge ancora `.price`, quindi zero impatto pratico oggi, ma da ricordare quando
+  `productController.js#createProduct` verrà implementato.
+- **Le proprietà di associazione caricate via `include`** (`product.images`, `product.categories`,
+  `product.creator`) **non sono tipizzate** in questa fase — richiederebbero importare i tipi degli altri
+  modelli tra loro, valutato non necessario ora perché nessun consumer è ancora `.ts`. Da rivalutare in
+  Fase 2.5 (controller) se un controller convertito ne farà uso.
+- **`associate(models)` resta tipizzato `any`** in tutti i modelli (con `eslint-disable-next-line
+  @typescript-eslint/no-explicit-any` esplicito) — `models/index.js` non espone ancora un tipo reale per
+  il dizionario dei modelli; stessa scelta per `db: Record<string, any>` dentro `index.ts` stesso, per non
+  dover enumerare staticamente ogni modello nel loader che esiste apposta per evitarlo.
+- Import di Sequelize: `import { Sequelize, Options, DataTypes } from 'sequelize'` (named, non default —
+  il pacchetto non ha un default export nei suoi `.d.ts`, anche se a runtime `require('sequelize') ===
+  require('sequelize').Sequelize` per un self-reference). `require()` dinamico per-file mantenuto (con
+  `eslint-disable-next-line @typescript-eslint/no-require-imports` motivato nel commento) perché l'elenco
+  dei modelli da caricare è scoperto a runtime scansionando la cartella — nessun equivalente statico
+  possibile senza perdere l'auto-discovery documentata in CLAUDE.md.
+- Verificato con `docker compose run --rm test_backend` (28/28 verdi, incluse le associazioni
+  `creator`/`images`/`categories` in `product.model.test.js`) e avvio reale di `npm run dev` + richiesta
+  HTTP di registrazione end-to-end (`POST /register`, riga poi ripulita dal DB).
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST
