@@ -184,6 +184,26 @@ usato da nessuna parte nel codice applicativo (solo testato, vedi `__tests__/Inv
 da un test `.js` risolve comunque il nuovo file `.ts` senza modifiche al test, grazie a `ts-jest` +
 `moduleFileExtensions` di default di Jest (28/28 suite ancora verdi).
 
+**Fase 2.2 (`config/`) — completata.** `logger.js` e `imageConfig.js` → `.ts`. Qui è emerso un punto
+d'interoperabilità CJS/ESM da tenere a mente per **tutti** i file successivi finché convivono `.js` e
+`.ts`:
+- I file `.js` non ancora convertiti continuano a fare `require('../config/logger')` aspettandosi che il
+  valore esportato **sia** il logger stesso, non un modulo con `.default`. Con `module: "CommonJS"`,
+  scrivere `export default logger` in TS avrebbe compilato in `exports.default = logger`, rompendo quei
+  `require()` in silenzio (avrebbero ricevuto `undefined` chiamando `logger.info(...)`). Soluzione: per un
+  modulo che esporta **un singolo valore**, si usa `export = logger;` (sintassi CommonJS-nativa di TS),
+  mai `export default`.
+- Per un modulo che esporta **più valori con nome** (come `imageConfig.js`, richiesto altrove con
+  `const { maxWidth, maxHeight } = require(...)`), gli `export const` standard di TS vanno bene così come
+  sono: compilano in proprietà su `exports`, pienamente compatibili con quel destructuring.
+- Regola pratica adottata da qui in avanti: `import { x } from 'y'` per gli import (compatibile, compila
+  in `require()` sotto al cofano grazie a `esModuleInterop`), ma **mai `export default`** finché esistono
+  `require()` da file `.js` non convertiti — `export =` per un valore singolo, `export const`/
+  `export function` per più valori con nome.
+- Verificato con `docker compose run --rm test_backend` (28/28 verdi) e avvio reale di `npm run dev` nel
+  container (`200` su `GET /`, log scritti correttamente da `errorMiddleware`/`responseFormatter` che
+  richiedono ancora `logger` con `require()`).
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST
