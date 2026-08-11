@@ -1,14 +1,11 @@
 // tokenService è il punto unico di firma dei JWT introdotto per evitare che
 // authService e registerService tornino a divergere sulla policy di
-// scadenza (era già successo una volta, vedi services/tokenService.js). La
+// scadenza (era già successo una volta, vedi services/tokenService.ts). La
 // scadenza è configurabile via env (JWT_EXPIRES_IN), con un fallback interno
 // solo per non rompere l'emissione dei token se qualcuno dimentica di
 // impostarla.
-const jwt = require('jsonwebtoken');
-const {
-  signToken,
-  DEFAULT_TOKEN_EXPIRES_IN,
-} = require('../services/tokenService');
+import jwt, { JwtPayload } from 'jsonwebtoken';
+import { signToken, DEFAULT_TOKEN_EXPIRES_IN } from '../services/tokenService';
 
 describe('tokenService.signToken', () => {
   const originalExpiresIn = process.env.JWT_EXPIRES_IN;
@@ -30,7 +27,10 @@ describe('tokenService.signToken', () => {
   it('should sign a token containing the given payload', () => {
     const token = signToken({ id: 1, email: 'test@example.com' });
 
-    const decoded = jwt.verify(token, 'testsecret');
+    // Cast: jwt.verify() restituisce `string | JwtPayload` (potrebbe
+    // decodificare un payload che è una stringa semplice) — qui, come nel
+    // file .js originale, si assume sempre un payload oggetto.
+    const decoded = jwt.verify(token, 'testsecret') as JwtPayload;
 
     expect(decoded.id).toBe(1);
 
@@ -45,9 +45,9 @@ describe('tokenService.signToken', () => {
 
     const token = signToken({ id: 1 });
 
-    const decoded = jwt.decode(token);
+    const decoded = jwt.decode(token) as JwtPayload;
 
-    expect(decoded.exp - decoded.iat).toBeCloseTo(7200, -1);
+    expect(decoded.exp! - decoded.iat!).toBeCloseTo(7200, -1);
   });
 
   it('should fall back to DEFAULT_TOKEN_EXPIRES_IN (1 hour) when JWT_EXPIRES_IN is not set', () => {
@@ -57,11 +57,11 @@ describe('tokenService.signToken', () => {
 
     const token = signToken({ id: 1 });
 
-    const decoded = jwt.decode(token);
+    const decoded = jwt.decode(token) as JwtPayload;
 
     expect(decoded.exp).toBeDefined();
 
-    expect(decoded.exp - decoded.iat).toBeCloseTo(3600, -1);
+    expect(decoded.exp! - decoded.iat!).toBeCloseTo(3600, -1);
   });
 
   it('should sign using JWT_SECRET from the environment', () => {

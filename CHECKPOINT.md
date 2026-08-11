@@ -393,6 +393,21 @@ dell'assegnazione — con `eslint-disable` mirato, dato che `no-explicit-any` è
 file `.ts`, non "warning" come per `no-unused-vars`). Verificato con `docker compose run --rm
 test_backend`: 28/28 suite verdi (il conteggio dei file resta lo stesso, solo l'estensione cambia).
 
+**Gruppo services (`tokenService`, `authContract`, `authService`, `registerService` `.test.js` → `.ts`) —
+completato.** Qui, a differenza del gruppo modelli, c'era davvero qualcosa da tipizzare: `authenticate`/
+`registerEntity` (Fase 2.4) sono generiche su `ModelStatic<Model<TAttrs, TAttrs>>`, ma questi test passano
+oggetti letterali "finti" (`{ name, getAttributes, findOne: jest.fn() }`), non veri modelli Sequelize (che
+hanno decine di membri statici in più). Risolto con un cast esplicito e commentato
+(`as unknown as FakeModel`, un type alias locale per `ModelStatic<Model<AuthCompatibleAttributes,
+AuthCompatibleAttributes>>`) a ogni mock — nessuna logica di test toccata, solo un cast per far convivere
+un mock volutamente minimale con una firma ora più precisa. Altri punti minori: `jwt.decode()`/
+`jwt.verify()` restituiscono `string | JwtPayload` (rispettivamente anche `null`), serviva un cast a
+`JwtPayload` per accedere a `.exp`/`.iat`/`.id`/`.email`, con `!` non-null dove il test assumeva sempre un
+valore presente (come nel file .js originale, nessun nuovo controllo aggiunto); in `authContract.test.ts`,
+`delete attributes[missingField]` richiede che la proprietà sia opzionale nel tipo — risolto tipizzando
+`attributes` come `Partial<Record<keyof AuthCompatibleAttributes, object>>`. Verificato con `docker
+compose run --rm test_backend`: 28/28 verdi.
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST
