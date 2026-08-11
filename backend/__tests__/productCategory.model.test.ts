@@ -2,12 +2,16 @@
 // verificare con un DB reale è l'indice univoco su (product_id, category_id)
 // creato esplicitamente dalla migrazione (product_category_unique_idx), che
 // impedisce di associare due volte lo stesso prodotto alla stessa categoria.
-const { ProductCategory, Product, Category, User, sequelize } = require('../models');
+import models from '../models';
+
+const { ProductCategory, Product, Category, User, sequelize } = models;
 
 describe('ProductCategory model', () => {
-  let author;
-  let product;
-  let category;
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  let author: any;
+  let product: any;
+  let category: any;
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   beforeAll(async () => {
     author = await User.create({

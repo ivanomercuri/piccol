@@ -3,10 +3,12 @@
 // accetta qualunque stringa non vuota come email. Vale la pena verificarlo
 // con un DB reale perché è un errore lanciato da Sequelize PRIMA di
 // interrogare il DB (SequelizeValidationError), non un errore SQL.
-const { Customer, sequelize } = require('../models');
+import models from '../models';
+
+const { Customer, sequelize } = models;
 
 describe('Customer model', () => {
-  const createdIds = [];
+  const createdIds: number[] = [];
 
   afterEach(async () => {
     await Customer.destroy({ where: { id: createdIds } });

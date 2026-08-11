@@ -375,8 +375,23 @@ i soli file di questa fase:
 
 **Con questa fase si chiude la migrazione di tutto il codice applicativo del backend a TypeScript**
 (`classes/`, `config/`, `models/`, `services/`, `controllers/`, `middlewares/`, `routes/`, `index.ts`,
-`server.ts`). Resta solo la Fase 3 (conversione dei test, `__tests__/*.test.js` → `.ts`), non ancora
-iniziata.
+`server.ts`).
+
+## Fase 3 — conversione dei test (in corso)
+
+`jest.config.js` era già pronto dalla Fase 1 (`testMatch` accetta sia `.test.js` sia `.test.ts`,
+`ts-jest` configurato): nessun setup aggiuntivo necessario, solo conversione file per file, **senza
+toccare la logica dei test**, come richiesto.
+
+**Gruppo modelli (`*.model.test.js` → `.ts`) — completato.** Tutti e 6 convertiti (`customer`, `user`,
+`productCategory`, `productImage`, `category`, `product`). Conversione quasi puramente meccanica: tutti
+importano `models/index.ts` che espone `db: Record<string, any>` (scelta di Fase 2.3) — significa che
+`Customer`, `User`, `Product`, ecc. restano `any` anche in questi test, quindi non c'è quasi nulla da
+tipizzare davvero (le variabili `let author/product/category` dichiarate prima di un `beforeAll` hanno
+comunque bisogno di un'annotazione esplicita `: any`, altrimenti TypeScript non saprebbe il tipo prima
+dell'assegnazione — con `eslint-disable` mirato, dato che `no-explicit-any` è a livello "error" per i
+file `.ts`, non "warning" come per `no-unused-vars`). Verificato con `docker compose run --rm
+test_backend`: 28/28 suite verdi (il conteggio dei file resta lo stesso, solo l'estensione cambia).
 
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 

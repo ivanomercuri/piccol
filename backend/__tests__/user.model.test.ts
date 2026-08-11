@@ -3,13 +3,15 @@
 // tutto: qui vogliamo verificare che i vincoli dichiarati nel modello User
 // (unique, allowNull, default di `level`/`current_token`) siano davvero
 // applicati, cosa che un test con modello mockato non potrebbe mai fare.
-const { User, sequelize } = require('../models');
+import models from '../models';
+
+const { User, sequelize } = models;
 
 describe('User model', () => {
   // Teniamo traccia degli id creati in ogni test per ripulirli in
   // afterEach: senza questo, rilanciare la suite una seconda volta
   // fallirebbe per violazione dello UNIQUE su email.
-  const createdIds = [];
+  const createdIds: number[] = [];
 
   afterEach(async () => {
     await User.destroy({ where: { id: createdIds } });

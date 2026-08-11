@@ -1,7 +1,9 @@
-const { Category, sequelize } = require('../models');
+import models from '../models';
+
+const { Category, sequelize } = models;
 
 describe('Category model', () => {
-  const createdIds = [];
+  const createdIds: number[] = [];
 
   afterEach(async () => {
     // paranoid: false serve perché uno dei test soft-cancella la riga senza
@@ -42,7 +44,7 @@ describe('Category model', () => {
   });
 
   it('should be paranoid: destroy() soft-deletes instead of removing the row', async () => {
-    // La migrazione crea anche `deletedAt`: models/category.js imposta
+    // La migrazione crea anche `deletedAt`: models/category.ts imposta
     // `paranoid: true` proprio per questo. Verifichiamo che il comportamento
     // reale corrisponda a quanto commentato nel modello.
     const category = await Category.create({

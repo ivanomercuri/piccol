@@ -3,15 +3,18 @@
 // sku — il campo aggiunto in questa sessione) sia le associazioni aggiunte
 // insieme ai modelli Category/ProductImage/ProductCategory, che prima non
 // esistevano.
-const { Product, User, ProductImage, Category, sequelize } = require('../models');
+import models from '../models';
+
+const { Product, User, ProductImage, Category, sequelize } = models;
 
 describe('Product model', () => {
   // createdBy ha un vincolo di FK reale verso users.id (vedi la migrazione
   // 20250720131154-add-createdBy-to-products.js): serve un utente vero per
   // ogni test che crea un prodotto valido.
-  let author;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let author: any;
 
-  const productIds = [];
+  const productIds: number[] = [];
 
   beforeAll(async () => {
     author = await User.create({

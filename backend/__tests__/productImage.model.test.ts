@@ -1,10 +1,14 @@
-const { ProductImage, Product, User, sequelize } = require('../models');
+import models from '../models';
+
+const { ProductImage, Product, User, sequelize } = models;
 
 describe('ProductImage model', () => {
-  let author;
-  let product;
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  let author: any;
+  let product: any;
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  const imageIds = [];
+  const imageIds: number[] = [];
 
   beforeAll(async () => {
     author = await User.create({
