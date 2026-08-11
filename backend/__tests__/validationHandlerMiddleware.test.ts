@@ -9,26 +9,32 @@
 // Mockiamo express-validator per controllare esattamente cosa restituisce
 // validationResult(req).array() in ogni scenario, senza dover costruire
 // richieste Express reali con veri validatori collegati.
+import { Request, Response, NextFunction } from 'express';
+
 jest.mock('express-validator', () => ({
   validationResult: jest.fn(),
 }));
 
-const { validationResult } = require('express-validator');
-const validationHandlerMiddleware = require('../middlewares/validationHandlerMiddleware');
+import { validationResult } from 'express-validator';
+import validationHandlerMiddleware from '../middlewares/validationHandlerMiddleware';
 
 describe('validationHandlerMiddleware', () => {
-  let req, res, next;
+  let req: Request;
+  let res: Response;
+  let next: NextFunction;
 
   beforeEach(() => {
-    req = { validationErrors: [] };
+    req = { validationErrors: [] } as unknown as Request;
 
-    res = { error: jest.fn() };
+    res = { error: jest.fn() } as unknown as Response;
 
     next = jest.fn();
 
     // Di default, nessun errore da express-validator: i singoli test lo
     // sovrascrivono quando vogliono simulare dei validation error.
-    validationResult.mockReturnValue({ array: () => [] });
+    (validationResult as unknown as jest.Mock).mockReturnValue({
+      array: () => [],
+    });
   });
 
   it('should call next() when there are no errors at all', () => {
@@ -43,7 +49,7 @@ describe('validationHandlerMiddleware', () => {
     // Caso tipico: due campi obbligatori mancanti in una richiesta di
     // registrazione. Il raggruppamento produce un oggetto { id, message }
     // per ciascun campo distinto.
-    validationResult.mockReturnValue({
+    (validationResult as unknown as jest.Mock).mockReturnValue({
       array: () => [
         { path: 'email', msg: 'Email è richiesta' },
         { path: 'password', msg: 'Password è richiesta' },
@@ -65,7 +71,7 @@ describe('validationHandlerMiddleware', () => {
     // notEmpty() + isNumeric() entrambi falliti su "price"). Il codice usa
     // `if (!acc[path])`, quindi solo il primo messaggio incontrato per un
     // dato campo sopravvive nel raggruppamento finale.
-    validationResult.mockReturnValue({
+    (validationResult as unknown as jest.Mock).mockReturnValue({
       array: () => [
         { path: 'price', msg: 'Prezzo del prodotto è richiesto' },
         { path: 'price', msg: 'Prezzo deve essere un numero' },
@@ -127,7 +133,11 @@ describe('validationHandlerMiddleware', () => {
   it('should not duplicate two image errors that share the same filename', () => {
     req.validationErrors = [
       { path: 'image', msg: 'Primo errore', filename: 'foto.png' },
-      { path: 'image', msg: 'Secondo errore stesso file', filename: 'foto.png' },
+      {
+        path: 'image',
+        msg: 'Secondo errore stesso file',
+        filename: 'foto.png',
+      },
     ];
 
     validationHandlerMiddleware(req, res, next);
@@ -141,7 +151,7 @@ describe('validationHandlerMiddleware', () => {
   });
 
   it('should merge express-validator field errors with req.validationErrors image errors', () => {
-    validationResult.mockReturnValue({
+    (validationResult as unknown as jest.Mock).mockReturnValue({
       array: () => [{ path: 'name', msg: 'Nome del prodotto è richiesto' }],
     });
 

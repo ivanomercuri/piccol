@@ -7,21 +7,24 @@
 //
 // Prima di questo file di test, checkNumberFilesMiddleware non aveva NESSUNA
 // copertura, nonostante venga usato per imporre il limite "una sola immagine per
-// prodotto" in routes/productRoutes.js — un bug qui sarebbe passato inosservato.
-const checkNumberFilesMiddleware = require('../middlewares/checkNumberFilesMiddleware');
+// prodotto" in routes/productRoutes.ts — un bug qui sarebbe passato inosservato.
+import { Request, Response, NextFunction } from 'express';
+import checkNumberFilesMiddleware from '../middlewares/checkNumberFilesMiddleware';
 
 describe('checkNumberFilesMiddleware', () => {
-  let req, res, next;
+  let req: Request;
+  let res: Response;
+  let next: NextFunction;
 
   beforeEach(() => {
     // req.files simula l'array che Multer popola dopo aver parsato una richiesta
     // multipart; lo teniamo vuoto di default e lo valorizziamo nei singoli test.
-    req = { files: [] };
+    req = { files: [] } as unknown as Request;
 
     // res non viene mai usato direttamente dal middleware (non risponde mai da
     // solo, si limita ad accodare errori e chiamare next), quindi un oggetto
     // vuoto è sufficiente.
-    res = {};
+    res = {} as unknown as Response;
 
     // next è uno spy: ci serve solo per verificare che venga sempre invocato,
     // sia in caso di successo che di errore di validazione.
@@ -36,7 +39,7 @@ describe('checkNumberFilesMiddleware', () => {
     req.files = [
       { fieldname: 'image', originalname: 'img1.jpg' },
       { fieldname: 'image', originalname: 'img2.jpg' },
-    ];
+    ] as unknown as Express.Multer.File[];
 
     const middleware = checkNumberFilesMiddleware(
       'image',
@@ -50,7 +53,7 @@ describe('checkNumberFilesMiddleware', () => {
     // ogni file "in eccesso", ma un unico messaggio riassuntivo.
     expect(req.validationErrors).toHaveLength(1);
 
-    expect(req.validationErrors[0].msg).toBe(
+    expect(req.validationErrors![0].msg).toBe(
       'Devi caricare una sola immagine del prodotto'
     );
 
@@ -67,20 +70,22 @@ describe('checkNumberFilesMiddleware', () => {
     req.files = [
       { fieldname: 'image', originalname: 'img1.jpg' },
       { fieldname: 'image', originalname: 'img2.jpg' },
-    ];
+    ] as unknown as Express.Multer.File[];
 
     const middleware = checkNumberFilesMiddleware('image', 1);
 
     middleware(req, res, next);
 
-    expect(req.validationErrors[0].msg).toBe('Caricare al massimo 1 file');
+    expect(req.validationErrors![0].msg).toBe('Caricare al massimo 1 file');
   });
 
   it('should not add a validation error if files are within the max', () => {
     // Caso "felice": un solo file quando il massimo è 1 -> nessun errore
     // accodato, la richiesta prosegue senza intoppi verso il middleware
     // successivo nella catena.
-    req.files = [{ fieldname: 'image', originalname: 'img1.jpg' }];
+    req.files = [
+      { fieldname: 'image', originalname: 'img1.jpg' },
+    ] as unknown as Express.Multer.File[];
 
     const middleware = checkNumberFilesMiddleware('image', 1);
 
@@ -100,7 +105,7 @@ describe('checkNumberFilesMiddleware', () => {
     req.files = [
       { fieldname: 'image', originalname: 'img1.jpg' },
       { fieldname: 'other', originalname: 'other.jpg' },
-    ];
+    ] as unknown as Express.Multer.File[];
 
     const middleware = checkNumberFilesMiddleware('image', 1);
 

@@ -1,25 +1,28 @@
 // handleMulterErrorsMiddleware intercetta gli errori sollevati da Multer
 // durante l'upload (è un error-handling middleware Express a 4 argomenti,
-// registrato subito dopo uploadImage.array('image') in productRoutes.js) e
+// registrato subito dopo uploadImage.array('image') in productRoutes.ts) e
 // li traduce nel pattern di accumulo su req.validationErrors usato in tutto
 // il progetto. Prima di questo file non era mai stato testato, nonostante sia
 // l'unico punto che marca un errore come "fatale" (isFatal: true).
-const multer = require('multer');
-const handleMulterErrorsMiddleware = require('../middlewares/handleMulterErrorsMiddleware');
+import { Request, Response, NextFunction } from 'express';
+import multer from 'multer';
+import handleMulterErrorsMiddleware from '../middlewares/handleMulterErrorsMiddleware';
 
 describe('handleMulterErrorsMiddleware', () => {
-  let req, res, next;
+  let req: Request;
+  let res: Response;
+  let next: NextFunction;
 
   beforeEach(() => {
-    req = {};
+    req = {} as unknown as Request;
 
-    res = {};
+    res = {} as unknown as Response;
 
     next = jest.fn();
   });
 
   it('should mark LIMIT_FILE_SIZE as a fatal error with a generic message', () => {
-    // Il superamento dell'hard limit (10MB, vedi uploadMiddleware.js) viene
+    // Il superamento dell'hard limit (10MB, vedi uploadMiddleware.ts) viene
     // trattato come un evento "di sicurezza": il messaggio esposto al client
     // è volutamente generico ("Operazione non permessa"), non i dettagli
     // tecnici del limite superato, e viene marcato isFatal per bypassare il

@@ -3,16 +3,22 @@
 // controller si fidano ciecamente della forma che produce. Prima di questo
 // file non era mai stato testato direttamente, solo usato indirettamente
 // tramite i mock di res.success/res.error negli altri test.
+import { Request, Response, NextFunction } from 'express';
+
 jest.mock('../config/logger', () => ({ error: jest.fn() }));
 
-const logger = require('../config/logger');
-const responseFormatter = require('../middlewares/responseFormatter');
+import logger from '../config/logger';
+import responseFormatter from '../middlewares/responseFormatter';
 
 describe('responseFormatter', () => {
-  let req, res, next, status, json;
+  let req: Request;
+  let res: Response;
+  let next: NextFunction;
+  let status: jest.Mock;
+  let json: jest.Mock;
 
   beforeEach(() => {
-    req = { originalUrl: '/test', method: 'GET' };
+    req = { originalUrl: '/test', method: 'GET' } as unknown as Request;
 
     // status() deve restituire `this` per permettere il chaining
     // res.status(code).json(...) usato dal middleware.
@@ -20,7 +26,7 @@ describe('responseFormatter', () => {
 
     status = jest.fn(() => ({ json }));
 
-    res = { status };
+    res = { status } as unknown as Response;
 
     next = jest.fn();
 
@@ -85,7 +91,7 @@ describe('responseFormatter', () => {
     // Un valore generico (es. una stringa o un oggetto) passato come `err`
     // non deve essere trattato come un errore da loggare: il middleware
     // controlla esplicitamente `err instanceof Error`.
-    res.error(400, 'Dati non validi', { some: 'object' });
+    res.error(400, 'Dati non validi', { some: 'object' } as unknown as Error);
 
     expect(logger.error).not.toHaveBeenCalled();
   });

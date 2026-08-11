@@ -3,21 +3,27 @@
 // si decide se una richiesta è autenticata o meno. Mockiamo jsonwebtoken e il
 // modello User (letti entrambi dal modulo reale) per testare ogni ramo della
 // logica senza toccare un JWT_SECRET o un DB veri.
+import { Request, Response, NextFunction } from 'express';
+
 jest.mock('jsonwebtoken');
 
 jest.mock('../models', () => ({ User: { findOne: jest.fn() } }));
 
-const jwt = require('jsonwebtoken');
-const { User } = require('../models');
-const authUserMiddleware = require('../middlewares/authUserMiddleware');
+import jwt from 'jsonwebtoken';
+import models from '../models';
+import authUserMiddleware from '../middlewares/authUserMiddleware';
+
+const { User } = models;
 
 describe('authUserMiddleware', () => {
-  let req, res, next;
+  let req: Request;
+  let res: Response;
+  let next: NextFunction;
 
   beforeEach(() => {
-    req = { headers: {} };
+    req = { headers: {} } as unknown as Request;
 
-    res = { error: jest.fn() };
+    res = { error: jest.fn() } as unknown as Response;
 
     next = jest.fn();
 
@@ -53,7 +59,7 @@ describe('authUserMiddleware', () => {
   it('should return 401 if jwt.verify throws (expired or invalid signature)', async () => {
     req.headers.authorization = 'Bearer sometoken';
 
-    jwt.verify.mockImplementation(() => {
+    (jwt.verify as jest.Mock).mockImplementation(() => {
       throw new Error('jwt expired');
     });
 
@@ -74,7 +80,7 @@ describe('authUserMiddleware', () => {
     // punto di vista crittografico ma ormai "orfano".
     req.headers.authorization = 'Bearer sometoken';
 
-    jwt.verify.mockReturnValue({ id: 42 });
+    (jwt.verify as jest.Mock).mockReturnValue({ id: 42 });
 
     User.findOne.mockResolvedValue(null);
 
@@ -94,7 +100,7 @@ describe('authUserMiddleware', () => {
     // perché è stato emesso un token più recente) deve essere rifiutato.
     req.headers.authorization = 'Bearer old-token';
 
-    jwt.verify.mockReturnValue({ id: 1 });
+    (jwt.verify as jest.Mock).mockReturnValue({ id: 1 });
 
     User.findOne.mockResolvedValue({ id: 1, current_token: 'new-token' });
 
@@ -110,7 +116,7 @@ describe('authUserMiddleware', () => {
 
     req.headers.authorization = 'Bearer valid-token';
 
-    jwt.verify.mockReturnValue({ id: 1 });
+    (jwt.verify as jest.Mock).mockReturnValue({ id: 1 });
 
     User.findOne.mockResolvedValue(fakeUser);
 

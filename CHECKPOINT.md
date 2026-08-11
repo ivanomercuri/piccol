@@ -425,6 +425,24 @@ success: jest.fn(), error: jest.fn() }`, `{ user: {...} }`), non veri oggetti Ex
   `productController.test.ts`, perché `Product` arriva già `any` da `models/index.ts`.
 - Verificato con `docker compose run --rm test_backend`: 28/28 verdi.
 
+**Gruppo middlewares (8 file `.test.js` → `.ts`) — completato.** `responseFormatter`, `errorMiddleware`,
+`noPathMiddleware`, `authUserMiddleware`, `handleMulterErrorsMiddleware`, `checkNumberFilesMiddleware`,
+`validateProductImageMiddleware`, `validationHandlerMiddleware`. Stesso pattern di cast `as unknown as
+Request/Response` dei controller. Punti specifici:
+- `errorMiddleware.test.ts` chiama la funzione **direttamente** con 3 argomenti (`errorMiddleware(err, req,
+  res)`), bypassando il dispatch di Express: continua a funzionare a prescindere dal bug di arità
+  documentato in Fase 2.6, perché testa la funzione in isolamento, non il suo aggancio reale nella catena
+  di middleware — aggiunta una nota esplicita nel file per chi lo legge in futuro senza il contesto di
+  questa migrazione.
+- `err.status`/`err.body` (proprietà non standard aggiunte da Express/body-parser agli oggetti `Error`)
+  richiedono cast `as Error & { status?: number }` per essere assegnabili.
+- `validateProductImageMiddleware.test.ts` era il più delicato: verificata la stessa interazione
+  `jest.mock('image-size', () => jest.fn())` + import di default già corretta in Fase 2.6 — qui si chiude
+  il cerchio, il test che aveva originariamente rivelato il problema ora passa anche con i tipi.
+  `fs.unlink`/`fs.readFileSync`/`sizeOf` mockati richiedono cast `as jest.Mock` (o `as unknown as
+  jest.Mock` quando il tipo reale è troppo distante) per usare `.mockReset()`/`.mockReturnValue()`.
+- Verificato con `docker compose run --rm test_backend`: 28/28 verdi.
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST

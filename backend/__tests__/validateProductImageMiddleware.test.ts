@@ -1,9 +1,9 @@
-// I mock vengono dichiarati PRIMA del require del middleware sotto test.
-// Il motivo è sottile: dentro validateProductImageMiddleware.js c'è la riga
+// I mock vengono dichiarati PRIMA dell'import del middleware sotto test.
+// Il motivo è sottile: dentro validateProductImageMiddleware.ts c'è la riga
 // `const unlinkFile = util.promisify(fs.unlink);`, valutata una sola volta al
 // caricamento del modulo. util.promisify cattura in quel momento il riferimento
 // alla funzione fs.unlink allora esistente. Se noi mockassimo fs.unlink DOPO
-// aver già fatto require del middleware, la unlinkFile già creata continuerebbe
+// aver già importato il middleware, la unlinkFile già creata continuerebbe
 // a puntare alla fs.unlink reale (quella originale, non mockata) e i nostri test
 // finirebbero per tentare di cancellare file temporanei inesistenti sul
 // filesystem vero, con relativi errori ENOENT asincroni stampati in console.
@@ -14,15 +14,18 @@ jest.mock('fs', () => ({
   // sovrascriviamo solo le due funzioni che il middleware usa realmente.
   ...jest.requireActual('fs'),
   readFileSync: jest.fn(),
-  unlink: jest.fn((path, cb) => cb(null)),
+  unlink: jest.fn((path: string, cb: (err: Error | null) => void) => cb(null)),
 }));
 
-const fs = require('fs');
-const validateProductImageMiddleware = require('../middlewares/validateProductImageMiddleware');
-const sizeOf = require('image-size');
+import { Request, Response, NextFunction } from 'express';
+import fs from 'fs';
+import validateProductImageMiddleware from '../middlewares/validateProductImageMiddleware';
+import sizeOf from 'image-size';
 
 describe('validateProductImageMiddleware', () => {
-  let req, res, next;
+  let req: Request;
+  let res: Response;
+  let next: NextFunction;
 
   beforeEach(() => {
     // Stato di partenza "neutro" per ogni test: nessun file caricato, nessun
@@ -32,20 +35,22 @@ describe('validateProductImageMiddleware', () => {
     req = {
       files: [],
       validationErrors: [],
-    };
+    } as unknown as Request;
 
-    res = {};
+    res = {} as unknown as Response;
 
     next = jest.fn();
 
     // Reset dei mock tra un test e l'altro, per evitare che il valore di
     // ritorno impostato in un test (es. via mockReturnValue) sopravviva al
     // test successivo e ne falsi il risultato.
-    sizeOf.mockReset();
+    (sizeOf as unknown as jest.Mock).mockReset();
 
-    fs.readFileSync.mockReset().mockReturnValue(Buffer.from('fake'));
+    (fs.readFileSync as jest.Mock)
+      .mockReset()
+      .mockReturnValue(Buffer.from('fake'));
 
-    fs.unlink.mockClear();
+    (fs.unlink as unknown as jest.Mock).mockClear();
   });
 
   it('should skip validation if validation errors already exist and no files were parsed (e.g. a fatal multer error)', () => {
@@ -83,7 +88,7 @@ describe('validateProductImageMiddleware', () => {
 
     expect(req.validationErrors).toHaveLength(1);
 
-    expect(req.validationErrors[0].msg).toBe(
+    expect(req.validationErrors![0].msg).toBe(
       "L'immagine del prodotto è richiesta"
     );
 
@@ -92,7 +97,7 @@ describe('validateProductImageMiddleware', () => {
 
   it('should NOT add required error if other errors exist (e.g. file rejected upstream for invalid type)', () => {
     // Scenario più sottile del "no image": il file ESISTEVA nella richiesta,
-    // ma è stato scartato a monte dal filtro mimetype di uploadMiddleware.js
+    // ma è stato scartato a monte dal filtro mimetype di uploadMiddleware.ts
     // (che accetta solo image/jpeg e image/png). In quel caso req.files
     // arriva a questo middleware come array VUOTO (non undefined, perché
     // Multer ha comunque processato la richiesta), ma req.validationErrors
@@ -125,7 +130,7 @@ describe('validateProductImageMiddleware', () => {
 
   it('should add validation error if image dimensions are too large', () => {
     // Qui testiamo il controllo delle dimensioni (maxWidth/maxHeight da
-    // config/imageConfig.js, attualmente 1920x1080). Il file deve avere un
+    // config/imageConfig.ts, attualmente 1920x1080). Il file deve avere un
     // mimetype tra quelli accettati (image/jpeg o image/png), altrimenti il
     // middleware non entrerebbe nemmeno nel ramo che chiama image-size — è
     // esattamente il motivo per cui questo test falliva prima della
@@ -143,13 +148,16 @@ describe('validateProductImageMiddleware', () => {
         path: '/tmp/large.jpg',
         originalname: 'large.jpg',
       },
-    ];
+    ] as unknown as Express.Multer.File[];
 
     // image-size è mockato a livello di modulo (jest.mock('image-size', ...))
     // quindi qui possiamo semplicemente dirgli di restituire dimensioni che
     // superano la larghezza massima consentita, senza dover fornire
     // un'immagine JPEG vera.
-    sizeOf.mockReturnValue({ width: 2000, height: 1000 }); // larghezza eccessiva
+    (sizeOf as unknown as jest.Mock).mockReturnValue({
+      width: 2000,
+      height: 1000,
+    }); // larghezza eccessiva
 
     validateProductImageMiddleware(req, res, next);
 
@@ -158,8 +166,8 @@ describe('validateProductImageMiddleware', () => {
     // Usiamo toContain perché il messaggio reale include anche i valori
     // numerici di maxWidth/maxHeight interpolati (es. "...1920x1080px"), che
     // non vogliamo hardcodare nel test per non doverlo aggiornare ogni volta
-    // che cambia config/imageConfig.js.
-    expect(req.validationErrors[0].msg).toContain(
+    // che cambia config/imageConfig.ts.
+    expect(req.validationErrors![0].msg).toContain(
       'Le dimensioni non possono superare'
     );
 
@@ -178,9 +186,12 @@ describe('validateProductImageMiddleware', () => {
         path: '/tmp/valid.jpg',
         originalname: 'valid.jpg',
       },
-    ];
+    ] as unknown as Express.Multer.File[];
 
-    sizeOf.mockReturnValue({ width: 1000, height: 1000 });
+    (sizeOf as unknown as jest.Mock).mockReturnValue({
+      width: 1000,
+      height: 1000,
+    });
 
     validateProductImageMiddleware(req, res, next);
 

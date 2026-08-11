@@ -2,18 +2,29 @@
 // next(err) chiamato ovunque nell'app finisce qui. Prima di questo file non
 // era mai stato testato, nonostante gestisca anche un caso specifico e non
 // ovvio (i SyntaxError generati da express.json() su body malformati).
+//
+// NOTA (Fase 2.6): errorMiddleware.ts dichiara solo 3 parametri (err, req,
+// res) invece dei 4 richiesti da Express per essere riconosciuto come
+// error-handler — bug pre-esistente, documentato in CHECKPOINT.md e
+// docs/API.md, non corretto. Questo test lo chiama DIRETTAMENTE (bypassando
+// il dispatch di Express), quindi continua a funzionare a prescindere dal
+// bug: verifica il comportamento della funzione in isolamento, non il suo
+// effettivo aggancio nella catena di middleware di Express.
+import { Request, Response } from 'express';
+
 jest.mock('../config/logger', () => ({ error: jest.fn() }));
 
-const logger = require('../config/logger');
-const errorMiddleware = require('../middlewares/errorMiddleware');
+import logger from '../config/logger';
+import errorMiddleware from '../middlewares/errorMiddleware';
 
 describe('errorMiddleware', () => {
-  let req, res;
+  let req: Request;
+  let res: Response;
 
   beforeEach(() => {
-    req = { originalUrl: '/test', method: 'POST' };
+    req = { originalUrl: '/test', method: 'POST' } as unknown as Request;
 
-    res = { error: jest.fn() };
+    res = { error: jest.fn() } as unknown as Response;
 
     jest.clearAllMocks();
   });
@@ -32,7 +43,9 @@ describe('errorMiddleware', () => {
   });
 
   it('should respond with err.status and err.message when both are set', () => {
-    const err = new Error('Non autorizzato');
+    // Cast a `any`: .status non fa parte del tipo Error standard, è
+    // un'estensione non ufficiale usata da Express/middleware come questo.
+    const err = new Error('Non autorizzato') as Error & { status?: number };
 
     err.status = 403;
 
@@ -49,10 +62,7 @@ describe('errorMiddleware', () => {
 
     errorMiddleware(err, req, res);
 
-    expect(res.error).toHaveBeenCalledWith(
-      500,
-      'Qualcosa è andato storto!'
-    );
+    expect(res.error).toHaveBeenCalledWith(500, 'Qualcosa è andato storto!');
   });
 
   it('should normalize a body-parser JSON SyntaxError into a 400', () => {
@@ -60,7 +70,10 @@ describe('errorMiddleware', () => {
     // della richiesta non è JSON valido: un SyntaxError con .status === 400
     // e una proprietà `body` aggiunta da body-parser. Senza questo ramo
     // finirebbe nel default 500, fuorviante per un errore causato dal client.
-    const err = new SyntaxError('Unexpected token in JSON');
+    const err = new SyntaxError('Unexpected token in JSON') as SyntaxError & {
+      status?: number;
+      body?: string;
+    };
 
     err.status = 400;
 
@@ -78,7 +91,9 @@ describe('errorMiddleware', () => {
     // Un SyntaxError può capitare anche per altri motivi (es. un bug nel
     // codice applicativo): senza la proprietà `body` non deve essere
     // confuso con un errore di parsing del body della richiesta.
-    const err = new SyntaxError('Unrelated syntax error');
+    const err = new SyntaxError('Unrelated syntax error') as SyntaxError & {
+      status?: number;
+    };
 
     err.status = 400;
 
