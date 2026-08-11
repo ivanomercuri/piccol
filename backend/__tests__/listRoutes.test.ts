@@ -1,12 +1,14 @@
 // GET /routes non è montata sotto nessun prefisso (app.use(listRoutes) in
-// index.js): raggiungibile direttamente a /routes. Il comportamento gated da
+// index.ts): raggiungibile direttamente a /routes. Il comportamento gated da
 // SHOW_ROUTES era già coperto da un test unitario sul controller
-// (listRoutesController.test.js); qui verifichiamo lo stesso comportamento
+// (listRoutesController.test.ts); qui verifichiamo lo stesso comportamento
 // attraversando davvero l'app Express, per essere certi che il mounting in
-// index.js sia quello giusto.
-const request = require('supertest');
-const app = require('../index');
-const { sequelize } = require('../models');
+// index.ts sia quello giusto.
+import request from 'supertest';
+import app from '../index';
+import models from '../models';
+
+const { sequelize } = models;
 
 describe('GET /routes', () => {
   const originalShowRoutes = process.env.SHOW_ROUTES;

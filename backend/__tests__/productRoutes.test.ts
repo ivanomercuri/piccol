@@ -5,11 +5,13 @@
 // fondo, perché la sua pipeline di validazione (upload, conteggio file,
 // dimensioni, campi) è tutta reale e funzionante anche se il controller
 // finale non salva nulla.
-const fs = require('fs');
-const path = require('path');
-const request = require('supertest');
-const app = require('../index');
-const { User, Product, sequelize } = require('../models');
+import fs from 'fs';
+import path from 'path';
+import request from 'supertest';
+import app from '../index';
+import models from '../models';
+
+const { User, Product, sequelize } = models;
 
 // Un PNG 1x1 valido (pixel trasparente), ben sotto ai limiti di dimensione
 // (1920x1080) e peso (MAX_FILE_SIZE) configurati: serve solo a superare la
@@ -22,15 +24,17 @@ const VALID_PNG = Buffer.from(
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 
 describe('Product routes', () => {
-  const emailsToClean = [];
-  const productIds = [];
+  const emailsToClean: string[] = [];
+  const productIds: number[] = [];
 
-  let adminA;
-  let adminB;
-  let productOfA;
-  let productOfB;
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  let adminA: any;
+  let adminB: any;
+  let productOfA: any;
+  let productOfB: any;
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  async function registerAndLogin(name) {
+  async function registerAndLogin(name: string) {
     const email = `product-route-test-${name.replace(/\s+/g, '-')}-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2)}@example.com`;
@@ -88,7 +92,7 @@ describe('Product routes', () => {
 
       expect(res.status).toBe(200);
 
-      const ids = res.body.data.map((p) => p.id);
+      const ids = res.body.data.map((p: { id: number }) => p.id);
 
       expect(ids).toContain(productOfA.id);
 
@@ -110,7 +114,7 @@ describe('Product routes', () => {
 
       expect(res.status).toBe(200);
 
-      const ids = res.body.data.map((p) => p.id);
+      const ids = res.body.data.map((p: { id: number }) => p.id);
 
       expect(ids).toContain(productOfA.id);
 
@@ -118,10 +122,7 @@ describe('Product routes', () => {
 
       // Ripristiniamo il livello per non influenzare eventuali altri test
       // in questo stesso file che assumono adminA come admin normale.
-      await User.update(
-        { level: 'admin' },
-        { where: { id: adminA.user.id } }
-      );
+      await User.update({ level: 'admin' }, { where: { id: adminA.user.id } });
     });
   });
 
@@ -141,7 +142,9 @@ describe('Product routes', () => {
 
       expect(Array.isArray(res.body.error)).toBe(true);
 
-      const imageError = res.body.error.find((e) => e.id === 'image');
+      const imageError = res.body.error.find(
+        (e: { id: string }) => e.id === 'image'
+      );
 
       expect(imageError).toBeDefined();
     });
@@ -164,7 +167,7 @@ describe('Product routes', () => {
 
     it('should return 400 when more than one image is uploaded (checkNumberFilesMiddleware)', async () => {
       // Verifica in HTTP reale il limite collegato in questa sessione (vedi
-      // routes/productRoutes.js): prima non era collegato a nessuna route.
+      // routes/productRoutes.ts): prima non era collegato a nessuna route.
       const res = await request(app)
         .post('/products/new')
         .set('Authorization', `Bearer ${adminA.token}`)
@@ -172,8 +175,14 @@ describe('Product routes', () => {
         .field('description', 'Descrizione test')
         .field('price', '9.99')
         .field('quantity', '5')
-        .attach('image', VALID_PNG, { filename: 'one.png', contentType: 'image/png' })
-        .attach('image', VALID_PNG, { filename: 'two.png', contentType: 'image/png' });
+        .attach('image', VALID_PNG, {
+          filename: 'one.png',
+          contentType: 'image/png',
+        })
+        .attach('image', VALID_PNG, {
+          filename: 'two.png',
+          contentType: 'image/png',
+        });
 
       expect(res.status).toBe(400);
     });

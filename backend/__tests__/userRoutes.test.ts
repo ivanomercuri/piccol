@@ -1,14 +1,16 @@
-// Come customerRoutes.test.js, ma per il dominio /admin/user. Qui vale
+// Come customerRoutes.test.ts, ma per il dominio /admin/user. Qui vale
 // soprattutto la pena testare in HTTP reale il pattern di invalidazione del
 // token (logout / cambio password): con un modello mockato non potremmo mai
 // verificare che un vecchio JWT smetta davvero di funzionare dopo queste
 // operazioni, perché "current_token" vive nel DB.
-const request = require('supertest');
-const app = require('../index');
-const { User, sequelize } = require('../models');
+import request from 'supertest';
+import app from '../index';
+import models from '../models';
+
+const { User, sequelize } = models;
 
 describe('Admin/User routes', () => {
-  const emailsToClean = [];
+  const emailsToClean: string[] = [];
 
   async function registerUser(name = 'Route Test User') {
     const email = `user-route-test-${Date.now()}-${Math.random()

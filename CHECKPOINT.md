@@ -443,6 +443,25 @@ Request/Response` dei controller. Punti specifici:
   jest.Mock` quando il tipo reale è troppo distante) per usare `.mockReset()`/`.mockReturnValue()`.
 - Verificato con `docker compose run --rm test_backend`: 28/28 verdi.
 
+**Gruppo routes (`listRoutes`, `customerRoutes`, `userRoutes`, `productRoutes` `.test.js` → `.ts`) —
+completato. Chiude la Fase 3 e l'intera migrazione TypeScript.** Test end-to-end reali con supertest
+contro `index.ts` e il DB di test — nessun mock, quindi meno attrito di tipi rispetto ai gruppi
+precedenti: soprattutto annotazioni sui parametri di callback (`.map((p: {id: number}) => p.id)`) dato
+che `res.body` di supertest è `any`. In `productRoutes.test.ts`, le variabili `adminA`/`adminB`/
+`productOfA`/`productOfB` (assegnate dentro `beforeAll`) usano lo stesso pattern `: any` +
+`eslint-disable` dei test modello. **Scoperto un file dimenticato**: `InvalidImageTypeError.test.js`
+(gruppo `classes/`) non era stato convertito nelle fasi precedenti — nell'aprirlo è emerso che
+`classes/InvalidImageTypeError.ts` (Fase 2.1) usava ancora `module.exports = X` grezzo invece di
+`export = X`, lo stesso problema di riconoscimento degli export scoperto in Fase 2.7: corretto qui
+perché è il primo punto in cui viene importato da un altro file `.ts` (il test stesso). Verificato con
+`docker compose run --rm test_backend`: **28/28 suite verdi, 0 file `.js` rimasti in `__tests__/`**, e
+un ultimo avvio reale di `npm run dev` con `server.ts` come entry point.
+
+**Stato finale**: l'intero backend (codice applicativo + test) è ora TypeScript. `allowJs`/`checkJs`
+restano `true`/`false` in `tsconfig.json` per compatibilità futura, ma non ci sono più file `.js` da
+compilare sotto `backend/` eccetto `migrations/`, `seeders/`, `config/config.json`, `eslint.config.js`,
+`jest.config.js` — tutti deliberatamente fuori scope (vedi Fase 0).
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST

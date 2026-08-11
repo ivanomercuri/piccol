@@ -1,9 +1,9 @@
-// Classe di errore custom in classes/InvalidImageTypeError.js: attualmente
+// Classe di errore custom in classes/InvalidImageTypeError.ts: attualmente
 // non è lanciata da nessuna parte del codice reale (validateProductImageMiddleware
 // accoda oggetti semplici su req.validationErrors invece di lanciarla), ma è
 // comunque esportata come utility riusabile. Test minimo ma a costo
 // praticamente nullo, per fissarne il comportamento se/quando verrà usata.
-const InvalidImageTypeError = require('../classes/InvalidImageTypeError');
+import InvalidImageTypeError from '../classes/InvalidImageTypeError';
 
 describe('InvalidImageTypeError', () => {
   it('should be an instance of Error with the expected default message and name', () => {

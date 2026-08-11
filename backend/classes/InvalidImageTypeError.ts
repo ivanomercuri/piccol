@@ -10,4 +10,4 @@ class InvalidImageTypeError extends Error {
   }
 }
 
-module.exports = InvalidImageTypeError;
+export = InvalidImageTypeError;

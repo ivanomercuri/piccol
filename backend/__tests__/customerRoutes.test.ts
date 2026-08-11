@@ -1,14 +1,16 @@
 // Test end-to-end con supertest: qui non mockiamo nulla, la richiesta HTTP
-// attraversa davvero index.js (responseFormatter, express.json, il router
+// attraversa davvero index.ts (responseFormatter, express.json, il router
 // customer, express-validator, il controller, i services, il modello) fino
 // al DB di test reale. È l'unico modo per verificare che tutti questi pezzi,
 // testati singolarmente altrove, funzionino anche insieme.
-const request = require('supertest');
-const app = require('../index');
-const { Customer, sequelize } = require('../models');
+import request from 'supertest';
+import app from '../index';
+import models from '../models';
+
+const { Customer, sequelize } = models;
 
 describe('Customer routes', () => {
-  const emailsToClean = [];
+  const emailsToClean: string[] = [];
 
   afterAll(async () => {
     await Customer.destroy({ where: { email: emailsToClean } });
@@ -66,7 +68,7 @@ describe('Customer routes', () => {
 
       expect(Array.isArray(res.body.error)).toBe(true);
 
-      const fieldIds = res.body.error.map((e) => e.id);
+      const fieldIds = res.body.error.map((e: { id: string }) => e.id);
 
       expect(fieldIds).toEqual(
         expect.arrayContaining([
