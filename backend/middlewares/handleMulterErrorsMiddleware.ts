@@ -6,7 +6,7 @@ import multer from 'multer';
  * Se l'errore è un superamento dell'hard limit, lo contrassegna come "fatale"
  * per essere gestito in via prioritaria.
  */
-module.exports = (
+export = (
   err: unknown,
   req: Request,
   res: Response,

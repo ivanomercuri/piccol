@@ -1,13 +1,14 @@
-const express = require('express');
+import express from 'express';
+import { body } from 'express-validator';
+import { uploadImage } from '../middlewares/uploadMiddleware';
+import handleValidationErrors from '../middlewares/validationHandlerMiddleware';
+import validateProductImageMiddleware from '../middlewares/validateProductImageMiddleware';
+import authUserMiddleware from '../middlewares/authUserMiddleware';
+import handleMulterErrorsMiddleware from '../middlewares/handleMulterErrorsMiddleware';
+import checkNumberFilesMiddleware from '../middlewares/checkNumberFilesMiddleware';
+import * as productController from '../controllers/product/productController';
+
 const productRoutes = express.Router();
-const { uploadImage } = require('../middlewares/uploadMiddleware');
-const { body } = require('express-validator');
-const handleValidationErrors = require('../middlewares/validationHandlerMiddleware');
-const validateProductImageMiddleware = require('../middlewares/validateProductImageMiddleware');
-const authUserMiddleware = require('../middlewares/authUserMiddleware');
-const handleMulterErrorsMiddleware = require('../middlewares/handleMulterErrorsMiddleware');
-const checkNumberFilesMiddleware = require('../middlewares/checkNumberFilesMiddleware');
-const productController = require('../controllers/product/productController');
 
 // Middleware per la gestione e validazione dell'upload dell'immagine
 const imageUploadAndValidation = [
@@ -59,4 +60,4 @@ productRoutes.post(
   productController.createProduct
 );
 
-module.exports = productRoutes;
+export = productRoutes;

@@ -341,6 +341,43 @@ in ordine di importanza:
   lint pulito (solo il warning pre-esistente su `hardLimitMB` non usato in
   `handleMulterErrorsMiddleware.ts`, invariato dal file .js originale).
 
+**Fase 2.7 (`routes/`, `index.ts`, `server.ts`) — completata, ultima fase di conversione applicativa.**
+Convertiti i 5 file di route, `index.ts` e `server.ts`. Due scoperte rilevanti, entrambe con impatto oltre
+i soli file di questa fase:
+
+1. **`module.exports = X` "grezzo" (senza usare la parola chiave `export`) non viene riconosciuto da
+   TypeScript come export, nemmeno da un altro file `.ts`.** Praticamente tutti i controller/middleware
+   con un solo export a funzione, convertiti nelle Fasi 2.5/2.6, usavano questo pattern JS-style — mai
+   stato un problema finché venivano `require()`-ati solo da file `.js` ancora non convertiti (`require()`
+   grezzo non guarda i tipi). Il problema è emerso al primo file di questa fase (`routes/listRoutes.ts`
+   che importa `controllers/listRoutesController.ts`): né l'import con nome né quello di default
+   funzionavano, perché TypeScript non trattava affatto quel file come un modulo con export. **Corretto
+   retroattivamente in 10 file** (`controllers/listRoutesController.ts` e 9 file in `middlewares/`)
+   sostituendo `module.exports = X` con la sintassi TypeScript `export = X` — cambio **puramente
+   sintattico, zero impatto a runtime** (verificato: entrambe le forme compilano nello stesso identico
+   `module.exports = X` in output), necessario solo perché TypeScript possa riconoscere l'export quando
+   un altro file `.ts` prova a importarlo. Da qui in avanti, un modulo con un solo export a funzione/valore
+   userà sempre `export = X` (mai `module.exports = X` grezzo).
+2. **`nodemon` con un entry-point `.ts` attiva un suo meccanismo automatico di "ts-node detection"** che
+   sostituisce silenziosamente l'eseguibile lanciato da `node` al binario CLI di `ts-node` — che ha un suo
+   parser di argomenti separato e non riconosce flag nativi di Node come `--inspect`, facendo crashare il
+   container (`Error: Unknown or unexpected option: --inspect`) al primo avvio con `server.ts` come entry
+   point invece di `server.js`. Risolto forzando esplicitamente `nodemon --exec "node --inspect=... --require
+   ts-node/register/transpile-only" server.ts` in `package.json` → script `dev`, che bypassa il rilevamento
+   automatico di nodemon. Aggiornato anche il subpath import `#image-config` in `package.json` (puntava
+   ancora a `imageConfig.js`, non più esistente dopo la Fase 2.2 — inutilizzato nel codice, corretto per
+   coerenza dato che si stava già toccando il file).
+- Verificato con `docker compose run --rm test_backend` (28/28 verdi), avvio reale di `npm run dev` con
+  `server.ts`, e un round-trip HTTP completo: health-check, login superadmin, profilo, elenco prodotti,
+  404 su path inesistente, e riconferma esplicita che il bug di `errorMiddleware.ts` (Fase 2.6) si
+  comporta ancora esattamente come prima (JSON malformato → pagina HTML di Express, non la risposta JSON
+  documentata).
+
+**Con questa fase si chiude la migrazione di tutto il codice applicativo del backend a TypeScript**
+(`classes/`, `config/`, `models/`, `services/`, `controllers/`, `middlewares/`, `routes/`, `index.ts`,
+`server.ts`). Resta solo la Fase 3 (conversione dei test, `__tests__/*.test.js` → `.ts`), non ancora
+iniziata.
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST

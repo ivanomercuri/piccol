@@ -21,7 +21,7 @@ interface GroupedError {
   message: string | Array<{ filename: string; message: string }>;
 }
 
-module.exports = (req: Request, res: Response, next: NextFunction) => {
+export = (req: Request, res: Response, next: NextFunction) => {
   // Cast: gli oggetti reali restituiti da express-validator hanno più
   // campi/forme di MergedValidationError, ma tutti quelli che il codice
   // legge davvero (msg, path) sono presenti — isFatal/filename restano

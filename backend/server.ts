@@ -1,4 +1,5 @@
-const app = require('./index');
+import app from './index';
+
 const PORT = 5000;
 
 app.listen(PORT, () => {

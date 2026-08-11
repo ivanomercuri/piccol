@@ -138,7 +138,7 @@ function printRegisteredRoutes(routerStack: any[], parentPath = '') {
   });
 }
 
-module.exports = {
+export = {
   listRoutes: (req: Request, res: Response) => {
     if (process.env.SHOW_ROUTES !== 'true') {
       return res.error(403, 'Accesso negato');

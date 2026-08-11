@@ -34,7 +34,7 @@ const cleanupFiles = (files: Express.Multer.File[]) => {
   }
 };
 
-module.exports = async (req: Request, res: Response, next: NextFunction) => {
+export = async (req: Request, res: Response, next: NextFunction) => {
   if (req.validationErrors && req.validationErrors.length > 0 && !req.files) {
     return next();
   }

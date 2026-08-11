@@ -1,10 +1,11 @@
-const express = require('express');
-const { body } = require('express-validator');
+import express from 'express';
+import { body } from 'express-validator';
+import * as authUserController from '../controllers/user/authUserController';
+import * as profileUserController from '../controllers/user/profileUserController';
+import authUserMiddleware from '../middlewares/authUserMiddleware';
+import handleValidationErrors from '../middlewares/validationHandlerMiddleware';
+
 const router = express.Router();
-const authUserController = require('../controllers/user/authUserController');
-const profileUserController = require('../controllers/user/profileUserController');
-const authUserMiddleware = require('../middlewares/authUserMiddleware');
-const handleValidationErrors = require('../middlewares/validationHandlerMiddleware');
 
 router.get(
   '/',
@@ -58,4 +59,4 @@ router.patch(
 
 router.post('/logout', authUserMiddleware, profileUserController.logout);
 
-module.exports = router;
+export = router;

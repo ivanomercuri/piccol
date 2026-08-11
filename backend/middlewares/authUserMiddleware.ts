@@ -4,7 +4,7 @@ import models from '../models';
 
 const { User } = models;
 
-module.exports = async (req: Request, res: Response, next: NextFunction) => {
+export = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {

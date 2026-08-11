@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 
-module.exports = function checkNumberFiles(
+export = function checkNumberFiles(
   field: string,
   max: number | null,
   customMessage: string | null = null

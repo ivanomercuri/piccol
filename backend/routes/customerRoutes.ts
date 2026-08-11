@@ -1,8 +1,9 @@
-const express = require('express');
-const { body } = require('express-validator');
+import express from 'express';
+import { body } from 'express-validator';
+import * as authCustomerController from '../controllers/customer/authCustomerController';
+import handleValidationErrors from '../middlewares/validationHandlerMiddleware';
+
 const router = express.Router();
-const authCustomerController = require('../controllers/customer/authCustomerController');
-const handleValidationErrors = require('../middlewares/validationHandlerMiddleware');
 
 router.get('/', (req, res) => {
   res.success('𝕴𝖙 𝖂𝖔𝖗𝖐𝖘!');
@@ -31,4 +32,4 @@ router.post(
   authCustomerController.login
 );
 
-module.exports = router;
+export = router;

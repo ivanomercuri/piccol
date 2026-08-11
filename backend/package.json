@@ -2,14 +2,14 @@
   "name": "express-backend",
   "version": "1.0.0",
   "scripts": {
-    "dev": "nodemon --inspect=0.0.0.0:9229 --ext js,ts,json --require ts-node/register/transpile-only server.js",
+    "dev": "nodemon --ext js,ts,json --exec \"node --inspect=0.0.0.0:9229 --require ts-node/register/transpile-only\" server.ts",
     "pretest": "NODE_ENV=test sequelize-cli db:create && NODE_ENV=test sequelize-cli db:migrate",
     "test": "NODE_ENV=test jest",
     "lint": "eslint . --fix",
     "type-check": "tsc --noEmit"
   },
   "imports": {
-    "#image-config": "./config/imageConfig.js"
+    "#image-config": "./config/imageConfig.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
