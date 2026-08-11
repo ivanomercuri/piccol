@@ -408,6 +408,23 @@ valore presente (come nel file .js originale, nessun nuovo controllo aggiunto); 
 `attributes` come `Partial<Record<keyof AuthCompatibleAttributes, object>>`. Verificato con `docker
 compose run --rm test_backend`: 28/28 verdi.
 
+**Gruppo controllers (`listRoutesController`, `authUserController`, `profileUserController`,
+`authCustomerController`, `productController` `.test.js` → `.ts`) — completato.** Stesso tipo di attrito
+del gruppo services, ma sul lato `req`/`res` invece che sul modello: i controller sono tipizzati
+`(req: Request, res: Response)` (Fase 2.5), ma questi test passano oggetti letterali minimali (`{
+success: jest.fn(), error: jest.fn() }`, `{ user: {...} }`), non veri oggetti Express. Stesso rimedio:
+`as unknown as Request` / `as unknown as Response` a ogni mock, nessuna logica toccata. Altri punti:
+- `jest.mock('../models', () => ({ User: {} }))` (e varianti per `Customer`/`Product`) continua a
+  funzionare con l'`import models from '../models'` di default (Fase 2.5): verificato **anche a runtime**,
+  non solo a compile-time, perché l'interazione `export = db` + `jest.mock` + `esModuleInterop` non era
+  stata ancora provata concretamente — un mock CJS grezzo (senza `__esModule`) viene avvolto
+  automaticamente da `__importDefault` esattamente come il modulo reale.
+- `authenticate`/`registerEntity` mockati (`jest.mock('../services/...')`) restano tipizzati con la loro
+  firma reale a compile-time anche se sostituiti a runtime: `.mockResolvedValue()`/`.mockRejectedValue()`
+  richiedono un cast `as jest.Mock` per essere chiamabili. Non serve invece per `Product.findAll` in
+  `productController.test.ts`, perché `Product` arriva già `any` da `models/index.ts`.
+- Verificato con `docker compose run --rm test_backend`: 28/28 verdi.
+
 ## Su cosa NON abbiamo lavorato / cosa resta aperto
 
 Il pezzo più grande e già noto (vedi `CLAUDE.md` → "Parte nota come incompleta"): **`POST

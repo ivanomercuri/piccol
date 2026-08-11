@@ -1,11 +1,13 @@
-const {
+import { Request, Response } from 'express';
+import {
   getProfileUser,
   updateProfileUser,
-} = require('../controllers/user/profileUserController');
+} from '../controllers/user/profileUserController';
+
 const res = {
   success: jest.fn(),
   error: jest.fn(),
-};
+} as unknown as Response;
 
 describe('getProfileUser', () => {
   beforeEach(() => {
@@ -13,7 +15,9 @@ describe('getProfileUser', () => {
   });
 
   it('returns user data if present', () => {
-    const req = { user: { id: 1, name: 'Mario', email: 'mario@example.com' } };
+    const req = {
+      user: { id: 1, name: 'Mario', email: 'mario@example.com' },
+    } as unknown as Request;
 
     getProfileUser(req, res);
 
@@ -27,11 +31,11 @@ describe('getProfileUser', () => {
   });
 
   it('returns 401 error if user not present', () => {
-    const req = {};
+    const req = {} as unknown as Request;
     const res = {
       success: jest.fn(),
       error: jest.fn(),
-    };
+    } as unknown as Response;
 
     getProfileUser(req, res);
 
@@ -49,13 +53,13 @@ describe('getProfileUser', () => {
         save: jest.fn().mockResolvedValue(true),
       },
       body: { name: 'Luigi', email: 'luigi@example.com' },
-    };
+    } as unknown as Request;
 
     await updateProfileUser(req, res);
 
-    expect(req.user.name).toBe('Luigi');
+    expect(req.user!.name).toBe('Luigi');
 
-    expect(req.user.email).toBe('luigi@example.com');
+    expect(req.user!.email).toBe('luigi@example.com');
 
     expect(res.success).toHaveBeenCalledWith({
       id: 1,
@@ -75,13 +79,13 @@ describe('getProfileUser', () => {
         save: jest.fn().mockResolvedValue(true),
       },
       body: {},
-    };
+    } as unknown as Request;
 
     await updateProfileUser(req, res);
 
-    expect(req.user.name).toBe('Mario');
+    expect(req.user!.name).toBe('Mario');
 
-    expect(req.user.email).toBe('mario@example.com');
+    expect(req.user!.email).toBe('mario@example.com');
 
     expect(res.success).toHaveBeenCalledWith({
       id: 1,
@@ -101,13 +105,13 @@ describe('getProfileUser', () => {
         save: jest.fn().mockResolvedValue(true),
       },
       body: { name: 'Luigi' },
-    };
+    } as unknown as Request;
 
     await updateProfileUser(req, res);
 
-    expect(req.user.name).toBe('Luigi');
+    expect(req.user!.name).toBe('Luigi');
 
-    expect(req.user.email).toBe('mario@example.com');
+    expect(req.user!.email).toBe('mario@example.com');
 
     expect(res.success).toHaveBeenCalledWith({
       id: 1,
@@ -127,13 +131,13 @@ describe('getProfileUser', () => {
         save: jest.fn().mockResolvedValue(true),
       },
       body: { email: 'luigi@example.com' },
-    };
+    } as unknown as Request;
 
     await updateProfileUser(req, res);
 
-    expect(req.user.name).toBe('Mario');
+    expect(req.user!.name).toBe('Mario');
 
-    expect(req.user.email).toBe('luigi@example.com');
+    expect(req.user!.email).toBe('luigi@example.com');
 
     expect(res.success).toHaveBeenCalledWith({
       id: 1,
@@ -153,7 +157,7 @@ describe('getProfileUser', () => {
         save: jest.fn().mockRejectedValue(new Error('DB error')),
       },
       body: { name: 'Luigi', email: 'luigi@example.com' },
-    };
+    } as unknown as Request;
 
     await updateProfileUser(req, res);
 

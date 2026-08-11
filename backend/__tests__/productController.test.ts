@@ -2,16 +2,20 @@
 // contenga l'unica logica di autorizzazione "per riga" di tutto il progetto
 // (admin vede solo i propri prodotti, superadmin li vede tutti). Mockiamo il
 // modello Product per non dipendere da un DB reale.
+import { Request, Response } from 'express';
+
 jest.mock('../models', () => ({ Product: { findAll: jest.fn() } }));
 
-const { Product } = require('../models');
-const productController = require('../controllers/product/productController');
+import models from '../models';
+import * as productController from '../controllers/product/productController';
+
+const { Product } = models;
 
 describe('productController.getProducts', () => {
-  let res;
+  let res: Response;
 
   beforeEach(() => {
-    res = { success: jest.fn(), error: jest.fn() };
+    res = { success: jest.fn(), error: jest.fn() } as unknown as Response;
 
     jest.clearAllMocks();
   });
@@ -21,7 +25,9 @@ describe('productController.getProducts', () => {
 
     Product.findAll.mockResolvedValue(fakeProducts);
 
-    const req = { user: { id: 99, level: 'superadmin' } };
+    const req = {
+      user: { id: 99, level: 'superadmin' },
+    } as unknown as Request;
 
     await productController.getProducts(req, res);
 
@@ -36,7 +42,7 @@ describe('productController.getProducts', () => {
 
     Product.findAll.mockResolvedValue(fakeProducts);
 
-    const req = { user: { id: 7, level: 'admin' } };
+    const req = { user: { id: 7, level: 'admin' } } as unknown as Request;
 
     await productController.getProducts(req, res);
 
@@ -49,7 +55,7 @@ describe('productController.getProducts', () => {
     // Non dovrebbe essere raggiungibile con l'enum attuale del modello User
     // (solo admin/superadmin), ma il controller lo gestisce esplicitamente:
     // verifichiamo che in quel caso non parta nemmeno una query.
-    const req = { user: { id: 1, level: 'customer' } };
+    const req = { user: { id: 1, level: 'customer' } } as unknown as Request;
 
     await productController.getProducts(req, res);
 
@@ -67,7 +73,9 @@ describe('productController.getProducts', () => {
 
     Product.findAll.mockRejectedValue(err);
 
-    const req = { user: { id: 1, level: 'superadmin' } };
+    const req = {
+      user: { id: 1, level: 'superadmin' },
+    } as unknown as Request;
 
     await productController.getProducts(req, res);
 
@@ -83,9 +91,12 @@ describe('productController.createProduct', () => {
     // implementato davvero, questo test fallirà — è il segnale voluto che
     // qualcosa è cambiato e va aggiornato, non un test da "correggere" alla
     // leggera.
-    const res = { success: jest.fn(), error: jest.fn() };
+    const res = { success: jest.fn(), error: jest.fn() } as unknown as Response;
 
-    await productController.createProduct({ body: {}, files: [] }, res);
+    await productController.createProduct(
+      { body: {}, files: [] } as unknown as Request,
+      res
+    );
 
     expect(res.success).toHaveBeenCalledWith({});
 

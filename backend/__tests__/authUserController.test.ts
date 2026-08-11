@@ -4,6 +4,8 @@
 // services e il modello User: qui vogliamo verificare solo il "cablaggio"
 // del controller (con che argomenti chiama i services, come traduce il loro
 // risultato in res.success/res.error), non la logica di autenticazione in sé.
+import { Request, Response } from 'express';
+
 jest.mock('../models', () => ({ User: {} }));
 
 jest.mock('../services/authService', () => ({ authenticate: jest.fn() }));
@@ -12,26 +14,29 @@ jest.mock('../services/registerService', () => ({
   registerEntity: jest.fn(),
 }));
 
-const { User } = require('../models');
-const { authenticate } = require('../services/authService');
-const { registerEntity } = require('../services/registerService');
-const authUserController = require('../controllers/user/authUserController');
+import models from '../models';
+import { authenticate } from '../services/authService';
+import { registerEntity } from '../services/registerService';
+import * as authUserController from '../controllers/user/authUserController';
+
+const { User } = models;
 
 describe('authUserController.register', () => {
-  let req, res;
+  let req: Request;
+  let res: Response;
 
   beforeEach(() => {
     req = {
       body: { name: 'Mario', email: 'mario@example.com', password: 'pw' },
-    };
+    } as unknown as Request;
 
-    res = { success: jest.fn(), error: jest.fn() };
+    res = { success: jest.fn(), error: jest.fn() } as unknown as Response;
 
     jest.clearAllMocks();
   });
 
   it('should register the user against the User model and return the token', async () => {
-    registerEntity.mockResolvedValue('a-jwt-token');
+    (registerEntity as jest.Mock).mockResolvedValue('a-jwt-token');
 
     await authUserController.register(req, res);
 
@@ -48,7 +53,9 @@ describe('authUserController.register', () => {
   });
 
   it('should return a 500 error if registerEntity throws (e.g. duplicate email)', async () => {
-    registerEntity.mockRejectedValue(new Error('Duplicate entry'));
+    (registerEntity as jest.Mock).mockRejectedValue(
+      new Error('Duplicate entry')
+    );
 
     await authUserController.register(req, res);
 
@@ -59,18 +66,24 @@ describe('authUserController.register', () => {
 });
 
 describe('authUserController.login', () => {
-  let req, res;
+  let req: Request;
+  let res: Response;
 
   beforeEach(() => {
-    req = { body: { email: 'mario@example.com', password: 'pw' } };
+    req = {
+      body: { email: 'mario@example.com', password: 'pw' },
+    } as unknown as Request;
 
-    res = { success: jest.fn(), error: jest.fn() };
+    res = { success: jest.fn(), error: jest.fn() } as unknown as Response;
 
     jest.clearAllMocks();
   });
 
   it('should return the token on successful authentication', async () => {
-    authenticate.mockResolvedValue({ success: true, token: 'a-jwt-token' });
+    (authenticate as jest.Mock).mockResolvedValue({
+      success: true,
+      token: 'a-jwt-token',
+    });
 
     await authUserController.login(req, res);
 
@@ -84,7 +97,7 @@ describe('authUserController.login', () => {
   });
 
   it('should return a 401 with the service message when authentication fails', async () => {
-    authenticate.mockResolvedValue({
+    (authenticate as jest.Mock).mockResolvedValue({
       success: false,
       message: 'Password errata',
     });
@@ -97,7 +110,7 @@ describe('authUserController.login', () => {
   });
 
   it('should return a 500 error if authenticate throws unexpectedly', async () => {
-    authenticate.mockRejectedValue(new Error('DB down'));
+    (authenticate as jest.Mock).mockRejectedValue(new Error('DB down'));
 
     await authUserController.login(req, res);
 

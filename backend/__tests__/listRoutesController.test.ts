@@ -3,7 +3,10 @@
 // cui la risposta HTTP è sempre un array vuoto anche quando la route è
 // abilitata: l'elenco route viene solo stampato su console, mai restituito
 // nel body (vedi backend/docs/API.md).
-const { listRoutes } = require('../controllers/listRoutesController');
+import { Request, Response } from 'express';
+import listRoutesController from '../controllers/listRoutesController';
+
+const { listRoutes } = listRoutesController;
 
 describe('listRoutesController.listRoutes', () => {
   const originalShowRoutes = process.env.SHOW_ROUTES;
@@ -17,9 +20,12 @@ describe('listRoutesController.listRoutes', () => {
   it('should return 403 when SHOW_ROUTES is not exactly "true"', () => {
     process.env.SHOW_ROUTES = 'false';
 
-    const res = { success: jest.fn(), error: jest.fn() };
+    const res = { success: jest.fn(), error: jest.fn() } as unknown as Response;
 
-    listRoutes({ app: { router: { stack: [] } } }, res);
+    listRoutes(
+      { app: { router: { stack: [] } } } as unknown as Request,
+      res
+    );
 
     expect(res.error).toHaveBeenCalledWith(403, 'Accesso negato');
 
@@ -29,9 +35,12 @@ describe('listRoutesController.listRoutes', () => {
   it('should return 403 when SHOW_ROUTES is unset', () => {
     delete process.env.SHOW_ROUTES;
 
-    const res = { success: jest.fn(), error: jest.fn() };
+    const res = { success: jest.fn(), error: jest.fn() } as unknown as Response;
 
-    listRoutes({ app: { router: { stack: [] } } }, res);
+    listRoutes(
+      { app: { router: { stack: [] } } } as unknown as Request,
+      res
+    );
 
     expect(res.error).toHaveBeenCalledWith(403, 'Accesso negato');
   });
@@ -42,7 +51,7 @@ describe('listRoutesController.listRoutes', () => {
     // anche in quel caso, res.success viene comunque chiamato con [].
     process.env.SHOW_ROUTES = 'true';
 
-    const res = { success: jest.fn(), error: jest.fn() };
+    const res = { success: jest.fn(), error: jest.fn() } as unknown as Response;
 
     const fakeRouterStack = [
       {
@@ -53,7 +62,10 @@ describe('listRoutesController.listRoutes', () => {
       },
     ];
 
-    listRoutes({ app: { router: { stack: fakeRouterStack } } }, res);
+    listRoutes(
+      { app: { router: { stack: fakeRouterStack } } } as unknown as Request,
+      res
+    );
 
     expect(res.success).toHaveBeenCalledWith([]);
 
@@ -67,22 +79,23 @@ describe('listRoutesController.listRoutes', () => {
     // console.debug e non è osservabile dalla risposta HTTP.
     process.env.SHOW_ROUTES = 'true';
 
-    const res = { success: jest.fn(), error: jest.fn() };
+    const res = { success: jest.fn(), error: jest.fn() } as unknown as Response;
 
     const nestedRouterStack = [
       {
         name: 'router',
         path: '/admin',
         handle: {
-          stack: [
-            { route: { path: '/user', stack: [{ method: 'get' }] } },
-          ],
+          stack: [{ route: { path: '/user', stack: [{ method: 'get' }] } }],
         },
       },
     ];
 
     expect(() =>
-      listRoutes({ app: { router: { stack: nestedRouterStack } } }, res)
+      listRoutes(
+        { app: { router: { stack: nestedRouterStack } } } as unknown as Request,
+        res
+      )
     ).not.toThrow();
 
     expect(res.success).toHaveBeenCalledWith([]);
