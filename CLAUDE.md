@@ -19,6 +19,18 @@ branch descrittivi, commenti su PR/issue), scrivi il testo **esclusivamente in i
 per i testi rivolti a chi legge la cronologia Git/GitHub — codice e commenti nel codice restano in inglese
 come da convenzione del progetto (vedi sotto).
 
+## Stile delle risposte in chat
+
+Il proprietario del progetto sta studiando attivamente il codice TypeScript generato (obiettivo:
+portfolio per colloqui di lavoro), proviene da un background PHP 8 — quando introduci pattern non
+banali o scelte architetturali non ovvie, in particolare costrutti TypeScript senza equivalente
+diretto in PHP, spiega brevemente il *perché* nella risposta, non solo nel codice.
+
+Quando spieghi codice in prosa discorsiva (non blocchi di codice), evita di racchiudere ogni
+singolo identificatore, variabile, tipo o proprietà citato tra backtick singoli — scrivili in
+testo normale all'interno della frase. Riserva i backtick/blocchi di codice (```...```) solo per
+estratti di codice veri e propri, non per nominare elementi dentro una frase discorsiva.
+
 ## Commenti nel codice
 
 Quando implementi nuova funzionalità (non solo piccoli fix), commenta il codice in modo **verboso e
