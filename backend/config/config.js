@@ -17,13 +17,13 @@ require('dotenv').config({
 // leggibile, sia in fase di CLI (migrate/seed) sia all'avvio dell'app.
 if (!process.env.DB_ROOT_PASSWORD) {
   throw new Error(
-    "Variabile d'ambiente DB_ROOT_PASSWORD mancante. Configurala in .env prima di continuare."
+    'Missing DB_ROOT_PASSWORD environment variable. Set it in .env before continuing.'
   );
 }
 
 if (!process.env.DB_NAME) {
   throw new Error(
-    "Variabile d'ambiente DB_NAME mancante. Configurala in .env prima di continuare."
+    'Missing DB_NAME environment variable. Set it in .env before continuing.'
   );
 }
 

@@ -10,7 +10,7 @@ const PORT = Number(rawPort);
 
 if (!rawPort || Number.isNaN(PORT)) {
   console.error(
-    "Variabile d'ambiente PORT mancante o non valida. Configurala in .env prima di avviare il server."
+    'Missing or invalid PORT environment variable. Set it in .env before starting the server.'
   );
 
   process.exit(1);

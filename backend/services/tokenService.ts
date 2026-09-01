@@ -12,13 +12,13 @@ import jwt, { SignOptions } from 'jsonwebtoken';
 // login con un errore criptico di jsonwebtoken.
 if (!process.env.JWT_SECRET) {
   throw new Error(
-    "Variabile d'ambiente JWT_SECRET mancante. Configurala in .env prima di avviare l'app."
+    'Missing JWT_SECRET environment variable. Set it in .env before starting the app.'
   );
 }
 
 if (!process.env.JWT_EXPIRES_IN) {
   throw new Error(
-    "Variabile d'ambiente JWT_EXPIRES_IN mancante. Configurala in .env prima di avviare l'app."
+    'Missing JWT_EXPIRES_IN environment variable. Set it in .env before starting the app.'
   );
 }
 
