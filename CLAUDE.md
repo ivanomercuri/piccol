@@ -79,14 +79,23 @@ npx sequelize-cli db:migrate
 npx sequelize-cli db:seed:all
 ```
 
-Variabili d'ambiente richieste (vedi `backend/.env.example`): `PORT` (porta di ascolto del server, letta
-in `server.ts` — se assente ricade sul default `5000`, che deve restare coerente con la mappatura di
-`docker-compose.yml` e l'`EXPOSE` nel Dockerfile, dato che Docker non legge `.env` per conto proprio),
-`JWT_SECRET`, `JWT_EXPIRES_IN` (durata dei token, formato `jsonwebtoken` es. `1h`/`7d` — se assente ricade
-sul default `1h` in `services/tokenService.js`), `SHOW_ROUTES`, `MAX_FILE_SIZE` (MB, limite di business per
-le immagini caricate), `MAX_FILE_HARD_SIZE` (MB, limite hard di multer — attualmente hardcoded a 10 in
+Variabili d'ambiente richieste (vedi `.env.example` alla radice del repo — `.env`/`.env.example` vivono lì,
+non in `backend/`, apposta per essere un unico file letto sia da Docker Compose per interpolare
+`docker-compose.yml` sia dall'app Node, vedi sotto): `PORT` (porta di ascolto del server, letta in
+`server.ts` — se assente ricade sul default `5000`), `JWT_SECRET`, `JWT_EXPIRES_IN` (durata dei token,
+formato `jsonwebtoken` es. `1h`/`7d` — se assente ricade sul default `1h` in `services/tokenService.js`),
+`SHOW_ROUTES`, `MAX_FILE_SIZE` (MB, limite di business per le immagini caricate), `MAX_FILE_HARD_SIZE` (MB,
+limite hard di multer — attualmente hardcoded a 10 in
 `uploadMiddleware.js`/`handleMulterErrorsMiddleware.js` invece di essere letto realmente da questa
 variabile).
+
+`docker-compose.yml` legge lo stesso `.env` in due modi complementari: lo interpola direttamente nel file
+YAML (es. la mappatura delle porte del servizio `backend` è `"5001:${PORT:-5000}"`, non più un numero
+fisso) e lo inietta come variabili d'ambiente reali nel container tramite `env_file`, così l'app Node lo
+trova in `process.env` a prescindere dal fatto che `backend/` (l'unica cartella montata nel container) non
+contenga più `.env`. `backend/index.ts` punta comunque esplicitamente al nuovo percorso
+(`path.resolve(__dirname, '..', '.env')`) come rete di sicurezza per un'eventuale esecuzione diretta
+sull'host, fuori da Docker.
 
 ## Architettura
 

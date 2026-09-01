@@ -46,18 +46,28 @@ services:
     container_name: express-backend
     user: "1000:1000"
     ports:
-      - "5001:5000"
+      # ${PORT:-5000} interpolato da Compose leggendo .env alla radice del
+      # repo (stesso file letto dall'app Node): se cambi PORT lì, la
+      # mappatura si aggiorna da sola, invece di dover coordinare a mano un
+      # secondo numero qui.
+      - "5001:${PORT:-5000}"
       - "9229:9229"
     volumes:
       - ./backend:/app
       - /app/node_modules
+    env_file:
+      # Inietta le variabili di .env (PORT, JWT_SECRET, ecc.) direttamente
+      # nell'ambiente del container: l'app Node le trova già in
+      # process.env all'avvio, senza dipendere dal fatto che backend/ (unico
+      # percorso montato nel container) contenga anche .env.
+      - ./.env
     environment:
       - DB_HOST=db
       - DB_USER=user
       - DB_PASSWORD=password
       - DB_NAME=mydatabase
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:5000/" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:${PORT:-5000}/" ]
     depends_on:
       db:
         condition: service_healthy
@@ -67,6 +77,8 @@ services:
     volumes:
       - ./backend:/app
       - /app/node_modules
+    env_file:
+      - ./.env
     command: [ "npm", "run", "test" ]
     depends_on:
       db:

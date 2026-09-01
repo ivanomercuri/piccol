@@ -1,6 +1,16 @@
 import dotenv from 'dotenv';
+import path from 'path';
 
-dotenv.config();
+// .env vive alla radice del repo (accanto a docker-compose.yml), non più
+// in backend/: è lo stesso identico file che Docker Compose legge per
+// interpolare docker-compose.yml (es. PORT nella mappatura delle porte).
+// Un percorso esplicito basato su __dirname, invece del default di dotenv
+// (che cerca .env nella cwd), funziona a prescindere da dove viene lanciato
+// il processo. Dentro Docker questo per lo più non trova nulla da caricare
+// (la cartella non è montata) e non è un problema: le stesse variabili
+// arrivano già iniettate nel processo da `env_file` in docker-compose.yml,
+// e dotenv non sovrascrive mai variabili già presenti in process.env.
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 import express from 'express';
 import cors from 'cors';
