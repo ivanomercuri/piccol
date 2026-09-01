@@ -1,18 +1,24 @@
 import fs from 'fs';
 import path from 'path';
 import { Sequelize, Options, DataTypes } from 'sequelize';
-import configFile from '../config/config.json';
+// require() invece di import: config.js è un file .js CommonJS eseguito
+// anche da Sequelize CLI fuori dalla pipeline ts-node (vedi .sequelizerc),
+// e legge da .env con la propria chiamata a dotenv — non un modulo TS
+// tipizzato da importare in modo statico.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const configFile = require('../config/config.js');
 
 const basename = path.basename(__filename);
 const env = process.env.NODE_ENV || 'development';
 
-// Cast esplicito: il JSON importato non garantisce a livello di tipi che
-// `dialect` sia esattamente il literal `"mysql"` richiesto da Sequelize
-// (resta un generico `string` per TypeScript), quindi il cast è necessario
-// — il valore reale a runtime è invariato rispetto al file .js originale.
+// Cast esplicito: config.js non garantisce a livello di tipi che `dialect`
+// sia esattamente il literal `"mysql"` richiesto da Sequelize (resta un
+// generico `string` per TypeScript, dato che require() di un file .js non
+// tipizzato risolve a `any`), quindi il cast è necessario — il valore reale
+// a runtime è invariato rispetto al file .js originale.
 // `use_env_variable` non fa parte di `Options` (è una convenzione di
 // sequelize-cli, non della classe Sequelize): il blocco attuale di
-// config.json non la usa, ma il ramo sotto la gestisce comunque per
+// config.js non la usa, ma il ramo sotto la gestisce comunque per
 // generalità, come nel file .js originale.
 const config = (configFile as Record<string, Options & { use_env_variable?: string }>)[
   env

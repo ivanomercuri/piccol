@@ -3,8 +3,15 @@ services:
     image: mysql:8.0
     container_name: mysql-db
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: mydatabase
+      # Interpolati da Compose leggendo .env alla radice del repo: stessi
+      # valori usati da backend/config/config.js per connettersi qui via
+      # Sequelize, invece di due copie indipendenti della stessa password.
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-mydatabase}
+      # Utente secondario creato da MySQL ma non usato da nessun percorso
+      # applicativo reale (Sequelize si connette come root, vedi
+      # config.js): lasciato hardcoded di proposito, non è duplicato da
+      # nessun'altra parte dopo la ripulitura di questa sessione.
       MYSQL_USER: user
       MYSQL_PASSWORD: password
     ports:
@@ -12,7 +19,7 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_ROOT_PASSWORD:-rootpassword}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -62,10 +69,16 @@ services:
       # percorso montato nel container) contenga anche .env.
       - ./.env
     environment:
+      # Legato al nome del servizio "db" nella rete Docker interna, non a
+      # una scelta di configurazione: resta letterale, come PMA_HOST sopra
+      # per phpmyadmin. DB_USER/DB_PASSWORD/DB_NAME sono state rimosse da
+      # qui: erano una terza copia delle credenziali, usata solo dallo stub
+      # non montato controllers/exampleController.ts, mai da un percorso
+      # applicativo reale (Sequelize legge invece da config/config.js). Se
+      # in futuro exampleController.ts viene davvero collegato a una route,
+      # le sue variabili andranno ripensate insieme a quel lavoro, non
+      # duplicate qui "per sicurezza".
       - DB_HOST=db
-      - DB_USER=user
-      - DB_PASSWORD=password
-      - DB_NAME=mydatabase
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:${PORT:-5000}/" ]
     depends_on:

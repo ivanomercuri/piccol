@@ -56,7 +56,7 @@ npm run lint    # eslint . --fix
 
 `npm test` esegue prima uno script `pretest` che crea (se non esiste già) e migra automaticamente un
 database di test separato, `mydatabase_test` (stesso host/credenziali di `development`, vedi
-`config/config.json` blocco `test`) — necessario perché parte della suite (vedi sotto) parla con un DB
+`config/config.js` blocco `test`) — necessario perché parte della suite (vedi sotto) parla con un DB
 reale, non mockato. Va eseguito con accesso al servizio `db` di Docker Compose (es. da dentro il container
 `backend`), non funziona dalla macchina host se `db` non è risolvibile.
 
@@ -69,8 +69,11 @@ docker compose run --rm test_backend   # esegue `npm test` in un container contr
 ```
 
 L'host del DB è `db` dentro Docker, `localhost` dalla macchina host, porta `3306`. La config Sequelize è in
-`backend/config/config.json`: blocco `development` (`mydatabase`) e blocco `test` (`mydatabase_test`),
-stesso host/credenziali (root/rootpassword) per entrambi.
+`backend/config/config.js` (non più `.json`: legge `DB_ROOT_PASSWORD`/`DB_NAME` dal `.env` alla radice del
+repo invece di avere le credenziali hardcoded, con `backend/.sequelizerc` che dice a Sequelize CLI di
+usare questo file al posto del default `config.json`): blocco `development` (`mydatabase`) e blocco `test`
+(`mydatabase_test`, calcolato come `${DB_NAME}_test`), stesso host/credenziali (root/`DB_ROOT_PASSWORD`)
+per entrambi.
 
 Sequelize CLI (da eseguire da `backend/`):
 

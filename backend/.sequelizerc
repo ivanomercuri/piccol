@@ -1,0 +1,12 @@
+// Necessario perché Sequelize CLI cerca di default config/config.json:
+// senza questo file continuerebbe a ignorare config.js (vedi CHECKPOINT.md,
+// che segnalava esplicitamente l'assenza di un .sequelizerc come motivo per
+// cui config/ era rimasto fuori dalla migrazione a TypeScript).
+const path = require('path');
+
+module.exports = {
+  config: path.resolve('config', 'config.js'),
+  'models-path': path.resolve('models'),
+  'migrations-path': path.resolve('migrations'),
+  'seeders-path': path.resolve('seeders'),
+};
