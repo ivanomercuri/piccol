@@ -68,6 +68,14 @@ docker compose up            # db, phpmyadmin (8080), backend (5001->5000, debug
 docker compose run --rm test_backend   # esegue `npm test` in un container contro il db dockerizzato
 ```
 
+Le porte pubblicate sull'host mostrate sopra sono i default: ognuna è configurabile via `.env`
+(`DB_HOST_PORT`, `PHPMYADMIN_HOST_PORT`, `BACKEND_HOST_PORT`, `BACKEND_DEBUG_PORT`, `FRONTEND_HOST_PORT`),
+utile se una di queste è già occupata da un altro servizio sulla tua macchina. Le porte *interne* ai
+container (il lato destro di ogni mappatura in `docker-compose.yml`, tranne `PORT` per il backend) restano
+invece letterali di proposito: sono intrinseche alle immagini (MySQL ascolta sempre su 3306 dentro al suo
+container, nginx di phpMyAdmin su 80) e cambiarle richiederebbe riconfigurare il servizio stesso, non solo
+la mappatura.
+
 L'host del DB è `db` dentro Docker, `localhost` dalla macchina host, porta `3306`. La config Sequelize è in
 `backend/config/config.js` (non più `.json`: legge `DB_ROOT_PASSWORD`/`DB_NAME` dal `.env` alla radice del
 repo invece di avere le credenziali hardcoded, con `backend/.sequelizerc` che dice a Sequelize CLI di
