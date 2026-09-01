@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt, { JwtPayload } from 'jsonwebtoken';
 import models from '../models';
+import { JWT_SECRET } from '../services/tokenService';
 
 const { User } = models;
 
@@ -21,10 +22,8 @@ export = async (req: Request, res: Response, next: NextFunction) => {
     // stringa, non oggetto) oltre a JwtPayload — qui non è mai stato
     // controllato, si è sempre assunto un payload oggetto con `.id`
     // (coerente con come signToken lo firma in services/tokenService.ts).
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET as string
-    ) as JwtPayload;
+    // JWT_SECRET arriva già validato da tokenService (nessun cast qui).
+    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
 
     const user = await User.findOne({ where: { id: decoded.id } });
 

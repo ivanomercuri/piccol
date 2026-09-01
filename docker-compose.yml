@@ -6,8 +6,8 @@ services:
       # Interpolati da Compose leggendo .env alla radice del repo: stessi
       # valori usati da backend/config/config.js per connettersi qui via
       # Sequelize, invece di due copie indipendenti della stessa password.
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
-      MYSQL_DATABASE: ${DB_NAME:-mydatabase}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD mancante in .env}
+      MYSQL_DATABASE: ${DB_NAME:?DB_NAME mancante in .env}
       # Utente secondario creato da MySQL ma non usato da nessun percorso
       # applicativo reale (Sequelize si connette come root, vedi
       # config.js): lasciato hardcoded di proposito, non è duplicato da
@@ -18,11 +18,11 @@ services:
       # Solo il lato host (sinistra) è configurabile: 3306 dentro al
       # container è intrinseco all'immagine mysql, cambiarlo richiederebbe
       # riconfigurare il server MySQL stesso, non solo questa mappatura.
-      - "${DB_HOST_PORT:-3306}:3306"
+      - "${DB_HOST_PORT:?DB_HOST_PORT mancante in .env}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_ROOT_PASSWORD:-rootpassword}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD mancante in .env}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -39,7 +39,7 @@ services:
       - PUID=1000
       - PGID=1000
     ports:
-      - "${PHPMYADMIN_HOST_PORT:-8080}:80"
+      - "${PHPMYADMIN_HOST_PORT:?PHPMYADMIN_HOST_PORT mancante in .env}:80"
     volumes:
       - ./configs/config.user.inc.php:/config/phpmyadmin/config.user.inc.php
     healthcheck:
@@ -61,8 +61,8 @@ services:
       # tua macchina", PORT è "su quale porta ascolta l'app dentro il
       # container" (già letta da server.ts) — due concetti distinti che
       # possono cambiare indipendentemente.
-      - "${BACKEND_HOST_PORT:-5001}:${PORT:-5000}"
-      - "${BACKEND_DEBUG_PORT:-9229}:9229"
+      - "${BACKEND_HOST_PORT:?BACKEND_HOST_PORT mancante in .env}:${PORT:?PORT mancante in .env}"
+      - "${BACKEND_DEBUG_PORT:?BACKEND_DEBUG_PORT mancante in .env}:9229"
     volumes:
       - ./backend:/app
       - /app/node_modules
@@ -84,7 +84,7 @@ services:
       # duplicate qui "per sicurezza".
       - DB_HOST=db
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:${PORT:-5000}/" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:${PORT:?PORT mancante in .env}/" ]
     depends_on:
       db:
         condition: service_healthy
@@ -104,7 +104,7 @@ services:
     build: ./frontend
     container_name: react-frontend
     ports:
-      - "${FRONTEND_HOST_PORT:-3000}:3000"
+      - "${FRONTEND_HOST_PORT:?FRONTEND_HOST_PORT mancante in .env}:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules

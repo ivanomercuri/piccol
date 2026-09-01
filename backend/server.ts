@@ -1,20 +1,20 @@
 import app from './index';
 
-// Porta di fallback, usata solo se PORT non è impostata nell'ambiente.
-// Coincide deliberatamente con la porta interna già cablata altrove
-// (EXPOSE nel Dockerfile, mappatura "5001:5000" in docker-compose.yml): se
-// cambi questo valore in produzione va aggiornata anche quella mappatura,
-// dato che Docker non ha modo di leggere PORT da .env per conto proprio.
-const DEFAULT_PORT = 5000;
+// Nessun fallback silenzioso: PORT deve arrivare da .env (docker-compose.yml
+// stesso si rifiuta di partire se manca, vedi "${PORT:?...}" lì). Se in
+// qualche modo il processo viene avviato senza — es. un'esecuzione diretta
+// sull'host che bypassa Docker Compose — meglio fermarsi qui con un errore
+// leggibile che scegliere una porta a caso o una a sorpresa.
+const rawPort = process.env.PORT;
+const PORT = Number(rawPort);
 
-// process.env.PORT è sempre una stringa (o undefined): la convertiamo
-// esplicitamente in numero. Se manca, o non è un numero valido (es. un
-// refuso nel .env), ricadiamo sul default invece di passare NaN a
-// app.listen(), che altrimenti farebbe scegliere una porta casuale a Node
-// senza nessun avviso.
-const envPort = Number(process.env.PORT);
-const PORT =
-  process.env.PORT && !Number.isNaN(envPort) ? envPort : DEFAULT_PORT;
+if (!rawPort || Number.isNaN(PORT)) {
+  console.error(
+    "Variabile d'ambiente PORT mancante o non valida. Configurala in .env prima di avviare il server."
+  );
+
+  process.exit(1);
+}
 
 app.listen(PORT, () => {
   console.log(`Backend running on port ${PORT}`);

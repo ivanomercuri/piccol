@@ -93,18 +93,27 @@ npx sequelize-cli db:seed:all
 Variabili d'ambiente richieste (vedi `.env.example` alla radice del repo — `.env`/`.env.example` vivono lì,
 non in `backend/`, apposta per essere un unico file letto sia da Docker Compose per interpolare
 `docker-compose.yml` sia dall'app Node, vedi sotto): `PORT` (porta di ascolto del server, letta in
-`server.ts` — se assente ricade sul default `5000`), `JWT_SECRET`, `JWT_EXPIRES_IN` (durata dei token,
-formato `jsonwebtoken` es. `1h`/`7d` — se assente ricade sul default `1h` in `services/tokenService.js`),
+`server.ts`), `JWT_SECRET`, `JWT_EXPIRES_IN` (durata dei token, formato `jsonwebtoken` es. `1h`/`7d`),
 `SHOW_ROUTES`, `MAX_FILE_SIZE` (MB, limite di business per le immagini caricate), `MAX_FILE_HARD_SIZE` (MB,
 limite hard di multer — attualmente hardcoded a 10 in
 `uploadMiddleware.js`/`handleMulterErrorsMiddleware.js` invece di essere letto realmente da questa
-variabile).
+variabile), `DB_ROOT_PASSWORD`, `DB_NAME`, e le porte pubblicate sull'host (`BACKEND_HOST_PORT`,
+`BACKEND_DEBUG_PORT`, `DB_HOST_PORT`, `PHPMYADMIN_HOST_PORT`, `FRONTEND_HOST_PORT`).
+
+**Nessuna di queste ha un fallback**: sia `docker-compose.yml` (via la sintassi `${VAR:?messaggio}`, che
+fa fallire `docker compose` prima ancora di creare un container se una variabile manca) sia il codice Node
+(`server.ts`, `services/tokenService.ts`, `config/config.js`) si rifiutano esplicitamente di partire con un
+errore leggibile se una di queste manca da `.env`, invece di far partire l'app con un valore indovinato in
+silenzio. L'unica eccezione deliberata è `NODE_ENV` in `models/index.ts`
+(`process.env.NODE_ENV || 'development'`): non fa parte del contratto di `.env` di questo progetto, è una
+convenzione dell'intero ecosistema Node letta dal comando che avvia il processo — `npm run dev` non la
+imposta mai esplicitamente, quindi togliere quel fallback romperebbe l'avvio in sviluppo.
 
 `docker-compose.yml` legge lo stesso `.env` in due modi complementari: lo interpola direttamente nel file
-YAML (es. la mappatura delle porte del servizio `backend` è `"5001:${PORT:-5000}"`, non più un numero
-fisso) e lo inietta come variabili d'ambiente reali nel container tramite `env_file`, così l'app Node lo
-trova in `process.env` a prescindere dal fatto che `backend/` (l'unica cartella montata nel container) non
-contenga più `.env`. `backend/index.ts` punta comunque esplicitamente al nuovo percorso
+YAML (es. la mappatura delle porte del servizio `backend` è `"${BACKEND_HOST_PORT:?...}:${PORT:?...}"`, non
+più numeri fissi) e lo inietta come variabili d'ambiente reali nel container tramite `env_file`, così l'app
+Node lo trova in `process.env` a prescindere dal fatto che `backend/` (l'unica cartella montata nel
+container) non contenga più `.env`. `backend/index.ts` punta comunque esplicitamente al nuovo percorso
 (`path.resolve(__dirname, '..', '.env')`) come rete di sicurezza per un'eventuale esecuzione diretta
 sull'host, fuori da Docker.
 

@@ -9,11 +9,26 @@ require('dotenv').config({
   path: require('path').resolve(__dirname, '..', '..', '.env'),
 });
 
-// Fallback identici ai valori finora hardcoded qui dentro: se le variabili
-// mancano dall'ambiente (es. .env non ancora popolato), il comportamento
-// resta quello di sempre invece di rompersi in silenzio.
-const DB_ROOT_PASSWORD = process.env.DB_ROOT_PASSWORD || 'rootpassword';
-const DB_NAME = process.env.DB_NAME || 'mydatabase';
+// Nessun fallback: sono le credenziali reali del database. Un default
+// silenzioso qui significherebbe che Sequelize CLI (o l'app) potrebbero
+// provare a connettersi con una password diversa da quella realmente
+// impostata sul server MySQL (vedi MYSQL_ROOT_PASSWORD in
+// docker-compose.yml, stessa variabile) — meglio un errore immediato e
+// leggibile, sia in fase di CLI (migrate/seed) sia all'avvio dell'app.
+if (!process.env.DB_ROOT_PASSWORD) {
+  throw new Error(
+    "Variabile d'ambiente DB_ROOT_PASSWORD mancante. Configurala in .env prima di continuare."
+  );
+}
+
+if (!process.env.DB_NAME) {
+  throw new Error(
+    "Variabile d'ambiente DB_NAME mancante. Configurala in .env prima di continuare."
+  );
+}
+
+const DB_ROOT_PASSWORD = process.env.DB_ROOT_PASSWORD;
+const DB_NAME = process.env.DB_NAME;
 
 module.exports = {
   development: {

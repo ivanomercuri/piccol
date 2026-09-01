@@ -39,8 +39,6 @@ describe('authService.authenticate', () => {
       findOne: jest.fn().mockResolvedValue(fakeUser),
     } as unknown as FakeModel;
 
-    process.env.JWT_SECRET = 'testsecret';
-
     const result = await authenticate(
       entityModel,
       'test@example.com',
@@ -107,8 +105,6 @@ describe('authService.authenticate', () => {
       getAttributes: compatibleAttributes,
       findOne: jest.fn().mockResolvedValue(fakeUser),
     } as unknown as FakeModel;
-
-    process.env.JWT_SECRET = 'testsecret';
 
     const result = await authenticate(
       entityModel,

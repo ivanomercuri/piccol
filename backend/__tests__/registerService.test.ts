@@ -36,8 +36,6 @@ describe('registerService.registerEntity', () => {
   it('registers a new user and returns a token', async () => {
     const entityModel = makeEntityModel();
 
-    process.env.JWT_SECRET = 'testsecret';
-
     const userData = {
       name: 'Test',
       email: 'test@example.com',
@@ -59,8 +57,6 @@ describe('registerService.registerEntity', () => {
 
   it('issues a token that expires in 1 hour, same policy as authenticate', async () => {
     const entityModel = makeEntityModel();
-
-    process.env.JWT_SECRET = 'testsecret';
 
     const token = await registerEntity(
       entityModel,
