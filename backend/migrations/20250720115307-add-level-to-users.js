@@ -5,7 +5,6 @@ module.exports = {
     await queryInterface.addColumn('users', 'level', {
       type: Sequelize.ENUM('superadmin', 'admin'),
       allowNull: false,
-      after: 'email',
       defaultValue: 'admin',
     });
   },

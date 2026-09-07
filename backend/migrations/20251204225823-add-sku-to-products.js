@@ -5,7 +5,6 @@ module.exports = {
     await queryInterface.addColumn('products', 'sku', {
       type: Sequelize.STRING(100),
       unique: true,
-      after: 'available',
     });
   },
 

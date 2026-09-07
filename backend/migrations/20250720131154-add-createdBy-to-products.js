@@ -9,7 +9,6 @@ module.exports = {
         model: 'users',
         key: 'id',
       },
-      after: 'available',
     });
   },
   async down(queryInterface, Sequelize) {
