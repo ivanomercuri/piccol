@@ -510,3 +510,44 @@ Altri comportamenti noti ma **non corretti** (documentati in dettaglio in `backe
   `services/tokenService.js` ricade su `1h` di default, ma va tenuta sincronizzata tra `.env`,
   `.env.example` e — se cambia il valore in produzione — comunicata esplicitamente, dato che è una
   policy di sicurezza (durata di validità dei token) e non solo un dettaglio tecnico.
+
+  **Nota**: questa voce è superata da una sessione successiva (vedi "Rimozione di tutti i fallback"
+  sotto) — `JWT_EXPIRES_IN` non ha più un default, la sua assenza ora ferma l'avvio dell'app con un
+  errore esplicito invece di ricadere su `1h`. Lasciata qui invariata per tracciare la cronologia
+  reale delle decisioni, non aggiornata retroattivamente.
+
+## Rimozione di tutti i fallback dalle variabili d'ambiente (sessione successiva)
+
+Su richiesta esplicita dell'utente, **ogni** variabile in `.env` è stata resa obbligatoria, senza
+eccezioni: `docker-compose.yml` usa `${VAR:?messaggio}` invece di `${VAR:-default}` per porte e
+credenziali DB, e il codice Node (`server.ts`, `services/tokenService.ts`, `backend/config/config.js`)
+valida esplicitamente `PORT`/`JWT_SECRET`/`JWT_EXPIRES_IN`/`DB_ROOT_PASSWORD`/`DB_NAME` con un errore
+leggibile se mancano, invece di un default silenzioso. Unica eccezione deliberata: `NODE_ENV` in
+`models/index.ts`, perché non fa parte del contratto `.env` di questo progetto (convenzione
+dell'ecosistema Node letta dal comando che avvia il processo, mai impostata da `npm run dev`). I
+messaggi d'errore sono in inglese (sono codice, non commenti — la deroga italiana di CLAUDE.md vale
+solo per i commenti), i commenti che li circondano restano in italiano.
+
+## Assessment migrazione ORM (Sequelize → Prisma) e Database (MySQL → PostgreSQL)
+
+Su richiesta esplicita, prodotto un report di sola valutazione (nessun codice toccato) su due
+migrazioni possibili: passare da Sequelize a Prisma, e/o da MySQL a PostgreSQL. Punti principali,
+verificati leggendo modelli/migration/test reali, non stimati:
+
+- Schema piccolo (6 modelli, 44 campi, 5 associazioni, zero self-reference/polimorfiche) e **zero**
+  query custom (nessun raw SQL, `Sequelize.literal/fn/col`, transazione manuale, operatore `Op.*`,
+  funzione MySQL-specifica) — bassissima superficie di query da riscrivere per entrambe le migrazioni.
+- Friction ORM reale per Prisma: il loader dinamico `models/index.ts` sparirebbe del tutto (sostituito
+  da un client generato), `paranoid` (soft delete su Category/ProductImage) non ha equivalente nativo,
+  e soprattutto il generic `TAttrs extends AuthCompatibleAttributes` che regge `authService`/
+  `registerService`/`authContract` andrebbe ridisegnato — non un dettaglio isolato, è il cuore
+  dell'astrazione auth condivisa User/Customer.
+- Friction reale per PostgreSQL: la case-sensitivity delle stringhe (MySQL è case-insensitive di
+  default, Postgres no) su 4 vincoli `unique` (`User.email`, `Customer.email`, `Category.name`,
+  `Product.sku`) — nessun test attuale lo esercita, quindi il rischio è silenzioso, non già coperto.
+  Rientra nel Data Design & Trade-off Protocol di AGENTS.md, da decidere esplicitamente prima di
+  implementare.
+- Stima: ~3-4 sessioni serali per la sola migrazione DB, ~6-8 per la sola migrazione ORM (più grossa
+  perché tocca il cuore dell'auth, non solo i modelli). **Consigliato fare prima il DB, non in un
+  passaggio combinato**: sono indipendenti (Prisma supporta comunque sia MySQL sia Postgres) e
+  combinarle renderebbe impossibile capire, in caso di test fallito, se la causa è il DB o l'ORM.

@@ -31,6 +31,50 @@ singolo identificatore, variabile, tipo o proprietà citato tra backtick singoli
 testo normale all'interno della frase. Riserva i backtick/blocchi di codice (```...```) solo per
 estratti di codice veri e propri, non per nominare elementi dentro una frase discorsiva.
 
+## Checklist di validazione per codice non banale
+
+Il proprietario del progetto sta specificamente lavorando sulla propria capacità di validare
+criticamente codice generato da IA (non solo produrlo). Per questo, quando generi codice che
+soddisfa **almeno uno** di questi criteri:
+
+- tocca il DB (nuova query, migration, associazione tra modelli)
+- tocca dati esterni/utente (nuovo endpoint, nuovo campo in input, nuovo upload)
+- introduce nuova logica di business (non è un refactor 1:1 o un rename)
+- supera le ~15-20 righe di codice nuovo
+- tocca sicurezza/auth (token, permessi, validazione, invalidazione)
+
+...percorri esplicitamente in prosa, nella risposta, questi punti — non solo nella tua testa:
+
+- **Input**: cosa succede con input vuoto, null, malformato, o un volume anomalo di dati?
+- **Confini del dominio**: questo codice rispetta pattern già esistenti nel progetto (es. i due
+  modelli di identità paralleli, il pattern res.success/res.error, l'accumulo di
+  validationErrors) o introduce un'incoerenza?
+- **Fallimento**: se questa parte lancia un'eccezione, chi la intercetta? È coerente con
+  errorMiddleware.js?
+- **Sicurezza**: se tocca dati utente/DB, sto validando l'input o fidandomi ciecamente?
+- **Leggibilità futura**: fra 3 mesi, il proprietario del progetto capirebbe perché è scritto così
+  senza il tuo aiuto?
+
+Non richiedono la checklist: fix di typo, rename, aggiunta di un campo a una risposta già
+esistente, modifiche di stile, un singolo `if` di guardia ovvio.
+
+### Aderenza a Clean Code (Robert C. Martin)
+
+Il codice generato deve seguire i principi di Clean Code: nomi che esprimono intento, funzioni
+piccole e a singola responsabilità, evitare duplicazione (DRY), evitare commenti che spiegano
+codice mal scritto invece di riscriverlo, gestione esplicita degli errori invece di codici di
+ritorno ambigui, dipendenze esplicite invece di stato nascosto. Quando una scelta di design
+concreta discende da uno di questi principi (es. hai estratto una funzione perché faceva più di
+una cosa, hai rinominato una variabile perché il nome originale non comunicava l'intento, hai
+evitato un parametro booleano "flag" a favore di due funzioni distinte), dillo esplicitamente
+nella spiegazione discorsiva — non basta che il codice risultante sia pulito, deve essere chiaro
+*quale principio* ha guidato quella scelta specifica, così diventa un'occasione di apprendimento
+e non solo un output da accettare.
+
+Non è necessario un elenco puntato separato per ogni checklist — puoi integrare le risposte nella
+spiegazione discorsiva già prevista da "Stile delle risposte in chat". L'obiettivo è rendere
+visibile il ragionamento, non nasconderlo dentro la generazione del codice.
+
 ## Commenti nel codice
 
 Quando implementi nuova funzionalità (non solo piccoli fix), commenta il codice in modo **verboso e
