@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "nodemon --ext js,ts,json --exec \"node --inspect=0.0.0.0:9229 --require ts-node/register/transpile-only\" server.ts",
-    "pretest": "NODE_ENV=test sequelize-cli db:create || true; NODE_ENV=test sequelize-cli db:migrate",
+    "pretest": "NODE_ENV=test prisma db push --accept-data-loss",
     "test": "NODE_ENV=test jest",
     "lint": "eslint . --fix",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "seed": "ts-node prisma/seed.ts",
+    "migrate": "prisma migrate deploy"
   },
   "imports": {
     "#image-config": "./config/imageConfig.ts"
@@ -23,9 +25,6 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
     "pg": "^8.23.0",
-    "pg-hstore": "^2.3.4",
-    "sequelize": "^6.37.8",
-    "sequelize-cli": "^6.6.5",
     "winston": "^3.19.0"
   },
   "devDependencies": {
