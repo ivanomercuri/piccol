@@ -1,19 +1,18 @@
 import { Request, Response } from 'express';
-import models from '../../models';
-import { authenticate } from '../../services/authService';
-import { registerEntity } from '../../services/registerService';
-
-const { Customer } = models;
+import { authenticateCustomer } from '../../services/authService';
+import { registerCustomer } from '../../services/registerService';
 
 export const register = async (req: Request, res: Response) => {
   const { email, password, firstName, lastName, address } = req.body;
 
   try {
-    const token = await registerEntity(
-      Customer,
-      { email, password, firstName, lastName, address },
-      ['id', 'email']
-    );
+    const token = await registerCustomer({
+      email,
+      password,
+      firstName,
+      lastName,
+      address,
+    });
 
     return res.success(token);
   } catch (error) {
@@ -25,7 +24,7 @@ export const login = async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
   try {
-    const user = await authenticate(Customer, email, password);
+    const user = await authenticateCustomer(email, password);
 
     if (user.success) {
       return res.success(user.token);

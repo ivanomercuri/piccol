@@ -1,176 +1,164 @@
-import { Model, ModelStatic } from 'sequelize';
-import jwt, { JwtPayload } from 'jsonwebtoken';
+// authService dopo la migrazione a Prisma: non più una funzione generica su
+// un modello Sequelize, ma due funzioni esplicite (authenticateUser /
+// authenticateCustomer) che condividono la logica di sicurezza tramite
+// completeAuthentication. Cambia di conseguenza anche il modo di testarle:
+// prima si passava un finto "modello" con findOne/getAttributes, ora si
+// mocka il client Prisma condiviso.
 import bcrypt from 'bcryptjs';
-import { authenticate } from '../services/authService';
-import { AuthCompatibleAttributes } from '../services/authContract';
+import jwt, { JwtPayload } from 'jsonwebtoken';
+import { authenticateUser, authenticateCustomer } from '../services/authService';
+import { prisma } from '../prisma/client';
 
-// getAttributes() simula la forma di un modello Sequelize "compatibile":
-// authService.assertAuthCompatible (services/authContract.ts) la interroga
-// prima di procedere, per verificare che email/password/current_token siano
-// colonne reali del modello. Senza questo, ogni test qui sotto fallirebbe
-// subito con "Il modello ... non è compatibile...".
-const compatibleAttributes = () => ({
-  email: {},
-  password: {},
-  current_token: {},
-});
+// Il client Prisma è un modulo condiviso: mockarlo qui isola completamente
+// questi test dal database, come facevano i vecchi mock dei modelli.
+jest.mock('../prisma/client', () => ({
+  prisma: {
+    user: { findUnique: jest.fn(), update: jest.fn() },
+    customer: { findUnique: jest.fn(), update: jest.fn() },
+  },
+}));
 
-// authenticate() è generica su ModelStatic<Model<TAttrs, TAttrs>> — un vero
-// modello Sequelize ha decine di membri statici che questi oggetti letterali
-// "finti" non hanno. Il cast riflette che stiamo testando solo il
-// comportamento RUNTIME di authenticate (findOne/update mockati con
-// jest.fn()), non la conformità completa al tipo ModelStatic.
-type FakeModel = ModelStatic<
-  Model<AuthCompatibleAttributes, AuthCompatibleAttributes>
->;
+const mockedPrisma = prisma as unknown as {
+  user: { findUnique: jest.Mock; update: jest.Mock };
+  customer: { findUnique: jest.Mock; update: jest.Mock };
+};
 
-describe('authService.authenticate', () => {
-  it('returns success and token if credentials are correct', async () => {
-    const fakeUser = {
-      id: 1,
-      email: 'test@example.com',
-      password: await bcrypt.hash('password', 10),
-      update: jest.fn(),
-    };
-
-    const entityModel = {
-      name: 'FakeEntity',
-      getAttributes: compatibleAttributes,
-      findOne: jest.fn().mockResolvedValue(fakeUser),
-    } as unknown as FakeModel;
-
-    const result = await authenticate(
-      entityModel,
-      'test@example.com',
-      'password'
-    );
-
-    expect(result.success).toBe(true);
-
-    expect(result.token).toBeDefined();
-
-    expect(fakeUser.update).toHaveBeenCalled();
+describe('authService', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  // Introdotto con la migrazione a PostgreSQL: la query di login deve
-  // cercare l'email normalizzata, non quella digitata dall'utente. Su MySQL
-  // la collation case-insensitive rendeva il punto irrilevante; su
-  // PostgreSQL, senza questa normalizzazione, chi si è registrato come
-  // "mario@example.com" non riuscirebbe più a fare login digitando
-  // "Mario@Example.COM".
-  it('should look the user up by normalized (lowercase) email', async () => {
-    const fakeUser = {
-      id: 1,
-      email: 'mario@example.com',
-      password: await bcrypt.hash('password', 10),
-      update: jest.fn(),
-    };
+  describe('authenticateUser', () => {
+    // Caso base: credenziali corrette -> token emesso e salvato su
+    // current_token, che è ciò che permette di invalidarlo al logout.
+    it('returns success and token if credentials are correct', async () => {
+      const hashed = await bcrypt.hash('password', 10);
 
-    const entityModel = {
-      name: 'FakeEntity',
-      getAttributes: compatibleAttributes,
-      findOne: jest.fn().mockResolvedValue(fakeUser),
-    } as unknown as FakeModel;
+      mockedPrisma.user.findUnique.mockResolvedValue({
+        id: 1,
+        email: 'test@example.com',
+        password: hashed,
+      });
 
-    const result = await authenticate(
-      entityModel,
-      'Mario@Example.COM',
-      'password'
-    );
+      const result = await authenticateUser('test@example.com', 'password');
 
-    // Il punto centrale del test: la where che arriva a Sequelize contiene
-    // già la forma minuscola, non quella originale.
-    expect(entityModel.findOne).toHaveBeenCalledWith({
-      where: { email: 'mario@example.com' },
+      expect(result.success).toBe(true);
+
+      expect(result.token).toBeDefined();
+
+      // Il token appena firmato deve finire sulla riga dell'utente.
+      expect(mockedPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: { current_token: result.token },
+      });
     });
 
-    expect(result.success).toBe(true);
+    // Utente inesistente: nessun confronto password, nessun token, e
+    // soprattutto nessuna scrittura sul database.
+    it('fails if user is not found', async () => {
+      mockedPrisma.user.findUnique.mockResolvedValue(null);
+
+      const result = await authenticateUser('notfound@example.com', 'password');
+
+      expect(result.success).toBe(false);
+
+      expect(mockedPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    // Password sbagliata: l'utente esiste, ma non deve essere emesso alcun
+    // token né sovrascritto il current_token esistente (che altrimenti
+    // sloggherebbe la sessione legittima in corso).
+    it('fails if password is incorrect', async () => {
+      const hashed = await bcrypt.hash('password', 10);
+
+      mockedPrisma.user.findUnique.mockResolvedValue({
+        id: 1,
+        email: 'test@example.com',
+        password: hashed,
+      });
+
+      const result = await authenticateUser('test@example.com', 'wrong');
+
+      expect(result.success).toBe(false);
+
+      expect(mockedPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    // La query di login deve cercare l'email normalizzata: su PostgreSQL,
+    // case-sensitive, cercarla come digitata non troverebbe la riga salvata
+    // in minuscolo (vedi services/emailNormalizer.ts).
+    it('should look the user up by normalized (lowercase) email', async () => {
+      const hashed = await bcrypt.hash('password', 10);
+
+      mockedPrisma.user.findUnique.mockResolvedValue({
+        id: 1,
+        email: 'mario@example.com',
+        password: hashed,
+      });
+
+      await authenticateUser('Mario@Example.COM', 'password');
+
+      expect(mockedPrisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'mario@example.com' },
+      });
+    });
+
+    // La scadenza del token è quella centralizzata in tokenService, comune a
+    // login e registrazione: prima della centralizzazione le due divergevano
+    // (login senza scadenza), ed è un caso che vale la pena continuare a
+    // fissare in un test.
+    it('issues a token that expires in 1 hour, same policy as registration', async () => {
+      const hashed = await bcrypt.hash('password', 10);
+
+      mockedPrisma.user.findUnique.mockResolvedValue({
+        id: 1,
+        email: 'test@example.com',
+        password: hashed,
+      });
+
+      const result = await authenticateUser('test@example.com', 'password');
+
+      const decoded = jwt.decode(result.token as string) as JwtPayload;
+
+      expect(decoded.exp! - decoded.iat!).toBeCloseTo(3600, -1);
+    });
   });
 
-  it('fails if user is not found', async () => {
-    const entityModel = {
-      name: 'FakeEntity',
-      getAttributes: compatibleAttributes,
-      findOne: jest.fn().mockResolvedValue(null),
-    } as unknown as FakeModel;
+  describe('authenticateCustomer', () => {
+    // Customer segue lo stesso percorso di User ma su un delegate diverso:
+    // il test conferma che le due entità restano davvero separate (vedi
+    // CLAUDE.md, "due modelli di identità paralleli") e che il login di un
+    // customer non tocchi la tabella users.
+    it('authenticates against the customer table, not users', async () => {
+      const hashed = await bcrypt.hash('password', 10);
 
-    const result = await authenticate(
-      entityModel,
-      'notfound@example.com',
-      'password'
-    );
+      mockedPrisma.customer.findUnique.mockResolvedValue({
+        id: 7,
+        email: 'cliente@example.com',
+        password: hashed,
+      });
 
-    expect(result.success).toBe(false);
-  });
+      const result = await authenticateCustomer(
+        'cliente@example.com',
+        'password'
+      );
 
-  it('fails if password is incorrect', async () => {
-    const fakeUser = {
-      id: 1,
-      email: 'test@example.com',
-      password: await bcrypt.hash('password', 10),
-      update: jest.fn(),
-    };
+      expect(result.success).toBe(true);
 
-    const entityModel = {
-      name: 'FakeEntity',
-      getAttributes: compatibleAttributes,
-      findOne: jest.fn().mockResolvedValue(fakeUser),
-    } as unknown as FakeModel;
+      expect(mockedPrisma.customer.update).toHaveBeenCalledWith({
+        where: { id: 7 },
+        data: { current_token: result.token },
+      });
 
-    const result = await authenticate(entityModel, 'test@example.com', 'wrong');
+      expect(mockedPrisma.user.findUnique).not.toHaveBeenCalled();
+    });
 
-    expect(result.success).toBe(false);
-  });
+    it('fails if customer is not found', async () => {
+      mockedPrisma.customer.findUnique.mockResolvedValue(null);
 
-  it('issues a token that expires in 1 hour, same policy as registerEntity', async () => {
-    // Prima di questa modifica authenticate() firmava un token SENZA
-    // scadenza (asimmetria rispetto a registerEntity, documentata come
-    // "problema noto" in backend/docs/API.md): ora entrambi passano dallo
-    // stesso signToken (services/tokenService.ts) e devono avere lo stesso
-    // claim `exp`.
-    const fakeUser = {
-      id: 1,
-      email: 'test@example.com',
-      password: await bcrypt.hash('password', 10),
-      update: jest.fn(),
-    };
+      const result = await authenticateCustomer('nobody@example.com', 'pw');
 
-    const entityModel = {
-      name: 'FakeEntity',
-      getAttributes: compatibleAttributes,
-      findOne: jest.fn().mockResolvedValue(fakeUser),
-    } as unknown as FakeModel;
-
-    const result = await authenticate(
-      entityModel,
-      'test@example.com',
-      'password'
-    );
-
-    const decoded = jwt.decode(result.token as string) as JwtPayload;
-
-    expect(decoded.exp).toBeDefined();
-
-    // ~1 ora di validità (3600s), con un margine per i tempi di esecuzione
-    // del test.
-    expect(decoded.exp! - decoded.iat!).toBeCloseTo(3600, -1);
-  });
-
-  it('throws immediately if entityModel is missing a required auth field', async () => {
-    // Un modello "incompatibile" (qui: senza current_token) deve far
-    // fallire subito, con un errore chiaro — non silenziosamente più avanti
-    // nella funzione (vedi services/authContract.ts).
-    const entityModel = {
-      name: 'IncompleteModel',
-      getAttributes: () => ({ email: {}, password: {} }),
-      findOne: jest.fn(),
-    } as unknown as FakeModel;
-
-    await expect(
-      authenticate(entityModel, 'test@example.com', 'password')
-    ).rejects.toThrow(/IncompleteModel.*current_token/);
-
-    // Non deve nemmeno arrivare a interrogare il DB.
-    expect(entityModel.findOne).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+    });
   });
 });

@@ -1,23 +1,15 @@
 import { Request, Response } from 'express';
-// models/index.ts usa `export = db` (un singolo oggetto, non named export):
-// l'import va fatto come default import, non con la destructuring
-// `import { User } from '../../models'` (che qui non risolve, dato che il
-// modulo non ha un named export letterale `User` a livello di tipi, solo
-// un indice `Record<string, any>`).
-import models from '../../models';
-import { authenticate } from '../../services/authService';
-import { registerEntity } from '../../services/registerService';
-
-const { User } = models;
+import { authenticateUser } from '../../services/authService';
+import { registerUser } from '../../services/registerService';
 
 export const register = async (req: Request, res: Response) => {
   const { name, email, password } = req.body;
 
   try {
-    const token = await registerEntity(User, { name, email, password }, [
-      'id',
-      'email',
-    ]);
+    // Non serve più passare il modello né l'elenco dei campi del token: con
+    // due funzioni distinte per User e Customer, il service sa già su quale
+    // entità sta lavorando (vedi services/registerService.ts).
+    const token = await registerUser({ name, email, password });
 
     return res.success(token);
   } catch (error) {
@@ -29,7 +21,7 @@ export const login = async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
   try {
-    const user = await authenticate(User, email, password);
+    const user = await authenticateUser(email, password);
 
     if (user.success) {
       return res.success(user.token);

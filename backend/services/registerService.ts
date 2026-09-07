@@ -1,82 +1,96 @@
 import bcrypt from 'bcryptjs';
-import { Model, ModelStatic } from 'sequelize';
+import { prisma } from '../prisma/client';
 import { signToken } from './tokenService';
-import { assertAuthCompatible, AuthCompatibleAttributes } from './authContract';
 import { normalizeEmail } from './emailNormalizer';
 
-// Dati in ingresso per la registrazione: sempre almeno `password` (usata per
-// l'hashing, poi esclusa dal resto dei campi passati a .create()), più
-// qualunque altro campo specifico dell'entità (firstName/lastName/address
-// per Customer, name per User, ...) — da qui l'indice `[key: string]:
-// unknown`, che riflette esattamente la genericità che il file .js
-// originale aveva implicitamente (nessun controllo sui campi extra).
-interface RegisterUserData {
+// Dati accettati dalla registrazione di ciascuna entità. Prima erano un
+// unico tipo generico con indice `[key: string]: unknown`, perché la
+// funzione condivisa non poteva sapere quali campi avesse il modello che
+// riceveva: ora che le due funzioni sono distinte, ognuna dichiara
+// esattamente i propri campi e un campo di troppo o mancante è un errore di
+// compilazione, non un problema scoperto dal database a runtime.
+interface UserRegistrationData {
+  name: string;
+  email: string;
   password: string;
-  [key: string]: unknown;
 }
 
-// Vedi services/authService.ts per la spiegazione dello stesso pattern
-// (vincolo generico su TAttrs nella firma esterna, cast verso il tipo
-// concreto AuthCompatibleAttributes nel corpo, motivato dallo stesso limite
-// di TypeScript sugli indexed access non risolti su un parametro generico
-// ancora aperto).
-async function registerEntity<TAttrs extends AuthCompatibleAttributes>(
-  entityModel: ModelStatic<Model<TAttrs, TAttrs>>,
-  userData: RegisterUserData,
-  tokenPayloadFields: string[]
+interface CustomerRegistrationData {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  address?: string | null;
+}
+
+/**
+ * Parte condivisa della registrazione: firma del token per l'entità appena
+ * creata e sua persistenza su current_token. Come in authService, la
+ * condivisione avviene sull'entità già creata invece che su un modello
+ * generico — l'unica cosa che cambia fra User e Customer è la create.
+ */
+async function issueTokenFor(
+  entity: { id: number; email: string },
+  persistToken: (token: string) => Promise<unknown>
 ): Promise<string> {
-  // Fallisce subito, con un errore chiaro, se entityModel non ha le colonne
-  // che il resto di questa funzione assume (vedi services/authContract.ts).
-  assertAuthCompatible(entityModel);
+  // Il payload del token è sempre { id, email }: prima era configurabile
+  // tramite il parametro `tokenPayloadFields`, ma entrambi i chiamanti
+  // passavano gli stessi due campi — una flessibilità mai usata, che
+  // costringeva a costruire il payload dinamicamente leggendo proprietà per
+  // nome. Resa esplicita.
+  const token = signToken({ id: entity.id, email: entity.email });
 
-  const model = entityModel as unknown as ModelStatic<
-    Model<AuthCompatibleAttributes, AuthCompatibleAttributes>
-  >;
-
-  const { password, ...otherFields } = userData;
-
-  // L'email viene sempre salvata in minuscolo, così il vincolo UNIQUE della
-  // colonna basta da solo a impedire due account per la stessa identità:
-  // su PostgreSQL, che confronta le stringhe in modo case-sensitive,
-  // "Mario@x.com" e "mario@x.com" sarebbero altrimenti due righe distinte
-  // (su MySQL la collation di default le trattava come duplicati).
-  // Il controllo di tipo è necessario perché userData è volutamente generico
-  // (accetta i campi specifici di User o Customer): se `email` mancasse o
-  // non fosse una stringa, il comportamento resta quello di prima — è il
-  // vincolo allowNull:false del modello a fallire, non questo codice.
-  if (typeof otherFields.email === 'string') {
-    otherFields.email = normalizeEmail(otherFields.email);
-  }
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  const created = await model.create({
-    ...otherFields,
-    password: hashedPassword,
-  } as AuthCompatibleAttributes);
-
-  // Stesso motivo del cast in authService.ts: le istanze restituite da
-  // Sequelize espongono i campi dichiarati come proprietà dot-accessibili
-  // dirette a runtime, ma il tipo concreto usato sopra per far
-  // type-checkare .create() non lo garantisce staticamente.
-  const newEntity = created as unknown as Record<string, unknown> & {
-    update: (values: Partial<AuthCompatibleAttributes>) => Promise<unknown>;
-  };
-
-  const tokenPayload: Record<string, unknown> = {};
-
-  for (const field of tokenPayloadFields) {
-    tokenPayload[field] = newEntity[field];
-  }
-
-  // signToken (services/tokenService.ts) è lo stesso punto usato da
-  // authService.authenticate: un solo posto dove la scadenza del token è
-  // decisa, per non lasciare che le due funzioni tornino a divergere.
-  const token = signToken(tokenPayload);
-
-  await newEntity.update({ current_token: token });
+  await persistToken(token);
 
   return token;
 }
 
-export { registerEntity };
+/** Registra un utente interno/admin e restituisce il suo JWT. */
+async function registerUser(data: UserRegistrationData): Promise<string> {
+  const hashedPassword = await bcrypt.hash(data.password, 10);
+
+  // L'email è salvata in minuscolo: su PostgreSQL il vincolo UNIQUE è
+  // case-sensitive, quindi senza normalizzazione "Mario@x.com" e
+  // "mario@x.com" sarebbero due account distinti per la stessa identità
+  // (vedi services/emailNormalizer.ts).
+  const user = await prisma.user.create({
+    data: {
+      name: data.name,
+      email: normalizeEmail(data.email),
+      password: hashedPassword,
+    },
+  });
+
+  return issueTokenFor(user, (token) =>
+    prisma.user.update({
+      where: { id: user.id },
+      data: { current_token: token },
+    })
+  );
+}
+
+/** Registra un cliente dello storefront e restituisce il suo JWT. */
+async function registerCustomer(
+  data: CustomerRegistrationData
+): Promise<string> {
+  const hashedPassword = await bcrypt.hash(data.password, 10);
+
+  const customer = await prisma.customer.create({
+    data: {
+      email: normalizeEmail(data.email),
+      password: hashedPassword,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      address: data.address ?? null,
+    },
+  });
+
+  return issueTokenFor(customer, (token) =>
+    prisma.customer.update({
+      where: { id: customer.id },
+      data: { current_token: token },
+    })
+  );
+}
+
+export { registerUser, registerCustomer };
