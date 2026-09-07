@@ -12,12 +12,22 @@ require('dotenv').config({
 // Nessun fallback: sono le credenziali reali del database. Un default
 // silenzioso qui significherebbe che Sequelize CLI (o l'app) potrebbero
 // provare a connettersi con una password diversa da quella realmente
-// impostata sul server MySQL (vedi MYSQL_ROOT_PASSWORD in
+// impostata sul server PostgreSQL (vedi POSTGRES_PASSWORD in
 // docker-compose.yml, stessa variabile) — meglio un errore immediato e
 // leggibile, sia in fase di CLI (migrate/seed) sia all'avvio dell'app.
 if (!process.env.DB_ROOT_PASSWORD) {
   throw new Error(
     'Missing DB_ROOT_PASSWORD environment variable. Set it in .env before continuing.'
+  );
+}
+
+// Nuova rispetto alla configurazione MySQL: là l'utente era implicitamente
+// "root", qui è il ruolo PostgreSQL creato dal container (POSTGRES_USER in
+// docker-compose.yml) e deve coincidere con quello, altrimenti la
+// connessione viene rifiutata.
+if (!process.env.DB_USER) {
+  throw new Error(
+    'Missing DB_USER environment variable. Set it in .env before continuing.'
   );
 }
 
@@ -28,24 +38,25 @@ if (!process.env.DB_NAME) {
 }
 
 const DB_ROOT_PASSWORD = process.env.DB_ROOT_PASSWORD;
+const DB_USER = process.env.DB_USER;
 const DB_NAME = process.env.DB_NAME;
 
 module.exports = {
   development: {
-    username: 'root',
+    username: DB_USER,
     password: DB_ROOT_PASSWORD,
     database: DB_NAME,
     host: 'db',
-    dialect: 'mysql',
+    dialect: 'postgres',
   },
   // Stesso host/credenziali di development: solo il nome del database
   // cambia, per isolare il DB di test da quello di sviluppo già popolato
   // dal seed (vedi backend/docs/TESTING.md).
   test: {
-    username: 'root',
+    username: DB_USER,
     password: DB_ROOT_PASSWORD,
     database: `${DB_NAME}_test`,
     host: 'db',
-    dialect: 'mysql',
+    dialect: 'postgres',
   },
 };

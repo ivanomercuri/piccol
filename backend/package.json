@@ -20,7 +20,8 @@
     "image-size": "^2.0.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
-    "mysql2": "^3.23.1",
+    "pg": "^8.23.0",
+    "pg-hstore": "^2.3.4",
     "sequelize": "^6.37.8",
     "sequelize-cli": "^6.6.5",
     "winston": "^3.19.0"
