@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { Model, ModelStatic } from 'sequelize';
 import { signToken } from './tokenService';
 import { assertAuthCompatible, AuthCompatibleAttributes } from './authContract';
+import { normalizeEmail } from './emailNormalizer';
 
 interface AuthResult {
   success: boolean;
@@ -50,7 +51,14 @@ async function authenticate<TAttrs extends AuthCompatibleAttributes>(
     Model<AuthCompatibleAttributes, AuthCompatibleAttributes>
   >;
 
-  const found = await model.findOne({ where: { email } });
+  // La ricerca usa l'email normalizzata perché è in quella forma che viene
+  // salvata (vedi registerService): su PostgreSQL, che confronta le stringhe
+  // in modo case-sensitive, cercare "Mario@x.com" non troverebbe la riga
+  // salvata come "mario@x.com" — su MySQL funzionava per via della collation
+  // case-insensitive di default.
+  const found = await model.findOne({
+    where: { email: normalizeEmail(email) },
+  });
 
   if (!found) {
     return { success: false, message: 'Utente non trovato' };

@@ -50,6 +50,57 @@ describe('Admin/User routes', () => {
 
       expect(res.status).toBe(400);
     });
+
+    // Verifica end-to-end, contro PostgreSQL vero, il comportamento che su
+    // MySQL era garantito gratis dalla collation case-insensitive: ci si
+    // registra con maiuscole e si fa login con minuscole (e viceversa).
+    // È il test che si sarebbe rotto silenziosamente migrando il database
+    // senza normalizzare l'email lato applicazione — e che su MySQL sarebbe
+    // passato anche senza il codice di normalizzazione, quindi non avrebbe
+    // segnalato nulla.
+    it('should treat an email as the same identity regardless of case', async () => {
+      const uniqueLocalPart = `case-test-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`;
+
+      const mixedCaseEmail = `${uniqueLocalPart}@Example.COM`;
+      const lowercaseEmail = `${uniqueLocalPart}@example.com`;
+
+      emailsToClean.push(lowercaseEmail);
+
+      const registerRes = await request(app)
+        .post('/admin/user/register')
+        .send({
+          name: 'Case Test',
+          email: mixedCaseEmail,
+          password: 'password123',
+        });
+
+      expect(registerRes.status).toBe(200);
+
+      // La riga salvata deve avere l'email normalizzata: cercarla nella
+      // forma originale (con maiuscole) su PostgreSQL non la troverebbe.
+      const created = await User.findOne({ where: { email: lowercaseEmail } });
+
+      expect(created).not.toBeNull();
+
+      // Login con la forma minuscola, pur essendosi registrati con le
+      // maiuscole: deve funzionare.
+      const loginLower = await request(app)
+        .post('/admin/user/login')
+        .send({ email: lowercaseEmail, password: 'password123' });
+
+      expect(loginLower.status).toBe(200);
+
+      // E anche il percorso inverso: login con maiuscole su una riga salvata
+      // in minuscolo, che è il caso reale più frequente (l'utente digita
+      // l'email come gli pare al momento del login).
+      const loginMixed = await request(app)
+        .post('/admin/user/login')
+        .send({ email: mixedCaseEmail, password: 'password123' });
+
+      expect(loginMixed.status).toBe(200);
+    });
   });
 
   describe('POST /admin/user/login', () => {

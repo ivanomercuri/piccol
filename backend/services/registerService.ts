@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { Model, ModelStatic } from 'sequelize';
 import { signToken } from './tokenService';
 import { assertAuthCompatible, AuthCompatibleAttributes } from './authContract';
+import { normalizeEmail } from './emailNormalizer';
 
 // Dati in ingresso per la registrazione: sempre almeno `password` (usata per
 // l'hashing, poi esclusa dal resto dei campi passati a .create()), più
@@ -33,6 +34,20 @@ async function registerEntity<TAttrs extends AuthCompatibleAttributes>(
   >;
 
   const { password, ...otherFields } = userData;
+
+  // L'email viene sempre salvata in minuscolo, così il vincolo UNIQUE della
+  // colonna basta da solo a impedire due account per la stessa identità:
+  // su PostgreSQL, che confronta le stringhe in modo case-sensitive,
+  // "Mario@x.com" e "mario@x.com" sarebbero altrimenti due righe distinte
+  // (su MySQL la collation di default le trattava come duplicati).
+  // Il controllo di tipo è necessario perché userData è volutamente generico
+  // (accetta i campi specifici di User o Customer): se `email` mancasse o
+  // non fosse una stringa, il comportamento resta quello di prima — è il
+  // vincolo allowNull:false del modello a fallire, non questo codice.
+  if (typeof otherFields.email === 'string') {
+    otherFields.email = normalizeEmail(otherFields.email);
+  }
+
   const hashedPassword = await bcrypt.hash(password, 10);
 
   const created = await model.create({

@@ -55,6 +55,36 @@ describe('registerService.registerEntity', () => {
     expect(entityModel.create).toHaveBeenCalled();
   });
 
+  // Contraltare in scrittura del test su authService: se la registrazione
+  // salvasse l'email così com'è digitata, su PostgreSQL il vincolo UNIQUE
+  // non impedirebbe due account per la stessa identità ("Mario@x.com" e
+  // "mario@x.com" sarebbero due valori diversi), e il login normalizzato
+  // non ritroverebbe comunque la riga.
+  it('should persist the email normalized to lowercase', async () => {
+    const entityModel = makeEntityModel();
+
+    await registerEntity(
+      entityModel,
+      {
+        name: 'Test',
+        email: 'Mario@Example.COM',
+        password: 'password',
+      },
+      ['id', 'email']
+    );
+
+    // create() deve ricevere l'email già in minuscolo. Gli altri campi
+    // restano intatti: la normalizzazione riguarda solo l'email, non è un
+    // "lowercase su tutto l'input" (Category.name e Product.sku restano
+    // deliberatamente case-sensitive, vedi Design Decisions Log).
+    expect(entityModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Test',
+        email: 'mario@example.com',
+      })
+    );
+  });
+
   it('issues a token that expires in 1 hour, same policy as authenticate', async () => {
     const entityModel = makeEntityModel();
 

@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import { normalizeEmail } from '../../services/emailNormalizer';
 
 export const getProfileUser = (req: Request, res: Response) => {
   const { user } = req;
@@ -25,7 +26,12 @@ export const updateProfileUser = async (req: Request, res: Response) => {
 
   try {
     if (name) user.name = name;
-    if (email) user.email = email;
+    // Terzo punto in cui un'email viene scritta, oltre a registerService:
+    // qui l'aggiornamento avviene fuori dai service condivisi, quindi la
+    // normalizzazione va applicata esplicitamente anche qui, altrimenti un
+    // utente potrebbe salvare "Mario@x.com" e poi non riuscire più a fare
+    // login (authService cerca sempre la forma minuscola).
+    if (email) user.email = normalizeEmail(email);
     await user.save();
     const updatedUser = { id: user.id, name: user.name, email: user.email };
 

@@ -52,6 +52,41 @@ describe('authService.authenticate', () => {
     expect(fakeUser.update).toHaveBeenCalled();
   });
 
+  // Introdotto con la migrazione a PostgreSQL: la query di login deve
+  // cercare l'email normalizzata, non quella digitata dall'utente. Su MySQL
+  // la collation case-insensitive rendeva il punto irrilevante; su
+  // PostgreSQL, senza questa normalizzazione, chi si è registrato come
+  // "mario@example.com" non riuscirebbe più a fare login digitando
+  // "Mario@Example.COM".
+  it('should look the user up by normalized (lowercase) email', async () => {
+    const fakeUser = {
+      id: 1,
+      email: 'mario@example.com',
+      password: await bcrypt.hash('password', 10),
+      update: jest.fn(),
+    };
+
+    const entityModel = {
+      name: 'FakeEntity',
+      getAttributes: compatibleAttributes,
+      findOne: jest.fn().mockResolvedValue(fakeUser),
+    } as unknown as FakeModel;
+
+    const result = await authenticate(
+      entityModel,
+      'Mario@Example.COM',
+      'password'
+    );
+
+    // Il punto centrale del test: la where che arriva a Sequelize contiene
+    // già la forma minuscola, non quella originale.
+    expect(entityModel.findOne).toHaveBeenCalledWith({
+      where: { email: 'mario@example.com' },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('fails if user is not found', async () => {
     const entityModel = {
       name: 'FakeEntity',
