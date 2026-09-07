@@ -597,10 +597,24 @@ lo si cancella a mano con `docker volume rm piccol_mysql-data`.
   per via della collation; su PostgreSQL gli 8 test del file fallivano a cascata. È esattamente il tipo
   di caso che la migrazione doveva far emergere.
 - `controllers/exampleController.ts` era l'unico consumer diretto di `mysql2` e rompeva il type-check
-  dopo la rimozione del driver. **Rimosso** invece che riscritto con `pg`: era codice morto verificato
-  (nessuna route, nessun test), apriva una connessione al DB bypassando Sequelize, scartava il risultato
-  della query e rispondeva con `res.json` grezzo — tre violazioni di AGENTS.md. Recuperabile da git se
-  dovesse servire.
+  dopo la rimozione del driver. Prima rimosso, poi **ripristinato su richiesta dell'utente** e riscritto
+  con `pg` (vedi sotto).
 
-**Non ancora fatto / da sapere:** `configs/config.user.inc.php` (configurazione di phpMyAdmin) è rimasto
-nel repo ma non è più montato da nessun servizio — è ora orfano, va deciso se rimuoverlo.
+**Coda della migrazione (scelte dell'utente).**
+
+- `controllers/exampleController.ts` è stato **mantenuto**, riscritto con `pg` + `@types/pg` (`pg` non
+  spedisce i propri tipi, a differenza di `mysql2`). Nel ricostruirlo sono state corrette tre cose che
+  erano sbagliate a prescindere dal database: leggeva `DB_PASSWORD`, variabile mai esistita in `.env`
+  (quindi si connetteva senza password) — ora legge `DB_ROOT_PASSWORD`; scartava il risultato della query
+  rispondendo con un oggetto fisso `{ test: 'ina' }`, quindi non dimostrava nulla — ora restituisce
+  davvero la riga; usava `res.json` grezzo invece di `res.success`/`res.error`. Resta **non montato su
+  nessuna route** ed è esplicitamente marcato nel file come esempio da non prendere a modello, dato che
+  un controller che apre una connessione per conto proprio contraddice l'architettura a livelli di
+  AGENTS.md. Verificato montandolo temporaneamente su una route di prova: risponde 200 con il timestamp
+  reale di PostgreSQL.
+- `configs/config.user.inc.php` (configurazione di phpMyAdmin) **rimosso**: non più montato da nessun
+  servizio dopo il passaggio ad Adminer. La cartella `configs/` è sparita di conseguenza, era il suo
+  unico contenuto.
+- Il volume Docker `piccol_mysql-data` è stato **deliberatamente conservato** come rete di sicurezza, per
+  poter tornare indietro o consultare un dato storico: non è versionato, quindi non sporca il repository.
+  Si rimuove con `docker volume rm piccol_mysql-data` quando non servirà più.
