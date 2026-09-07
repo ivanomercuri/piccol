@@ -1,49 +1,58 @@
 services:
   db:
-    image: mysql:8.0
-    container_name: mysql-db
+    image: postgres:16
+    container_name: postgres-db
     environment:
       # Interpolati da Compose leggendo .env alla radice del repo: stessi
       # valori usati da backend/config/config.js per connettersi qui via
       # Sequelize, invece di due copie indipendenti della stessa password.
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is missing in .env}
-      MYSQL_DATABASE: ${DB_NAME:?DB_NAME is missing in .env}
-      # Utente secondario creato da MySQL ma non usato da nessun percorso
-      # applicativo reale (Sequelize si connette come root, vedi
-      # config.js): lasciato hardcoded di proposito, non è duplicato da
-      # nessun'altra parte dopo la ripulitura di questa sessione.
-      MYSQL_USER: user
-      MYSQL_PASSWORD: password
+      # Nota sul nome DB_ROOT_PASSWORD: in PostgreSQL non esiste un utente
+      # "root" come in MySQL, ma il concetto di superuser del container è lo
+      # stesso — il nome della variabile è stato mantenuto invariato nella
+      # migrazione MySQL -> PostgreSQL per non spezzare .env già esistenti.
+      POSTGRES_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is missing in .env}
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is missing in .env}
+      # Superuser del container. Su MySQL era implicito ("root"), su
+      # PostgreSQL va indicato esplicitamente perché è anche il nome del
+      # ruolo con cui Sequelize si connette (vedi config/config.js).
+      POSTGRES_USER: ${DB_USER:?DB_USER is missing in .env}
     ports:
-      # Solo il lato host (sinistra) è configurabile: 3306 dentro al
-      # container è intrinseco all'immagine mysql, cambiarlo richiederebbe
-      # riconfigurare il server MySQL stesso, non solo questa mappatura.
-      - "${DB_HOST_PORT:?DB_HOST_PORT is missing in .env}:3306"
+      # Solo il lato host (sinistra) è configurabile: 5432 dentro al
+      # container è intrinseco all'immagine postgres, cambiarlo richiederebbe
+      # riconfigurare il server PostgreSQL stesso, non solo questa mappatura.
+      - "${DB_HOST_PORT:?DB_HOST_PORT is missing in .env}:5432"
     volumes:
-      - mysql-data:/var/lib/mysql
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is missing in .env}"]
+      # pg_isready è l'equivalente PostgreSQL di "mysqladmin ping": esce con
+      # 0 solo quando il server accetta davvero connessioni, non appena il
+      # processo è partito — è ciò che rende affidabile il
+      # "condition: service_healthy" dei servizi che dipendono da db.
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:?DB_USER is missing in .env} -d ${DB_NAME:?DB_NAME is missing in .env}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
-  phpmyadmin:
-    image: lscr.io/linuxserver/phpmyadmin:latest   
-    container_name: phpmyadmin
+  adminer:
+    # Sostituisce phpMyAdmin, che supporta solo MySQL/MariaDB. Adminer è un
+    # singolo binario PHP (~10MB contro i ~500MB di pgAdmin), senza setup di
+    # login o registrazione manuale del server: sovradimensionare qui non
+    # aggiungeva nulla per uno schema di 6 tabelle.
+    image: adminer:5
+    container_name: adminer
     restart: unless-stopped
     environment:
-      - TZ=Europe/Rome
-      - PMA_HOST=db
-      - PMA_PORT=3306
-      - PMA_ARBITRARY=1            
-      - PUID=1000
-      - PGID=1000
+      # Pre-compila l'host nel form di login, così non va digitato "db" a mano
+      # ad ogni accesso.
+      - ADMINER_DEFAULT_SERVER=db
     ports:
-      - "${PHPMYADMIN_HOST_PORT:?PHPMYADMIN_HOST_PORT is missing in .env}:80"
-    volumes:
-      - ./configs/config.user.inc.php:/config/phpmyadmin/config.user.inc.php
+      # A differenza di phpMyAdmin (nginx sulla 80), l'immagine ufficiale di
+      # Adminer serve il proprio PHP built-in server sulla 8080.
+      - "${ADMINER_HOST_PORT:?ADMINER_HOST_PORT is missing in .env}:8080"
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost/" ]
+      # L'immagine Adminer è basata su Alpine e non include curl: usiamo il
+      # wget di BusyBox, che c'è sempre.
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:8080/" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -74,8 +83,8 @@ services:
       - ./.env
     environment:
       # Legato al nome del servizio "db" nella rete Docker interna, non a
-      # una scelta di configurazione: resta letterale, come PMA_HOST sopra
-      # per phpmyadmin. DB_USER/DB_PASSWORD/DB_NAME sono state rimosse da
+      # una scelta di configurazione: resta letterale, come ADMINER_DEFAULT_SERVER
+      # sopra. DB_PASSWORD/DB_NAME sono state rimosse da
       # qui: erano una terza copia delle credenziali, usata solo dallo stub
       # non montato controllers/exampleController.ts, mai da un percorso
       # applicativo reale (Sequelize legge invece da config/config.js). Se
@@ -117,4 +126,9 @@ services:
     depends_on:
       - backend
 volumes:
-  mysql-data:
+  # Rinominato da mysql-data nella migrazione a PostgreSQL: è un volume
+  # diverso, con un layout su disco incompatibile con quello di MySQL — il
+  # vecchio mysql-data resta sul sistema finché non lo si rimuove a mano
+  # (`docker volume rm piccol_mysql-data`), utile se serve ancora consultare
+  # i dati del vecchio database.
+  postgres-data:
