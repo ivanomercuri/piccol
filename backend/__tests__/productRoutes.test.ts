@@ -35,9 +35,17 @@ describe('Product routes', () => {
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   async function registerAndLogin(name: string) {
+    // .toLowerCase() necessario: l'email deriva da `name` ("Admin A"), quindi
+    // conterrebbe maiuscole, mentre la registrazione salva sempre la forma
+    // normalizzata (vedi services/emailNormalizer.ts). Su MySQL la ricerca
+    // qui sotto funzionava comunque, per via della collation
+    // case-insensitive di default; su PostgreSQL, che confronta in modo
+    // case-sensitive, findOne non troverebbe la riga e `user` resterebbe
+    // null — difetto latente del test emerso solo con la migrazione del
+    // database.
     const email = `product-route-test-${name.replace(/\s+/g, '-')}-${Date.now()}-${Math.random()
       .toString(36)
-      .slice(2)}@example.com`;
+      .slice(2)}@example.com`.toLowerCase();
 
     emailsToClean.push(email);
 
