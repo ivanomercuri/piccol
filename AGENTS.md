@@ -6,7 +6,7 @@ The goal is to showcase Senior-Level Node.js skills using a strict Layered Archi
 ## 1. Tech Stack
 - **Runtime:** Node.js
 - **Framework:** Express.js
-- **Database:** MySQL (v8.0 via Docker)
+- **Database:** PostgreSQL (v16 via Docker)
 - **ORM:** Sequelize (v6.x)
 - **Testing:** Jest
 - **Architecture:** Controller-Service-Repository pattern
@@ -39,7 +39,7 @@ All backend code is located in `/backend`.
 - **DB Connection:**
     - Hostname inside Docker: `db`
     - Hostname from Host Machine: `localhost`
-    - Port: `3306`
+    - Port: `5432`
 - **Backend Port:** Internal `5000`, Exposed `5001`.
 
 ## 4. Coding Standards (Interview Quality)
@@ -108,3 +108,17 @@ keep entries short, one line each)
   incremental migration, nor values typed `any` (e.g. `models/index.ts`'s
   model dictionary), so the runtime check stays as a low-cost defense until
   the whole call chain is TypeScript with no `any` in between.
+- Email case-sensitivity (MySQL -> PostgreSQL migration): emails are
+  normalized to lowercase **in the application layer**
+  (`services/emailNormalizer.ts`), applied explicitly at every read and write
+  site, while `Category.name` and `Product.sku` stay case-sensitive — a
+  per-column decision rather than a uniform one, because only emails are
+  semantically case-insensitive by nature. Rejected alternatives: a blanket
+  lowercase on all four unique columns (would flatten a category's display
+  casing and SKU codes, which are conventionally exact identifiers), and
+  PostgreSQL's `citext` type (keeps the DB as the single enforcement point,
+  but is dialect-specific, has no native Sequelize `DataTypes` mapping, and
+  would make the model definition stop reflecting the real column type).
+  An explicit function was preferred over a Sequelize `beforeSave` hook: the
+  hook would not cover the login's `findOne`, and it would turn the rule into
+  hidden state in a project that uses no hooks anywhere else.

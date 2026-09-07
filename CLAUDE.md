@@ -104,28 +104,29 @@ database di test separato, `mydatabase_test` (stesso host/credenziali di `develo
 reale, non mockato. Va eseguito con accesso al servizio `db` di Docker Compose (es. da dentro il container
 `backend`), non funziona dalla macchina host se `db` non è risolvibile.
 
-Stack completo (MySQL, phpMyAdmin, backend, test runner backend, frontend) via Docker Compose dalla radice
+Stack completo (PostgreSQL, Adminer, backend, test runner backend, frontend) via Docker Compose dalla radice
 del repo:
 
 ```bash
-docker compose up            # db, phpmyadmin (8080), backend (5001->5000, debug 9229), frontend (3000)
+docker compose up            # db, adminer (8080), backend (5001->5000, debug 9229), frontend (3000)
 docker compose run --rm test_backend   # esegue `npm test` in un container contro il db dockerizzato
 ```
 
 Le porte pubblicate sull'host mostrate sopra sono i default: ognuna è configurabile via `.env`
-(`DB_HOST_PORT`, `PHPMYADMIN_HOST_PORT`, `BACKEND_HOST_PORT`, `BACKEND_DEBUG_PORT`, `FRONTEND_HOST_PORT`),
+(`DB_HOST_PORT`, `ADMINER_HOST_PORT`, `BACKEND_HOST_PORT`, `BACKEND_DEBUG_PORT`, `FRONTEND_HOST_PORT`),
 utile se una di queste è già occupata da un altro servizio sulla tua macchina. Le porte *interne* ai
 container (il lato destro di ogni mappatura in `docker-compose.yml`, tranne `PORT` per il backend) restano
-invece letterali di proposito: sono intrinseche alle immagini (MySQL ascolta sempre su 3306 dentro al suo
-container, nginx di phpMyAdmin su 80) e cambiarle richiederebbe riconfigurare il servizio stesso, non solo
-la mappatura.
+invece letterali di proposito: sono intrinseche alle immagini (PostgreSQL ascolta sempre su 5432 dentro al
+suo container, Adminer serve il proprio PHP built-in server sulla 8080) e cambiarle richiederebbe
+riconfigurare il servizio stesso, non solo la mappatura.
 
-L'host del DB è `db` dentro Docker, `localhost` dalla macchina host, porta `3306`. La config Sequelize è in
-`backend/config/config.js` (non più `.json`: legge `DB_ROOT_PASSWORD`/`DB_NAME` dal `.env` alla radice del
-repo invece di avere le credenziali hardcoded, con `backend/.sequelizerc` che dice a Sequelize CLI di
-usare questo file al posto del default `config.json`): blocco `development` (`mydatabase`) e blocco `test`
-(`mydatabase_test`, calcolato come `${DB_NAME}_test`), stesso host/credenziali (root/`DB_ROOT_PASSWORD`)
-per entrambi.
+L'host del DB è `db` dentro Docker, `localhost` dalla macchina host, porta `5432`. La config Sequelize è in
+`backend/config/config.js` (non più `.json`: legge `DB_USER`/`DB_ROOT_PASSWORD`/`DB_NAME` dal `.env` alla
+radice del repo invece di avere le credenziali hardcoded, con `backend/.sequelizerc` che dice a Sequelize
+CLI di usare questo file al posto del default `config.json`): blocco `development` (`mydatabase`) e blocco
+`test` (`mydatabase_test`, calcolato come `${DB_NAME}_test`), stesso host/credenziali
+(`DB_USER`/`DB_ROOT_PASSWORD`) per entrambi. Su PostgreSQL l'utente non è più implicitamente `root` come su
+MySQL: è il ruolo creato dal container (`POSTGRES_USER`), quindi `DB_USER` deve coincidere con quello.
 
 Sequelize CLI (da eseguire da `backend/`):
 
@@ -142,7 +143,7 @@ non in `backend/`, apposta per essere un unico file letto sia da Docker Compose 
 limite hard di multer — attualmente hardcoded a 10 in
 `uploadMiddleware.js`/`handleMulterErrorsMiddleware.js` invece di essere letto realmente da questa
 variabile), `DB_ROOT_PASSWORD`, `DB_NAME`, e le porte pubblicate sull'host (`BACKEND_HOST_PORT`,
-`BACKEND_DEBUG_PORT`, `DB_HOST_PORT`, `PHPMYADMIN_HOST_PORT`, `FRONTEND_HOST_PORT`).
+`BACKEND_DEBUG_PORT`, `DB_HOST_PORT`, `ADMINER_HOST_PORT`, `FRONTEND_HOST_PORT`).
 
 **Nessuna di queste ha un fallback**: sia `docker-compose.yml` (via la sintassi `${VAR:?messaggio}`, che
 fa fallire `docker compose` prima ancora di creare un container se una variabile manca) sia il codice Node
@@ -184,6 +185,19 @@ scritto anche nella colonna `current_token` dell'entità. `authUserMiddleware` d
 verifica che corrisponda a `current_token` nel DB — questo è ciò che rende possibile invalidare i vecchi
 token al logout / cambio password (il logout imposta `current_token = null`; i flussi di
 password/2FA dovrebbero fare lo stesso per qualsiasi entità le cui credenziali cambiano).
+
+**Normalizzazione delle email (case-sensitivity)**: le email sono sempre salvate e cercate in minuscolo,
+tramite `services/emailNormalizer.ts`. Non è un vezzo: su MySQL la collation case-insensitive di default
+rendeva `Mario@x.com` e `mario@x.com` lo stesso valore (il vincolo `UNIQUE` rifiutava il duplicato, il
+login funzionava con qualunque casing), mentre PostgreSQL confronta le stringhe in modo case-sensitive —
+senza normalizzazione diventerebbero due account distinti per la stessa identità, ognuno col proprio
+`current_token`, vanificando il pattern di invalidazione descritto sopra. La regola va applicata
+esplicitamente in **ogni** punto che scrive o cerca un'email: oggi sono `authService.authenticate` (login),
+`registerService.registerEntity` (registrazione) e `profileUserController.updateProfileUser` (che scrive
+fuori dai services condivisi). Scelta deliberata di una funzione esplicita invece di un hook Sequelize
+`beforeSave`: l'hook non coprirebbe la `findOne` del login e renderebbe la regola stato nascosto (vedi
+Design Decisions Log in AGENTS.md). `Category.name` e `Product.sku` restano invece **case-sensitive**: lì
+il casing è significativo o indifferente, non un dettaglio da appiattire.
 
 ### Convenzioni di risposta ed errore
 

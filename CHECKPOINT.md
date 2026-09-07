@@ -551,3 +551,56 @@ verificati leggendo modelli/migration/test reali, non stimati:
   perché tocca il cuore dell'auth, non solo i modelli). **Consigliato fare prima il DB, non in un
   passaggio combinato**: sono indipendenti (Prisma supporta comunque sia MySQL sia Postgres) e
   combinarle renderebbe impossibile capire, in caso di test fallito, se la causa è il DB o l'ORM.
+## Migrazione B eseguita: da MySQL a PostgreSQL (ORM invariato)
+
+Completata la migrazione del database prevista dall'assessment sopra, mantenendo Sequelize. Eseguita in
+commit incrementali, non in un unico passaggio. Stato finale: **29 suite / 142 test verdi su
+PostgreSQL 16.15**, ripetibili su run consecutive, type-check e lint puliti.
+
+**Decisione sul case-sensitivity (la parte non meccanica).** Presentate tre opzioni secondo il Data
+Design & Trade-off Protocol; scelta dall'utente: **ibrida per colonna**. Le due email vengono
+normalizzate a minuscolo lato applicazione (`services/emailNormalizer.ts`), mentre `Category.name` e
+`Product.sku` restano case-sensitive, perché solo l'email è semanticamente case-insensitive per natura.
+Scartate: il lowercase uniforme su tutte e 4 le colonne (appiattirebbe il casing di visualizzazione delle
+categorie e i codici SKU, che per convenzione sono identificatori esatti) e il tipo `citext` di PostgreSQL
+(terrebbe l'invariante nel DB, ma è specifico del dialetto, non ha un `DataTypes` Sequelize nativo e
+farebbe divergere la definizione del modello dal tipo reale della colonna). Motivazione completa in
+AGENTS.md → Design Decisions Log.
+
+**Infrastruttura.** `postgres:16` al posto di `mysql:8.0` (env `POSTGRES_*`, porta interna 5432,
+healthcheck `pg_isready`, volume `postgres-data`), **Adminer** al posto di phpMyAdmin, che supporta solo
+MySQL/MariaDB — scelto invece di pgAdmin perché è un container da ~10MB contro ~500MB e non richiede
+setup di login né registrazione manuale del server. Nuova variabile `DB_USER` (su MySQL l'utente era
+implicitamente `root`, su PostgreSQL deve coincidere con `POSTGRES_USER`), `DB_HOST_PORT` a 5432,
+`PHPMYADMIN_HOST_PORT` rinominata `ADMINER_HOST_PORT`. Dipendenze: `mysql2` sostituito da `pg` +
+`pg-hstore`. Il vecchio volume `piccol_mysql-data` **non è stato rimosso**: resta consultabile finché non
+lo si cancella a mano con `docker volume rm piccol_mysql-data`.
+
+**Cose emerse solo eseguendo davvero la migrazione** (nessuna era prevedibile leggendo il codice):
+
+- Il `down` di `20251204231312-delete-image_url-from-products` era **rotto da sempre**: aggiungeva una
+  colonna `sku` invece di `image_url` e annidava male la definizione, che restava priva di `type`. Mai
+  emerso perché nessuno aveva mai eseguito quel rollback. Bug pre-esistente, non una regressione del
+  cambio dialetto.
+- L'opzione `after:` (posizionamento colonna) era usata in 5 migration: è un'estensione MySQL, PostgreSQL
+  la **ignora silenziosamente** — verificato via `information_schema`, `current_token` e `level` sono
+  finiti in fondo alla tabella invece che dopo `password` ed `email`. Rimossa perché fuorviante.
+- Il TYPE `enum_users_level` (traduzione PostgreSQL dell'ENUM di `User.level`) **resta orfano** dopo un
+  rollback completo: Sequelize non emette `DROP TYPE` in `removeColumn`. Non blocca però la
+  ri-migrazione, perché il `CREATE TYPE` generato è idempotente — verificato con un ciclo
+  `undo:all` + `migrate`. Lasciato com'è.
+- Lo script `pretest` non era più idempotente: su PostgreSQL `db:create` esce con errore se il database
+  di test esiste già, e l'`&&` impediva a `db:migrate` di partire, quindi la suite girava solo alla prima
+  esecuzione. Corretto con `|| true;`.
+- `productRoutes.test.ts` aveva un **difetto latente**: costruiva l'email di prova interpolando il nome
+  ("Admin A"), quindi con maiuscole, e poi cercava la riga con la forma originale. Su MySQL funzionava
+  per via della collation; su PostgreSQL gli 8 test del file fallivano a cascata. È esattamente il tipo
+  di caso che la migrazione doveva far emergere.
+- `controllers/exampleController.ts` era l'unico consumer diretto di `mysql2` e rompeva il type-check
+  dopo la rimozione del driver. **Rimosso** invece che riscritto con `pg`: era codice morto verificato
+  (nessuna route, nessun test), apriva una connessione al DB bypassando Sequelize, scartava il risultato
+  della query e rispondeva con `res.json` grezzo — tre violazioni di AGENTS.md. Recuperabile da git se
+  dovesse servire.
+
+**Non ancora fatto / da sapere:** `configs/config.user.inc.php` (configurazione di phpMyAdmin) è rimasto
+nel repo ma non è più montato da nessun servizio — è ora orfano, va deciso se rimuoverlo.
