@@ -92,16 +92,17 @@ il testo dei commenti va in italiano.
 Tutti i comandi vanno eseguiti da `backend/` salvo diversa indicazione.
 
 ```bash
-npm run dev     # nodemon con debugger su 0.0.0.0:9229, avvia server.js
-npm test        # jest (i file di test sono in backend/__tests__/*.test.js)
-npm test -- authService.test.js   # esegue un singolo file di test
+npm run dev     # nodemon con debugger su 0.0.0.0:9229, avvia server.ts
+npm test        # jest (i file di test sono in backend/__tests__/*.test.ts)
+npm test -- authService.test.ts   # esegue un singolo file di test
 npm run lint    # eslint . --fix
+npm run type-check   # tsc --noEmit
 ```
 
-`npm test` esegue prima uno script `pretest` che crea (se non esiste già) e migra automaticamente un
-database di test separato, `mydatabase_test` (stesso host/credenziali di `development`, vedi
-`config/config.js` blocco `test`) — necessario perché parte della suite (vedi sotto) parla con un DB
-reale, non mockato. Va eseguito con accesso al servizio `db` di Docker Compose (es. da dentro il container
+`npm test` esegue prima uno script `pretest` (`prisma db push`) che crea il database di test separato
+`mydatabase_test` se non esiste e ne allinea lo schema — necessario perché parte della suite (vedi sotto)
+parla con un DB reale, non mockato. Il nome col suffisso `_test` è calcolato da
+`config/databaseUrl.ts` quando `NODE_ENV=test`, quindi la suite non tocca mai il DB di sviluppo. Va eseguito con accesso al servizio `db` di Docker Compose (es. da dentro il container
 `backend`), non funziona dalla macchina host se `db` non è risolvibile.
 
 Stack completo (PostgreSQL, Adminer, backend, test runner backend, frontend) via Docker Compose dalla radice
@@ -120,19 +121,27 @@ invece letterali di proposito: sono intrinseche alle immagini (PostgreSQL ascolt
 suo container, Adminer serve il proprio PHP built-in server sulla 8080) e cambiarle richiederebbe
 riconfigurare il servizio stesso, non solo la mappatura.
 
-L'host del DB è `db` dentro Docker, `localhost` dalla macchina host, porta `5432`. La config Sequelize è in
-`backend/config/config.js` (non più `.json`: legge `DB_USER`/`DB_ROOT_PASSWORD`/`DB_NAME` dal `.env` alla
-radice del repo invece di avere le credenziali hardcoded, con `backend/.sequelizerc` che dice a Sequelize
-CLI di usare questo file al posto del default `config.json`): blocco `development` (`mydatabase`) e blocco
-`test` (`mydatabase_test`, calcolato come `${DB_NAME}_test`), stesso host/credenziali
-(`DB_USER`/`DB_ROOT_PASSWORD`) per entrambi. Su PostgreSQL l'utente non è più implicitamente `root` come su
-MySQL: è il ruolo creato dal container (`POSTGRES_USER`), quindi `DB_USER` deve coincidere con quello.
+L'host del DB è `db` dentro Docker, `localhost` dalla macchina host, porta `5432`. L'ORM è **Prisma**: lo
+schema è in `backend/prisma/schema.prisma`, il client condiviso in `backend/prisma/client.ts`. Prisma 7 non
+accetta più `url` dentro il blocco datasource (errore P1012), quindi la connessione è dichiarata in
+`backend/prisma.config.ts` e composta da `backend/config/databaseUrl.ts` a partire da
+`DB_USER`/`DB_ROOT_PASSWORD`/`DB_HOST`/`DB_NAME` — niente `DATABASE_URL` in `.env`, che sarebbe una
+seconda copia delle stesse credenziali. La stessa funzione applica il suffisso `_test` al nome del
+database quando `NODE_ENV=test`, così la suite non tocca mai il DB di sviluppo. Su PostgreSQL l'utente non
+è implicitamente `root` come su MySQL: è il ruolo creato dal container (`POSTGRES_USER`), quindi `DB_USER`
+deve coincidere con quello.
 
-Sequelize CLI (da eseguire da `backend/`):
+Prisma richiede un **driver adapter** esplicito (client "Rust-free"): `@prisma/adapter-pg`, che usa `pg`.
+Il client viene generato nel `Dockerfile` e non a runtime, perché `/app/node_modules` è un volume anonimo
+inizializzato dall'immagine: un client generato a runtime sparirebbe alla prima ricreazione del volume.
+
+Comandi Prisma (da `backend/`):
 
 ```bash
-npx sequelize-cli db:migrate
-npx sequelize-cli db:seed:all
+npm run migrate          # prisma migrate deploy: applica le migration pendenti
+npm run seed             # popola gli utenti di prova (upsert: ripetibile)
+npx prisma studio        # esplora i dati
+npx prisma migrate dev --name <nome>   # nuova migration dopo aver modificato lo schema
 ```
 
 Variabili d'ambiente richieste (vedi `.env.example` alla radice del repo — `.env`/`.env.example` vivono lì,
@@ -147,12 +156,12 @@ variabile), `DB_ROOT_PASSWORD`, `DB_NAME`, e le porte pubblicate sull'host (`BAC
 
 **Nessuna di queste ha un fallback**: sia `docker-compose.yml` (via la sintassi `${VAR:?messaggio}`, che
 fa fallire `docker compose` prima ancora di creare un container se una variabile manca) sia il codice Node
-(`server.ts`, `services/tokenService.ts`, `config/config.js`) si rifiutano esplicitamente di partire con un
-errore leggibile se una di queste manca da `.env`, invece di far partire l'app con un valore indovinato in
-silenzio. L'unica eccezione deliberata è `NODE_ENV` in `models/index.ts`
-(`process.env.NODE_ENV || 'development'`): non fa parte del contratto di `.env` di questo progetto, è una
+(`server.ts`, `services/tokenService.ts`, `config/databaseUrl.ts`) si rifiutano esplicitamente di partire
+con un errore leggibile se una di queste manca da `.env`, invece di far partire l'app con un valore
+indovinato in silenzio. L'unica eccezione deliberata è `NODE_ENV`, letto in `config/databaseUrl.ts` e
+`prisma/client.ts` senza obbligo: non fa parte del contratto di `.env` di questo progetto, è una
 convenzione dell'intero ecosistema Node letta dal comando che avvia il processo — `npm run dev` non la
-imposta mai esplicitamente, quindi togliere quel fallback romperebbe l'avvio in sviluppo.
+imposta mai esplicitamente, quindi pretenderla romperebbe l'avvio in sviluppo.
 
 `docker-compose.yml` legge lo stesso `.env` in due modi complementari: lo interpola direttamente nel file
 YAML (es. la mappatura delle porte del servizio `backend` è `"${BACKEND_HOST_PORT:?...}:${PORT:?...}"`, non
@@ -172,13 +181,16 @@ gerarchia condivisa di tipo "User":
 - **User** (`models/user.js`) — account interni/admin, `level` enum `admin`/`superadmin`, montato su
   `/admin/user` (vedi `routes/adminRoutes.js` → `routes/userRoutes.js`). `authUserMiddleware` protegge
   queste route e valorizza `req.user`.
-- **Customer** (`models/customer.js`) — clienti dello storefront, montato su `/` (`routes/customerRoutes.js`).
+- **Customer** (modello `Customer` in `prisma/schema.prisma`) — clienti dello storefront, montato su `/`
+  (`routes/customerRoutes.ts`).
 
-Entrambi condividono la stessa meccanica di autenticazione tramite `services/authService.js`
-(`authenticate(entityModel, email, password)`) e `services/registerService.js`
-(`registerEntity(entityModel, userData, tokenPayloadFields)`) — funzioni generiche parametrizzate sul
-modello Sequelize, riusate su entrambi i domini. Non duplicare la logica di login/registrazione per singola
-entità — estendi questi services condivisi.
+Entrambi condividono la stessa meccanica di autenticazione, ma **non** tramite una funzione generica sul
+modello: `services/authService.ts` espone `authenticateUser`/`authenticateCustomer` e
+`services/registerService.ts` espone `registerUser`/`registerCustomer`. A essere condivisa è la logica di
+sicurezza, non la query: `completeAuthentication` (confronto bcrypt, firma del token, persistenza di
+`current_token`) e `issueTokenFor` ricevono l'entità **già letta**, e l'unica cosa specifica per entità
+resta la chiamata a Prisma. Non duplicare la logica di login/registrazione: se serve una terza entità
+autenticata, aggiungi la sua query e riusa queste funzioni condivise.
 
 **Pattern di invalidazione del token**: i JWT sono stateful. Al login/registrazione, il token firmato viene
 scritto anche nella colonna `current_token` dell'entità. `authUserMiddleware` decodifica il JWT *e*
@@ -194,9 +206,10 @@ senza normalizzazione diventerebbero due account distinti per la stessa identit�
 `current_token`, vanificando il pattern di invalidazione descritto sopra. La regola va applicata
 esplicitamente in **ogni** punto che scrive o cerca un'email: oggi sono `authService.authenticate` (login),
 `registerService.registerEntity` (registrazione) e `profileUserController.updateProfileUser` (che scrive
-fuori dai services condivisi). Scelta deliberata di una funzione esplicita invece di un hook Sequelize
-`beforeSave`: l'hook non coprirebbe la `findOne` del login e renderebbe la regola stato nascosto (vedi
-Design Decisions Log in AGENTS.md). `Category.name` e `Product.sku` restano invece **case-sensitive**: lì
+fuori dai services condivisi). Scelta deliberata di una funzione esplicita invece di un meccanismo
+automatico dell'ORM (un tempo un hook `beforeSave` di Sequelize, oggi una Prisma Client Extension): non
+coprirebbe la query di lettura del login e renderebbe la regola stato nascosto (vedi Design Decisions Log
+in AGENTS.md). `Category.name` e `Product.sku` restano invece **case-sensitive**: lì
 il casing è significativo o indifferente, non un dettaglio da appiattire.
 
 ### Convenzioni di risposta ed errore
@@ -228,13 +241,27 @@ raggruppata.
 
 ### Modello dati
 
-`User` –< `Product` (FK `createdBy`, `as: 'creator'`). `Product` ha anche `hasMany` verso `ProductImage`
-(`as: 'images'`, FK `product_id`, `ON DELETE CASCADE` a livello DB) e `belongsToMany` verso `Category`
-tramite la tabella di join `ProductCategory` (`as: 'categories'`, indice univoco su
-`product_id`+`category_id`). `Category` e `ProductImage` sono `paranoid: true` (hanno `deletedAt`),
-`ProductCategory` no (righe di join, cancellazione fisica). `models/index.js` carica automaticamente ogni
-file `*.js` in `models/` (escludendo `.test.js`) e collega `.associate` — i nuovi modelli vanno
-semplicemente aggiunti in quella directory.
+Tutto lo schema vive in `backend/prisma/schema.prisma`, unica fonte di verità: non esiste più un loader
+che scansiona una cartella `models/`, e i tipi TypeScript di ogni modello sono generati da lì (niente più
+`InferAttributes`/`declare`). I modelli sono in PascalCase singolare con `@@map` verso i nomi reali delle
+tabelle, che restano `users`, `products`, `product_images`, ecc.
+
+`User` –< `Product` (FK `createdBy`, relazione `creator` sul lato Product). `Product` ha `images`
+(`ProductImage[]`, FK `product_id`, `ON DELETE CASCADE`) e raggiunge `Category` **attraverso la tabella
+ponte esplicita** `ProductCategory` (indice univoco su `product_id`+`category_id`): non esiste un
+`product.categories` diretto, si naviga `product.productCategories[].category`. La tabella ponte resta un
+modello esplicito perché ha campi propri (`id`, `createdAt`, `updatedAt`).
+
+Due differenze rispetto a com'era con Sequelize, entrambe deliberate:
+
+- **`User.products` ora esiste.** Prima User non dichiarava alcuna associazione verso Product (asimmetria
+  voluta); Prisma richiede che ogni relazione sia dichiarata su entrambi i lati, quindi quell'asimmetria
+  non è rappresentabile.
+- **`deletedAt` di `Category` e `ProductImage` non è più gestito.** Con `paranoid: true` Sequelize
+  soft-cancellava e filtrava da solo; Prisma non ha un equivalente nativo e si è scelto di non
+  introdurre infrastruttura di soft-delete finché non esiste una funzionalità che cancella davvero.
+  **Attenzione**: `prisma.category.delete()` cancella fisicamente la riga. Prima di implementare una
+  cancellazione, vedi il Design Decisions Log in AGENTS.md.
 
 ### Parte nota come incompleta
 
@@ -251,12 +278,10 @@ ancora stata implementata.
   `productController.test.js`): mockano modelli/services/dipendenze esterne con `jest.mock`, non aprono
   connessioni. È lo stile usato dai test già presenti prima di questa sessione — preferiscilo per logica
   applicativa pura (controller, middleware, services).
-- **Modelli contro un DB reale** (`*.model.test.js`, es. `product.model.test.js`): richiedono
-  `../models` così com'è (nessun mock), verificano vincoli che vivono nel DB (unique, FK, allowNull,
-  associazioni) contro `mydatabase_test`. Ogni file traccia gli id che crea e li ripulisce in
-  `afterEach`/`afterAll` (con `force: true, paranoid: false` per i modelli `paranoid`, altrimenti una riga
-  soft-deleted da un test blocca lo `UNIQUE` per la run successiva), e chiude sempre la connessione con
-  `sequelize.close()` in `afterAll` — altrimenti Jest resta appeso.
+- **Modelli contro un DB reale** (`*.model.test.ts`, es. `product.model.test.ts`): usano il client Prisma
+  vero (nessun mock), verificano vincoli che vivono nel DB (unique, FK, NOT NULL, relazioni) contro
+  `mydatabase_test`. Ogni file traccia gli id che crea e li ripulisce in `afterEach`/`afterAll`, e chiude
+  sempre la connessione con `prisma.$disconnect()` in `afterAll` — altrimenti Jest resta appeso.
 - **Route end-to-end con supertest** (`*Routes.test.js`, es. `userRoutes.test.js`): fanno richieste HTTP
   vere contro `require('../index')` (l'app Express, senza `.listen()` — supertest ci gira attorno da solo),
   attraversando l'intero stack fino al DB di test. Usano email/dati univoci per evitare collisioni tra

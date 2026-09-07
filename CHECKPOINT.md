@@ -618,3 +618,54 @@ lo si cancella a mano con `docker volume rm piccol_mysql-data`.
 - Il volume Docker `piccol_mysql-data` è stato **deliberatamente conservato** come rete di sicurezza, per
   poter tornare indietro o consultare un dato storico: non è versionato, quindi non sporca il repository.
   Si rimuove con `docker volume rm piccol_mysql-data` quando non servirà più.
+
+## Migrazione A eseguita: da Sequelize a Prisma (database già su PostgreSQL)
+
+Completata anche la seconda migrazione dell'assessment. Stato finale: **28 suite / 140 test verdi**,
+type-check e lint puliti, app verificata end-to-end. Sequelize non è più una dipendenza del progetto.
+
+**Decisioni prese prima di implementare** (presentate come opzioni, come da protocollo):
+
+- *Astrazione auth* → **Opzione C**: `authenticate`/`registerEntity` generiche su un modello Sequelize
+  diventano `authenticateUser`/`authenticateCustomer` e `registerUser`/`registerCustomer`. La logica
+  condivisa non è stata duplicata: è cambiato *cosa* si condivide — non più il modello generico, ma
+  l'entità già letta (`completeAuthentication`, `issueTokenFor`), lasciando specifica per entità solo la
+  query. Rimosso `authContract.ts`: la difesa runtime era motivata dai chiamanti `.js` e dai valori `any`
+  del loader, entrambi spariti con Prisma.
+- *Soft delete* → **Opzione C**: nessuna infrastruttura. `deletedAt` resta come colonna, documentato come
+  non gestito nello schema. **`prisma.category.delete()` ora cancella fisicamente**: era `paranoid: true`
+  con Sequelize.
+- *Schema*: modelli in PascalCase singolare con `@@map` (tabelle invariate), `User.products` dichiarato
+  (Prisma richiede entrambi i lati: l'asimmetria di Sequelize non è rappresentabile), relazione N:N
+  esplicita sulla tabella ponte, `@default(now())`/`@updatedAt` su tutti i modelli con timestamp.
+- *Migrazioni* → Prisma Migrate, baseline `0_init` marcata come già applicata; `SequelizeMeta` rimossa.
+
+**Cose emerse solo implementando** (nessuna prevista dall'assessment):
+
+- **Prisma 7 ha cambiato architettura**: `url` non è più ammessa nel datasource dello schema (errore
+  P1012), va in `prisma.config.ts`; e il client "Rust-free" richiede un **driver adapter** esplicito
+  (`@prisma/adapter-pg`). Anche i flag della CLI sono cambiati: `--to-schema-datamodel` è diventato
+  `--to-schema`, `db push --skip-generate` non esiste più.
+- **I timestamp non sono automatici come con Sequelize**: senza `@default(now())` e `@updatedAt` nello
+  schema, ogni `create` dovrebbe passarli a mano. Non era emerso nell'assessment.
+- **`prisma generate` va eseguito nel Dockerfile**, non a runtime: `/app/node_modules` è un volume anonimo
+  inizializzato dall'immagine, quindi un client generato a runtime sparirebbe alla prima ricreazione del
+  volume. Usa variabili fittizie perché `generate` legge solo lo schema e non si connette, così il
+  fail-fast che protegge l'app resta intatto.
+- **`DATABASE_URL` non è stata aggiunta a `.env`**: sarebbe stata una seconda copia delle credenziali già
+  presenti in `DB_USER`/`DB_ROOT_PASSWORD`/`DB_NAME`. È composta da `config/databaseUrl.ts`, che replica
+  anche la regola del suffisso `_test` quando `NODE_ENV=test`.
+- **La validazione `isEmail` è dovuta migrare di livello**: era dichiarata sul modello Sequelize Customer e
+  Prisma non ha validatori di modello. È ora nella catena express-validator della route di registrazione —
+  la sede prevista da AGENTS.md. Cambia anche il codice di risposta: un'email malformata è ora un 400 con
+  messaggio esplicito invece di un 500 generico.
+- **Il seed è diventato ripetibile**: `prisma/seed.ts` usa `upsert` invece del `bulkInsert` del seeder
+  Sequelize, che alla seconda esecuzione falliva per violazione dello UNIQUE.
+- `profileUserController` è stato il punto meno meccanico: con Sequelize mutava l'istanza e chiamava
+  `save()`, mentre le righe Prisma sono oggetti semplici. I suoi test ora verificano cosa arriva davvero
+  all'update invece di uno stato intermedio in memoria — verifica più precisa di prima.
+
+**Conteggio test**: da 142 a 140. Non è una perdita di copertura: sono spariti i test del contratto auth
+runtime (il modulo non esiste più) e quello sulla validazione `isEmail` del modello, mentre se ne sono
+aggiunti su casi prima non copribili (la password non finisce mai in chiaro nel database, il login di un
+customer non tocca la tabella users, la normalizzazione dell'email in aggiornamento profilo).
