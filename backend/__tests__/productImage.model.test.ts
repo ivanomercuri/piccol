@@ -1,53 +1,52 @@
-import models from '../models';
-
-const { ProductImage, Product, User, sequelize } = models;
+// Verifica i vincoli della tabella product_images contro un DB reale:
+// default di sort_order, NOT NULL su image_url, relazione verso Product.
+//
+// Come Category, questo modello aveva `paranoid: true` in Sequelize: vedi la
+// nota in category.model.test.ts e nello schema Prisma — deletedAt esiste
+// ancora come colonna ma non è più gestito, quindi delete() è fisico.
+import { prisma } from '../prisma/client';
 
 describe('ProductImage model', () => {
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  let author: any;
-  let product: any;
-  /* eslint-enable @typescript-eslint/no-explicit-any */
+  let author: { id: number };
+  let product: { id: number };
 
   const imageIds: number[] = [];
 
   beforeAll(async () => {
-    author = await User.create({
-      name: 'ProductImage Model Test Author',
-      email: 'productimage-model-test-author@example.com',
-      password: 'pw',
+    author = await prisma.user.create({
+      data: {
+        name: 'ProductImage Model Test Author',
+        email: 'productimage-model-test-author@example.com',
+        password: 'pw',
+      },
     });
 
-    product = await Product.create({
-      name: 'ProductImage model test product',
-      price: 1,
-      createdBy: author.id,
+    product = await prisma.product.create({
+      data: {
+        name: 'ProductImage model test product',
+        price: 1,
+        createdBy: author.id,
+      },
     });
   });
 
   afterEach(async () => {
-    await ProductImage.destroy({
-      where: { id: imageIds },
-      force: true,
-      paranoid: false,
-    });
+    await prisma.productImage.deleteMany({ where: { id: { in: imageIds } } });
 
     imageIds.length = 0;
   });
 
   afterAll(async () => {
-    // Cancellare il prodotto qui rimuoverebbe comunque a cascata eventuali
-    // immagini rimaste, ma l'afterEach sopra dovrebbe già averle ripulite.
-    await Product.destroy({ where: { id: product.id } });
+    await prisma.product.delete({ where: { id: product.id } });
 
-    await User.destroy({ where: { id: author.id } });
+    await prisma.user.delete({ where: { id: author.id } });
 
-    await sequelize.close();
+    await prisma.$disconnect();
   });
 
   it('should default sort_order to 0 when not specified', async () => {
-    const image = await ProductImage.create({
-      product_id: product.id,
-      image_url: '/uploads/a.jpg',
+    const image = await prisma.productImage.create({
+      data: { product_id: product.id, image_url: '/uploads/a.jpg' },
     });
 
     imageIds.push(image.id);
@@ -55,24 +54,26 @@ describe('ProductImage model', () => {
     expect(image.sort_order).toBe(0);
   });
 
-  it('should resolve the "product" association', async () => {
-    const image = await ProductImage.create({
-      product_id: product.id,
-      image_url: '/uploads/b.jpg',
+  it('should resolve the "product" relation', async () => {
+    const image = await prisma.productImage.create({
+      data: { product_id: product.id, image_url: '/uploads/b.jpg' },
     });
 
     imageIds.push(image.id);
 
-    const found = await ProductImage.findByPk(image.id, {
-      include: 'product',
+    const found = await prisma.productImage.findUnique({
+      where: { id: image.id },
+      include: { product: true },
     });
 
-    expect(found.product.id).toBe(product.id);
+    expect(found?.product.id).toBe(product.id);
   });
 
-  it('should require image_url (allowNull: false)', async () => {
+  it('should require image_url (NOT NULL)', async () => {
     await expect(
-      ProductImage.create({ product_id: product.id })
+      prisma.productImage.create({
+        data: { product_id: product.id } as never,
+      })
     ).rejects.toThrow();
   });
 });

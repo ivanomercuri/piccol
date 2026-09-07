@@ -9,9 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import request from 'supertest';
 import app from '../index';
-import models from '../models';
-
-const { User, Product, sequelize } = models;
+import { prisma } from '../prisma/client';
 
 // Un PNG 1x1 valido (pixel trasparente), ben sotto ai limiti di dimensione
 // (1920x1080) e peso (MAX_FILE_SIZE) configurati: serve solo a superare la
@@ -53,7 +51,7 @@ describe('Product routes', () => {
       .post('/admin/user/register')
       .send({ name, email, password: 'password123' });
 
-    const user = await User.findOne({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email } });
 
     return { email, user, token: registerRes.body.data };
   }
@@ -63,27 +61,31 @@ describe('Product routes', () => {
 
     adminB = await registerAndLogin('Admin B');
 
-    productOfA = await Product.create({
-      name: 'Prodotto di A',
-      price: 1,
-      createdBy: adminA.user.id,
+    productOfA = await prisma.product.create({
+      data: {
+        name: 'Prodotto di A',
+        price: 1,
+        createdBy: adminA.user.id,
+      },
     });
 
-    productOfB = await Product.create({
-      name: 'Prodotto di B',
-      price: 2,
-      createdBy: adminB.user.id,
+    productOfB = await prisma.product.create({
+      data: {
+        name: 'Prodotto di B',
+        price: 2,
+        createdBy: adminB.user.id,
+      },
     });
 
     productIds.push(productOfA.id, productOfB.id);
   });
 
   afterAll(async () => {
-    await Product.destroy({ where: { id: productIds } });
+    await prisma.product.deleteMany({ where: { id: { in: productIds } } });
 
-    await User.destroy({ where: { email: emailsToClean } });
+    await prisma.user.deleteMany({ where: { email: { in: emailsToClean } } });
 
-    await sequelize.close();
+    await prisma.$disconnect();
   });
 
   describe('GET /products', () => {
@@ -111,10 +113,10 @@ describe('Product routes', () => {
       // Non esiste un endpoint per creare un superadmin: lo eleviamo
       // direttamente sul DB, come si dovrebbe fare anche in produzione
       // (vedi backend/docs/API.md).
-      await User.update(
-        { level: 'superadmin' },
-        { where: { id: adminA.user.id } }
-      );
+      await prisma.user.update({
+        where: { id: adminA.user.id },
+        data: { level: 'superadmin' },
+      });
 
       const res = await request(app)
         .get('/products')
@@ -130,7 +132,10 @@ describe('Product routes', () => {
 
       // Ripristiniamo il livello per non influenzare eventuali altri test
       // in questo stesso file che assumono adminA come admin normale.
-      await User.update({ level: 'admin' }, { where: { id: adminA.user.id } });
+      await prisma.user.update({
+        where: { id: adminA.user.id },
+        data: { level: 'admin' },
+      });
     });
   });
 

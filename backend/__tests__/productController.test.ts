@@ -4,12 +4,16 @@
 // modello Product per non dipendere da un DB reale.
 import { Request, Response } from 'express';
 
-jest.mock('../models', () => ({ Product: { findAll: jest.fn() } }));
+jest.mock('../prisma/client', () => ({
+  prisma: { product: { findMany: jest.fn() } },
+}));
 
-import models from '../models';
+import { prisma } from '../prisma/client';
 import * as productController from '../controllers/product/productController';
 
-const { Product } = models;
+const mockedPrisma = prisma as unknown as {
+  product: { findMany: jest.Mock };
+};
 
 describe('productController.getProducts', () => {
   let res: Response;
@@ -23,7 +27,7 @@ describe('productController.getProducts', () => {
   it('should return ALL products when the user is a superadmin', async () => {
     const fakeProducts = [{ id: 1 }, { id: 2 }];
 
-    Product.findAll.mockResolvedValue(fakeProducts);
+    mockedPrisma.product.findMany.mockResolvedValue(fakeProducts);
 
     const req = {
       user: { id: 99, level: 'superadmin' },
@@ -32,7 +36,7 @@ describe('productController.getProducts', () => {
     await productController.getProducts(req, res);
 
     // Nessun filtro per createdBy: un superadmin vede il catalogo intero.
-    expect(Product.findAll).toHaveBeenCalledWith();
+    expect(mockedPrisma.product.findMany).toHaveBeenCalledWith();
 
     expect(res.success).toHaveBeenCalledWith(fakeProducts);
   });
@@ -40,13 +44,13 @@ describe('productController.getProducts', () => {
   it('should return ONLY the products created by the user when level is admin', async () => {
     const fakeProducts = [{ id: 1, createdBy: 7 }];
 
-    Product.findAll.mockResolvedValue(fakeProducts);
+    mockedPrisma.product.findMany.mockResolvedValue(fakeProducts);
 
     const req = { user: { id: 7, level: 'admin' } } as unknown as Request;
 
     await productController.getProducts(req, res);
 
-    expect(Product.findAll).toHaveBeenCalledWith({ where: { createdBy: 7 } });
+    expect(mockedPrisma.product.findMany).toHaveBeenCalledWith({ where: { createdBy: 7 } });
 
     expect(res.success).toHaveBeenCalledWith(fakeProducts);
   });
@@ -59,7 +63,7 @@ describe('productController.getProducts', () => {
 
     await productController.getProducts(req, res);
 
-    expect(Product.findAll).not.toHaveBeenCalled();
+    expect(mockedPrisma.product.findMany).not.toHaveBeenCalled();
 
     expect(res.error).toHaveBeenCalledWith(403, 'Non autorizzato');
   });
@@ -71,7 +75,7 @@ describe('productController.getProducts', () => {
     // backend/docs/API.md come comportamento da tenere a mente.
     const err = new Error('Connection lost');
 
-    Product.findAll.mockRejectedValue(err);
+    mockedPrisma.product.findMany.mockRejectedValue(err);
 
     const req = {
       user: { id: 1, level: 'superadmin' },

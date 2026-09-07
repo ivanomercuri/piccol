@@ -5,17 +5,15 @@
 // testati singolarmente altrove, funzionino anche insieme.
 import request from 'supertest';
 import app from '../index';
-import models from '../models';
-
-const { Customer, sequelize } = models;
+import { prisma } from '../prisma/client';
 
 describe('Customer routes', () => {
   const emailsToClean: string[] = [];
 
   afterAll(async () => {
-    await Customer.destroy({ where: { email: emailsToClean } });
+    await prisma.customer.deleteMany({ where: { email: { in: emailsToClean } } });
 
-    await sequelize.close();
+    await prisma.$disconnect();
   });
 
   describe('GET /', () => {
@@ -54,7 +52,9 @@ describe('Customer routes', () => {
       // Il token restituito deve essere anche quello salvato come
       // current_token sul record appena creato (pattern di invalidazione
       // descritto in CLAUDE.md).
-      const created = await Customer.findOne({ where: { email } });
+      const created = await prisma.customer.findUniqueOrThrow({
+        where: { email },
+      });
 
       expect(created).not.toBeNull();
 

@@ -5,9 +5,7 @@
 // operazioni, perché "current_token" vive nel DB.
 import request from 'supertest';
 import app from '../index';
-import models from '../models';
-
-const { User, sequelize } = models;
+import { prisma } from '../prisma/client';
 
 describe('Admin/User routes', () => {
   const emailsToClean: string[] = [];
@@ -27,9 +25,9 @@ describe('Admin/User routes', () => {
   }
 
   afterAll(async () => {
-    await User.destroy({ where: { email: emailsToClean } });
+    await prisma.user.deleteMany({ where: { email: { in: emailsToClean } } });
 
-    await sequelize.close();
+    await prisma.$disconnect();
   });
 
   describe('POST /admin/user/register', () => {
@@ -40,7 +38,10 @@ describe('Admin/User routes', () => {
 
       expect(token.split('.')).toHaveLength(3);
 
-      const created = await User.findOne({ where: { email } });
+      // findUniqueOrThrow invece di findUnique: se la riga non esistesse, il
+      // test deve fallire subito con un errore esplicito, non propagare un
+      // null (findOne di Sequelize era tipizzato `any` e nascondeva il caso).
+      const created = await prisma.user.findUniqueOrThrow({ where: { email } });
 
       expect(created.level).toBe('admin');
     });
@@ -80,7 +81,7 @@ describe('Admin/User routes', () => {
 
       // La riga salvata deve avere l'email normalizzata: cercarla nella
       // forma originale (con maiuscole) su PostgreSQL non la troverebbe.
-      const created = await User.findOne({ where: { email: lowercaseEmail } });
+      const created = await prisma.user.findUnique({ where: { email: lowercaseEmail } });
 
       expect(created).not.toBeNull();
 

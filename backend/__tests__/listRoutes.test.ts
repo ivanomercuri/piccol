@@ -6,9 +6,7 @@
 // index.ts sia quello giusto.
 import request from 'supertest';
 import app from '../index';
-import models from '../models';
-
-const { sequelize } = models;
+import { prisma } from '../prisma/client';
 
 describe('GET /routes', () => {
   const originalShowRoutes = process.env.SHOW_ROUTES;
@@ -18,7 +16,7 @@ describe('GET /routes', () => {
   });
 
   afterAll(async () => {
-    await sequelize.close();
+    await prisma.$disconnect();
   });
 
   it('should return 403 when SHOW_ROUTES is not "true"', async () => {

@@ -4,20 +4,15 @@
 // User non ha.
 import { Request, Response } from 'express';
 
-jest.mock('../models', () => ({ Customer: {} }));
-
-jest.mock('../services/authService', () => ({ authenticate: jest.fn() }));
+jest.mock('../services/authService', () => ({ authenticateCustomer: jest.fn() }));
 
 jest.mock('../services/registerService', () => ({
-  registerEntity: jest.fn(),
+  registerCustomer: jest.fn(),
 }));
 
-import models from '../models';
-import { authenticate } from '../services/authService';
-import { registerEntity } from '../services/registerService';
+import { authenticateCustomer } from '../services/authService';
+import { registerCustomer } from '../services/registerService';
 import * as authCustomerController from '../controllers/customer/authCustomerController';
-
-const { Customer } = models;
 
 describe('authCustomerController.register', () => {
   let req: Request;
@@ -40,27 +35,25 @@ describe('authCustomerController.register', () => {
   });
 
   it('should register the customer against the Customer model with all its fields', async () => {
-    (registerEntity as jest.Mock).mockResolvedValue('a-jwt-token');
+    (registerCustomer as jest.Mock).mockResolvedValue('a-jwt-token');
 
     await authCustomerController.register(req, res);
 
-    expect(registerEntity).toHaveBeenCalledWith(
-      Customer,
+    expect(registerCustomer).toHaveBeenCalledWith(
       {
         email: 'mario@example.com',
         password: 'pw',
         firstName: 'Mario',
         lastName: 'Rossi',
         address: 'Via Roma 1',
-      },
-      ['id', 'email']
+      }
     );
 
     expect(res.success).toHaveBeenCalledWith('a-jwt-token');
   });
 
-  it('should return a 500 error if registerEntity throws', async () => {
-    (registerEntity as jest.Mock).mockRejectedValue(
+  it('should return a 500 error if registerCustomer throws', async () => {
+    (registerCustomer as jest.Mock).mockRejectedValue(
       new Error('Duplicate entry')
     );
 
@@ -84,16 +77,15 @@ describe('authCustomerController.login', () => {
     jest.clearAllMocks();
   });
 
-  it('should authenticate against the Customer model and return the token', async () => {
-    (authenticate as jest.Mock).mockResolvedValue({
+  it('should authenticateCustomer against the Customer model and return the token', async () => {
+    (authenticateCustomer as jest.Mock).mockResolvedValue({
       success: true,
       token: 'a-jwt-token',
     });
 
     await authCustomerController.login(req, res);
 
-    expect(authenticate).toHaveBeenCalledWith(
-      Customer,
+    expect(authenticateCustomer).toHaveBeenCalledWith(
       'mario@example.com',
       'pw'
     );
@@ -102,7 +94,7 @@ describe('authCustomerController.login', () => {
   });
 
   it('should return a 401 with the service message when authentication fails', async () => {
-    (authenticate as jest.Mock).mockResolvedValue({
+    (authenticateCustomer as jest.Mock).mockResolvedValue({
       success: false,
       message: 'Utente non trovato',
     });
@@ -112,8 +104,8 @@ describe('authCustomerController.login', () => {
     expect(res.error).toHaveBeenCalledWith(401, 'Utente non trovato');
   });
 
-  it('should return a 500 error if authenticate throws unexpectedly', async () => {
-    (authenticate as jest.Mock).mockRejectedValue(new Error('DB down'));
+  it('should return a 500 error if authenticateCustomer throws unexpectedly', async () => {
+    (authenticateCustomer as jest.Mock).mockRejectedValue(new Error('DB down'));
 
     await authCustomerController.login(req, res);
 

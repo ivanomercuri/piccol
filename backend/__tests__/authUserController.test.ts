@@ -6,20 +6,15 @@
 // risultato in res.success/res.error), non la logica di autenticazione in sé.
 import { Request, Response } from 'express';
 
-jest.mock('../models', () => ({ User: {} }));
-
-jest.mock('../services/authService', () => ({ authenticate: jest.fn() }));
+jest.mock('../services/authService', () => ({ authenticateUser: jest.fn() }));
 
 jest.mock('../services/registerService', () => ({
-  registerEntity: jest.fn(),
+  registerUser: jest.fn(),
 }));
 
-import models from '../models';
-import { authenticate } from '../services/authService';
-import { registerEntity } from '../services/registerService';
+import { authenticateUser } from '../services/authService';
+import { registerUser } from '../services/registerService';
 import * as authUserController from '../controllers/user/authUserController';
-
-const { User } = models;
 
 describe('authUserController.register', () => {
   let req: Request;
@@ -36,24 +31,25 @@ describe('authUserController.register', () => {
   });
 
   it('should register the user against the User model and return the token', async () => {
-    (registerEntity as jest.Mock).mockResolvedValue('a-jwt-token');
+    (registerUser as jest.Mock).mockResolvedValue('a-jwt-token');
 
     await authUserController.register(req, res);
 
-    // Verifichiamo che venga usato proprio il modello User (non Customer) e
-    // che i campi del payload/token siano quelli attesi per questo dominio
-    // (name incluso, a differenza di Customer che non ce l'ha).
-    expect(registerEntity).toHaveBeenCalledWith(
-      User,
-      { name: 'Mario', email: 'mario@example.com', password: 'pw' },
-      ['id', 'email']
-    );
+    // Dopo la migrazione a Prisma il modello non viene più passato: è la
+    // funzione stessa (registerUser, non registerCustomer) a determinare il
+    // dominio. Resta verificato che i campi inoltrati siano quelli attesi
+    // qui — name incluso, a differenza di Customer che non ce l'ha.
+    expect(registerUser).toHaveBeenCalledWith({
+      name: 'Mario',
+      email: 'mario@example.com',
+      password: 'pw',
+    });
 
     expect(res.success).toHaveBeenCalledWith('a-jwt-token');
   });
 
-  it('should return a 500 error if registerEntity throws (e.g. duplicate email)', async () => {
-    (registerEntity as jest.Mock).mockRejectedValue(
+  it('should return a 500 error if registerUser throws (e.g. duplicate email)', async () => {
+    (registerUser as jest.Mock).mockRejectedValue(
       new Error('Duplicate entry')
     );
 
@@ -80,24 +76,20 @@ describe('authUserController.login', () => {
   });
 
   it('should return the token on successful authentication', async () => {
-    (authenticate as jest.Mock).mockResolvedValue({
+    (authenticateUser as jest.Mock).mockResolvedValue({
       success: true,
       token: 'a-jwt-token',
     });
 
     await authUserController.login(req, res);
 
-    expect(authenticate).toHaveBeenCalledWith(
-      User,
-      'mario@example.com',
-      'pw'
-    );
+    expect(authenticateUser).toHaveBeenCalledWith('mario@example.com', 'pw');
 
     expect(res.success).toHaveBeenCalledWith('a-jwt-token');
   });
 
   it('should return a 401 with the service message when authentication fails', async () => {
-    (authenticate as jest.Mock).mockResolvedValue({
+    (authenticateUser as jest.Mock).mockResolvedValue({
       success: false,
       message: 'Password errata',
     });
@@ -109,8 +101,8 @@ describe('authUserController.login', () => {
     expect(res.success).not.toHaveBeenCalled();
   });
 
-  it('should return a 500 error if authenticate throws unexpectedly', async () => {
-    (authenticate as jest.Mock).mockRejectedValue(new Error('DB down'));
+  it('should return a 500 error if authenticateUser throws unexpectedly', async () => {
+    (authenticateUser as jest.Mock).mockRejectedValue(new Error('DB down'));
 
     await authUserController.login(req, res);
 

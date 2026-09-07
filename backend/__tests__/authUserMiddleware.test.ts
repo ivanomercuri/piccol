@@ -7,13 +7,17 @@ import { Request, Response, NextFunction } from 'express';
 
 jest.mock('jsonwebtoken');
 
-jest.mock('../models', () => ({ User: { findOne: jest.fn() } }));
+jest.mock('../prisma/client', () => ({
+  prisma: { user: { findUnique: jest.fn() } },
+}));
 
 import jwt from 'jsonwebtoken';
-import models from '../models';
+import { prisma } from '../prisma/client';
 import authUserMiddleware from '../middlewares/authUserMiddleware';
 
-const { User } = models;
+const mockedPrisma = prisma as unknown as {
+  user: { findUnique: jest.Mock };
+};
 
 describe('authUserMiddleware', () => {
   let req: Request;
@@ -69,7 +73,7 @@ describe('authUserMiddleware', () => {
 
     // Con un token non decodificabile non ha senso nemmeno interrogare il
     // DB: verifichiamo che il middleware non ci provi nemmeno.
-    expect(User.findOne).not.toHaveBeenCalled();
+    expect(mockedPrisma.user.findUnique).not.toHaveBeenCalled();
 
     expect(next).not.toHaveBeenCalled();
   });
@@ -82,11 +86,11 @@ describe('authUserMiddleware', () => {
 
     (jwt.verify as jest.Mock).mockReturnValue({ id: 42 });
 
-    User.findOne.mockResolvedValue(null);
+    mockedPrisma.user.findUnique.mockResolvedValue(null);
 
     await authUserMiddleware(req, res, next);
 
-    expect(User.findOne).toHaveBeenCalledWith({ where: { id: 42 } });
+    expect(mockedPrisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 42 } });
 
     expect(res.error).toHaveBeenCalledWith(401, 'Utente non trovato');
 
@@ -102,7 +106,7 @@ describe('authUserMiddleware', () => {
 
     (jwt.verify as jest.Mock).mockReturnValue({ id: 1 });
 
-    User.findOne.mockResolvedValue({ id: 1, current_token: 'new-token' });
+    mockedPrisma.user.findUnique.mockResolvedValue({ id: 1, current_token: 'new-token' });
 
     await authUserMiddleware(req, res, next);
 
@@ -118,7 +122,7 @@ describe('authUserMiddleware', () => {
 
     (jwt.verify as jest.Mock).mockReturnValue({ id: 1 });
 
-    User.findOne.mockResolvedValue(fakeUser);
+    mockedPrisma.user.findUnique.mockResolvedValue(fakeUser);
 
     await authUserMiddleware(req, res, next);
 
