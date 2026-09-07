@@ -4,6 +4,7 @@
 // pubblici di @types/express: qui le dichiariamo una sola volta invece di
 // ripetere cast in ogni file.
 import 'express';
+import type { User } from '@prisma/client';
 
 declare global {
   namespace Express {
@@ -32,22 +33,17 @@ declare global {
         isFatal?: boolean;
       }>;
 
-      // Valorizzato da middlewares/authUserMiddleware.js con l'istanza
-      // Sequelize reale dell'utente autenticato (User.findOne(...)).
-      // Interfaccia "duck-typed" minima con solo i campi che i controller
-      // convertiti finora leggono/scrivono — non l'intera classe User
-      // (models/user.ts) per non dover riaprire la Fase 2.3 già chiusa solo
-      // per esportarne il tipo (stessa scelta già fatta in services/ per
-      // AuthUserInstance).
-      user?: {
-        id: number;
-        name: string;
-        email: string;
-        level: 'admin' | 'superadmin';
-        password: string;
-        current_token: string | null;
-        save: () => Promise<unknown>;
-      };
+      // Valorizzato da middlewares/authUserMiddleware.ts con la riga
+      // dell'utente autenticato letta via Prisma.
+      //
+      // Ora è direttamente il tipo `User` generato da Prisma dallo schema,
+      // non più un'interfaccia "duck-typed" scritta a mano: con Sequelize
+      // esportare il tipo del modello avrebbe richiesto di riaprire scelte
+      // già chiuse, mentre il client generato lo espone gratis e resta
+      // allineato allo schema da solo. Nota che NON ha più `save()`: le
+      // istanze Prisma sono oggetti semplici, l'aggiornamento passa da
+      // prisma.user.update().
+      user?: User;
     }
   }
 }

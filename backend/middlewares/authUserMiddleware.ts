@@ -1,9 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt, { JwtPayload } from 'jsonwebtoken';
-import models from '../models';
+import { prisma } from '../prisma/client';
 import { JWT_SECRET } from '../services/tokenService';
-
-const { User } = models;
 
 export = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
@@ -25,7 +23,7 @@ export = async (req: Request, res: Response, next: NextFunction) => {
     // JWT_SECRET arriva già validato da tokenService (nessun cast qui).
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
 
-    const user = await User.findOne({ where: { id: decoded.id } });
+    const user = await prisma.user.findUnique({ where: { id: decoded.id } });
 
     if (!user) {
       return res.error(401, 'Utente non trovato');
