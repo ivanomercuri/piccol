@@ -19,7 +19,7 @@ l'applicazione, è ricondurre la suite di test al nuovo modello.
 | Categoria | File | Endpoint / note |
 |---|---|---|
 | Router | 5 (`adminRoutes`, `userRoutes`, `customerRoutes`, `productRoutes`, `listRoutes`) | **12 endpoint HTTP** totali |
-| Controller | 7, di cui **3 non vivi** | vedi sotto |
+| Controller | 6, di cui **2 non vivi** (erano 7: `exampleController` è stato cancellato, vedi §8) | vedi sotto |
 | Middleware | 10, di cui **1 morto** | 4 formano la catena di upload |
 | Service | 4 (`authService`, `registerService`, `tokenService`, `emailNormalizer`) | |
 | Classi | 1 (`InvalidImageTypeError`) | |
@@ -45,9 +45,9 @@ altrimenti verrebbero migrati per inerzia:
   riga 122). Quello che resta vivo fa console.debug delle route e risponde `res.success([])` — cioè
   l'endpoint `GET /routes` restituisce un array vuoto. Dipende da `app.router.stack`, un dettaglio
   interno di Express 5.
-- `controllers/exampleController.ts` non è montato su nessuna route ed è marcato nel file come
-  esempio da non imitare. Fu **mantenuto su richiesta esplicita**, quindi non lo tocco senza una
-  decisione.
+- ~~`controllers/exampleController.ts`~~ — **cancellato** (vedi §8). Non era montato su nessuna route
+  ed era marcato nel file come esempio da non imitare. Era stato mantenuto su richiesta esplicita come
+  prova che la connessione diretta a PostgreSQL funzionasse: avendola data, non serve più.
 
 ---
 
@@ -357,7 +357,7 @@ descritte in §4.2.
 | **D6** ✓ | Toolchain | (a) `@nestjs/cli` (`nest start --watch`); (b) restare su nodemon + ts-node | **(a)**. Richiede di rifare il wiring del debugger: `--debug 0.0.0.0:9229` al posto del flag `--inspect` attuale, e `CMD` nel Dockerfile |
 | **D7** ✓ | Il bug di arità di `errorMiddleware` | (a) correggerlo **prima**, in Express, con un test e2e che prima falla; (b) lasciarlo assorbire dalla migrazione | **(a)**. Un exception filter non può riprodurre il bug, quindi con (b) la correzione avviene senza che nessun test l'abbia mai dimostrata. Con (a) si guadagna un test di regressione sul JSON malformato → 400 |
 | **D8** ✓ | `listRoutesController` + `GET /routes` | (a) cancellare (eventualmente `@nestjs/swagger` al suo posto); (b) portarlo | **(a)**. Restituisce già un array vuoto, 120 righe su 156 sono commentate, e dipende da un interno di Express. Swagger dà un vero OpenAPI in poche righe |
-| **D9** ✓ | Gli altri file morti | `profileCustomerController` (vuoto), `skipIfValidationErrorsMiddleware` (no-op) | cancellare entrambi. Su `exampleController`, che fu tenuto su tua richiesta: **decidi tu** — resta fuori dal grafo dei moduli o esce dal repo |
+| **D9** ✓ | Gli altri file morti | `profileCustomerController` (vuoto), `skipIfValidationErrorsMiddleware` (no-op), `exampleController` | cancellare tutti e tre. `exampleController` **già cancellato** (§8); gli altri due restano pianificati in F5 insieme al resto del codice morto |
 | **D10** ✓ | Logger | (a) adapter Winston come `LoggerService` di NestJS; (b) lasciare il singleton | **(a)**, basso costo. Con (b) i log del framework vanno su stdout e quelli applicativi in `logs/`: due sistemi separati |
 
 ---
@@ -445,6 +445,28 @@ comportamento, con l'unica eccezione voluta di D7.
    `errorMiddleware.test.ts`). Verificato confrontando con le versioni a HEAD, e **deliberatamente
    non riformattati**: l'avrebbe trasformato in un commit di rumore. `eslint-config-prettier` serve
    solo a disattivare le regole eslint in conflitto, non a formattare.
+
+### Coda di F0: cancellato `exampleController`
+
+Deciso dopo il resto di F0. Il file esisteva come prova che la connessione diretta a PostgreSQL con `pg`
+funzionasse, prova che è stata data; non era montato su nessuna route e contraddiceva l'architettura a
+livelli di AGENTS.md (un controller che apre una connessione per conto proprio).
+
+Due conseguenze sulle dipendenze, decise in modo diverso perché i due casi non sono simmetrici:
+
+- **`@types/pg` rimosso** dalle devDependencies. Era stato aggiunto solo per questo file (`pg` non
+  spedisce i propri tipi) e nessun altro file del progetto importa `pg`. Non sparisce comunque da
+  `node_modules`: `@prisma/adapter-pg` lo dichiara fra le proprie dipendenze, quindi la nostra era una
+  seconda dichiarazione della stessa cosa. Type-check verificato pulito dopo la rimozione.
+- **`pg` mantenuto** fra le dipendenze, pur non essendo più importato da nessun file del progetto. Non
+  è una dimenticanza: è il driver con cui l'app parla davvero con PostgreSQL, usato *attraverso*
+  `@prisma/adapter-pg`, e la documentazione di Prisma per quell'adapter prescrive di installarlo
+  esplicitamente (`npm install pg @prisma/adapter-pg`). Rimuoverlo funzionerebbe — l'adapter lo porta
+  come propria dipendenza — ma renderebbe invisibile in `package.json` quale driver usa il progetto,
+  che è esattamente il tipo di scelta che questo repository documenta altrove con cura.
+
+Aggiornato anche un commento di `docker-compose.yml` che descriveva perché certe variabili *non* erano
+lì citando questo file e `config/config.js` di Sequelize, entrambi ormai inesistenti.
 
 ### Debito aperto, da affrontare in F4
 

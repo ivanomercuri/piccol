@@ -87,14 +87,16 @@ services:
       - ./.env
     environment:
       # Legato al nome del servizio "db" nella rete Docker interna, non a
-      # una scelta di configurazione: resta letterale, come ADMINER_DEFAULT_SERVER
-      # sopra. DB_PASSWORD/DB_NAME sono state rimosse da
-      # qui: erano una terza copia delle credenziali, usata solo dallo stub
-      # non montato controllers/exampleController.ts, mai da un percorso
-      # applicativo reale (Sequelize legge invece da config/config.js). Se
-      # in futuro exampleController.ts viene davvero collegato a una route,
-      # le sue variabili andranno ripensate insieme a quel lavoro, non
-      # duplicate qui "per sicurezza".
+      # una scelta di configurazione: resta letterale, come
+      # ADMINER_DEFAULT_SERVER sopra, e per lo stesso motivo non sta in .env.
+      # È però obbligatoria: config/databaseUrl.ts si rifiuta di comporre
+      # l'URL del database se manca. Va quindi ripetuta su ogni servizio che
+      # esegue codice dell'app — vedi test_backend più sotto, che per anni non
+      # l'ha avuta.
+      #
+      # Qui non ci sono credenziali del database: arrivano da env_file, che
+      # legge lo stesso .env. Ripeterle sarebbe una seconda copia degli stessi
+      # valori.
       - DB_HOST=db
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:${PORT:?PORT is missing in .env}/" ]
