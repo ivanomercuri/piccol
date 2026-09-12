@@ -8,6 +8,7 @@
     "lint": "eslint . --fix",
     "type-check": "tsc --noEmit",
     "seed": "ts-node prisma/seed.ts",
+    "seed:dev": "ts-node prisma/seed-dev.ts",
     "migrate": "prisma migrate deploy",
     "generate": "DB_USER=local DB_ROOT_PASSWORD=local DB_HOST=local DB_NAME=local prisma generate"
   },
