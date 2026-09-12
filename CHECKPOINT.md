@@ -1,9 +1,17 @@
 # CHECKPOINT
 
-Stato del progetto **Piccol** al 2026-08-10, per orientarsi rapidamente in una nuova sessione. Non
-sostituisce `CLAUDE.md`/`AGENTS.md` (regole del progetto), `backend/docs/API.md` (documentazione API
-dettagliata) né `backend/docs/TESTING.md` (perché/come della suite di test) — li integra con lo stato di
-avanzamento del lavoro.
+Storia del progetto **Piccol**, in ordine cronologico, per orientarsi rapidamente in una nuova
+sessione. Non sostituisce `CLAUDE.md`/`AGENTS.md` (regole del progetto), `backend/docs/API.md`
+(documentazione API dettagliata) né `backend/docs/TESTING.md` (perché/come della suite di test) — li
+integra con lo stato di avanzamento del lavoro.
+
+> **Se stai riprendendo il lavoro, parti dalla fine**: la sezione più recente è
+> "Stato al 2026-09-12 — punto di ripresa per una nuova sessione". Le sezioni precedenti sono un registro
+> storico: descrivono com'erano le cose allora e **non vengono riscritte** quando qualcosa cambia, quindi
+> non vanno lette come descrizione dello stato attuale.
+>
+> Il lavoro in corso è la **migrazione da Express a NestJS**: il documento di riferimento è
+> `backend/docs/MIGRAZIONE-NESTJS.md`.
 
 ## Completato in questa sessione
 
@@ -698,9 +706,14 @@ da cui recuperare col cherry-pick solo ciò che merita.
 
 ## Stato al 2026-09-12 — punto di ripresa per una nuova sessione
 
-**Branch corrente: `feature/seed-dati-sviluppo`** (pushato, 1 commit oltre `main`). `main` contiene tutte
-e tre le migrazioni completate. Suite: **28 suite / 140 test verdi**, type-check pulito, lint con 1 solo
-warning pre-esistente (`hardLimitMB` in `handleMulterErrorsMiddleware.ts`).
+**Branch corrente: `feature/migrazione-nestjs`** (NON ancora pushato, 3 commit oltre
+`feature/seed-dati-sviluppo`, che a sua volta è 1 commit oltre `main`). `main` contiene tutte e tre le
+migrazioni completate. Suite: **29 suite / 145 test verdi**, type-check pulito, lint con 1 solo warning
+pre-esistente (`hardLimitMB` in `handleMulterErrorsMiddleware.ts`).
+
+Attenzione alla catena dei branch: `feature/migrazione-nestjs` è stato creato da
+`feature/seed-dati-sviluppo` e non da `main`, per non perdere `seed-dev.ts` durante il lavoro. Quando
+`feature/seed-dati-sviluppo` verrà mergiato in `main`, il branch della migrazione va riallineato.
 
 ### Percorso di apprendimento PostgreSQL (in corso)
 
@@ -725,11 +738,14 @@ complesse e N+1.
   perché le statistiche erano ferme a "tabella vuota". Risolto con `ANALYZE products`. È la causa
   classica del "dopo l'import dei dati è diventato lento".
 
-### Decisione presa: migrazione a NestJS (assessment da fare)
+### Migrazione a NestJS: assessment FATTO, fase F0 FATTA
 
-**Il prossimo lavoro è un assessment per migrare da Express a NestJS**, richiesto esplicitamente
-dall'utente, con lo stesso metodo usato per Prisma: prima il report (inventario, punti critici, decisioni
-da prendere), poi il via libera, poi l'implementazione a commit incrementali.
+**Documento di riferimento: `backend/docs/MIGRAZIONE-NESTJS.md`.** Contiene inventario, mappatura
+Express → NestJS pezzo per pezzo, le dieci decisioni con il loro esito, il piano in sette fasi e il
+registro di esecuzione di F0. **Leggerlo prima di riprendere il lavoro**: quanto segue è solo un indice.
+
+Metodo seguito, come per Prisma: prima il report, poi il via libera, poi implementazione a commit
+incrementali.
 
 Il ragionamento che ha portato alla decisione, da non rimettere in discussione:
 
@@ -740,21 +756,66 @@ Il ragionamento che ha portato alla decisione, da non rimettere in discussione:
   delle offerte Node), ma è più specializzato e mediamente pagato meglio, standard nei contesti enterprise.
 - Per chi viene da PHP/Symfony, NestJS è territorio familiare: dependency injection, moduli, decoratori.
 
-**Punti critici già individuati per l'assessment** (da approfondire, non ancora decisi):
+**Decisioni prese** (dettaglio e motivazioni in §6 del documento). Accolte tutte le raccomandazioni
+tranne D3: eccezioni idiomatiche invece di `res.error` nei controller; forma della risposta di
+validazione conservata ma senza il flag `isFatal`; **D3 = `@nestjs/passport` + `passport-jwt`, scelta
+dell'utente** contro la raccomandazione di un guard scritto a mano; `PrismaService` iniettabile;
+`@nestjs/config` con validazione centralizzata; CLI di Nest; bug di arità corretto prima della
+migrazione; `listRoutesController` da cancellare; logger Winston come `LoggerService` di NestJS.
 
-- `res.success`/`res.error` di `responseFormatter` → in NestJS diventerebbero un **interceptor**.
-- `errorMiddleware` → **exception filter** (e va deciso se correggere il bug di arità documentato sopra,
-  che in NestJS semplicemente non si riproporrebbe).
-- L'accumulo di `req.validationErrors` attraverso la catena di upload → è il pattern più lontano dal
-  modello NestJS (`ValidationPipe` + DTO con `class-validator`): richiede una decisione esplicita.
-- `req.user` valorizzato da `authUserMiddleware` → **guard** + decoratore custom.
-- I test passerebbero al `TestingModule` di NestJS.
-- Stima indicativa data all'utente: 10-15 sessioni serali.
+**Strategia scelta, non ovvia e da non riscoprire**: NestJS incapsula una vera istanza Express, quindi
+i router attuali si **montano dentro** l'app NestJS con `app.use()` e si migra un dominio per volta,
+tenendo la suite verde a ogni commit. I 28 test e2e con supertest sono la rete di sicurezza e vanno
+adattati **per primi** (F1), non per ultimi.
+
+**Fatto in F0** (3 commit: assessment, F0, cancellazione di `exampleController`):
+
+- NestJS 12 installato con passport. **TypeScript resta a 6.0.3**: la 7 esiste ma `ts-jest` dichiara
+  `<7` e `typescript-eslint` `<6.1.0`, quindi romperebbe il transformer di tutta la suite.
+- `experimentalDecorators` + `emitDecoratorMetadata` in `tsconfig.json`. Dimenticare il secondo non dà
+  errore di compilazione: la DI inietta `undefined`.
+- **Bug di arità di `errorMiddleware` corretto** (D7), con il test scritto prima e verificato rosso. Un
+  body JSON malformato ora risponde nel formato del progetto invece della pagina HTML di Express.
+  Nuovo file `__tests__/errorHandling.test.ts` = quarta categoria di test (comportamento trasversale
+  all'app), documentata in `docs/TESTING.md`.
+- **Override su multer**: `@nestjs/platform-express` pinna multer a 2.2.0, l'ultima vulnerabile, e npm
+  ne installava una copia annidata → 4 advisory high rientrate, fra cui il bypass del limite di
+  dimensione. Risolto con `overrides: { "multer": "$multer" }`.
+- **`docker compose run --rm test_backend` era rotto dalla migrazione a Prisma** per due cause: volume
+  anonimo fossilizzato (conteneva ancora i binari di sequelize) e `DB_HOST` mai presente su quel
+  servizio. Ora funziona; il volume è nominato e condiviso.
+- `exampleController.ts` cancellato su richiesta dell'utente, con `@types/pg`. `pg` invece resta
+  (motivo in §8 del documento).
+
+**Il prossimo passo è F1**: `main.ts`, AppModule, `PrismaService`, `ConfigModule` con validazione,
+interceptor + exception filter + logger, router legacy montati dentro, i 4 test e2e ripuntati sul
+`TestingModule`. Checkpoint da rispettare: **145 verdi**. È la fase in cui la strategia incrementale si
+dimostra o cade — l'incognita dichiarata è l'ordine di registrazione fra router legacy e router di
+NestJS sulla stessa istanza Express, **da verificare empiricamente, non da dare per buona**.
+
+Stima residua: 8-12 sessioni serali (F1→F6).
 
 ### Cose in sospeso, non urgenti
 
 - La configurazione di `pg_stat_statements` vive solo nel volume Docker: se la si vuole permanente va
   messa nel `docker-compose.yml` del servizio `db`.
 - `createProduct` resta uno stub. Era il candidato naturale per imparare le transazioni; nascerà
-  direttamente in NestJS dopo la migrazione.
-- Il branch `feature/seed-dati-sviluppo` va mergiato in `main` quando si ritiene concluso.
+  direttamente in NestJS in **F6**, ed è lì che il protocollo di trade-off sui dati di AGENTS.md si
+  attiva davvero (Concurrency, Duplication).
+- La **paginazione di `GET /products`**, sospesa dal percorso PostgreSQL, rientra in **F4**: quell'handler
+  viene riscritto comunque, quindi non vale farlo due volte.
+- Il branch `feature/seed-dati-sviluppo` va mergiato in `main` quando si ritiene concluso (vedi la nota
+  sulla catena dei branch sopra).
+- **Debito di sicurezza da affrontare in F4**: `image-size` ha 2 advisory high senza correzione
+  disponibile, e non è transitiva — è la libreria con cui `validateProductImageMiddleware` misura file
+  **caricati dagli utenti**. Il mimetype su cui si basa il controllo arriva dall'header `Content-Type`,
+  quindi è sotto controllo di chi carica: un file ICNS dichiarato `image/png` raggiunge il parser
+  vulnerabile. Strade: validare i magic bytes, o cambiare libreria.
+- Le 3 advisory high residue (`deepmerge-ts`, `mysql2` via `@prisma/config`) sono transitive della CLI
+  di Prisma, che è una devDependency. **`npm audit fix --force` NON va eseguito**: retrocederebbe prisma
+  a 6.19.3, disfacendo la migrazione a Prisma 7.
+- Codice morto già deciso (D9) ma non ancora rimosso, pianificato in **F5**:
+  `controllers/customer/profileCustomerController.ts` (file vuoto) e
+  `middlewares/skipIfValidationErrorsMiddleware.ts` (no-op mai montato).
+- Nel servizio `db` di `docker-compose.yml` restano due commenti che citano `config/config.js` e
+  Sequelize come se esistessero ancora.
