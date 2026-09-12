@@ -1,25 +1,42 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import logger from '../config/logger';
 
-// ATTENZIONE — bug pre-esistente, scoperto durante questa conversione e
-// preservato di proposito (non corretto silenziosamente, come da
-// istruzioni): Express riconosce un middleware come error-handler SOLO se
-// dichiara ESATTAMENTE 4 parametri (err, req, res, next) — è così che
-// decide se instradargli un `next(err)` oppure no. Questa funzione ne ha
-// solo 3. A runtime questo significa che `app.use(errorHandler)` in
-// index.js NON viene mai chiamato come gestore d'errore: verificato
-// empiricamente inviando un body JSON malformato al server in dev, che
-// restituisce la pagina HTML di errore di default di Express (stack trace
-// incluso) invece del `res.error(400, 'errore json: ...')` documentato in
-// CLAUDE.md. Di conseguenza anche `logger.error(...)` qui sotto non scrive
-// mai nei log per errori propagati con next(err). TypeScript non segnala
-// questo problema (una funzione a 3 argomenti è strutturalmente compatibile
-// con un tipo che ne richiede 4, JS permette di chiamarla comunque) — va
-// quindi corretto esplicitamente da chi legge questo commento, aggiungendo
-// il quarto parametro `next: NextFunction` (anche se inutilizzato), non da
-// questa sessione di migrazione.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function errorHandler(err: any, req: Request, res: Response) {
+// NON RIMUOVERE il quarto parametro `next`, anche se non viene usato.
+//
+// Express distingue un error-handler da un middleware normale contando gli
+// argomenti dichiarati dalla funzione (fn.length): solo con ESATTAMENTE 4
+// parametri (err, req, res, next) gli instrada un `next(err)`. Con 3, come
+// era scritto fino alla fase F0 della migrazione a NestJS, `app.use()` lo
+// registrava come middleware ordinario e non veniva mai invocato: un body
+// JSON malformato riceveva la pagina HTML di errore di default di Express —
+// stack trace incluso — invece della risposta 400 nel formato del progetto,
+// e nessun errore propagato con next(err) finiva nei log di Winston.
+//
+// TypeScript non protegge da questo: una funzione a 3 argomenti è
+// strutturalmente compatibile con un tipo che ne richiede 4, quindi il
+// compilatore resta zitto. Il presidio è il test end-to-end in
+// __tests__/errorHandling.test.ts, che passa da una richiesta HTTP vera e
+// quindi rileva il problema di aggancio che un test sulla funzione isolata
+// non può vedere.
+//
+// Nota per la migrazione: in NestJS questo vincolo non esiste più. Un
+// exception filter viene riconosciuto tramite il decoratore @Catch(), non
+// contando i parametri, quindi questa classe di bug diventa
+// irrappresentabile.
+//
+// Il parametro `next` non ha bisogno di una direttiva eslint: la config del
+// progetto lo ignora già fra i parametri non usati
+// (argsIgnorePattern: 'next|^_' in eslint.config.js).
+function errorHandler(
+  // La direttiva sta qui e non sopra `function`: `disable-next-line` vale
+  // per la riga immediatamente successiva, e con la firma spezzata su più
+  // righe quella successiva a `function` non è più quella con `any`.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  err: any,
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   logger.error('Errore:', {
     message: err.message,
     stack: err.stack,

@@ -9,6 +9,26 @@
 
     "strict": true,
 
+    // Richiesti da NestJS. Non sono equivalenti e servono entrambi:
+    //
+    // - experimentalDecorators abilita la SINTASSI dei decoratori "legacy"
+    //   (quelli storici di TypeScript), che è quella usata da NestJS — non i
+    //   decoratori standard Stage 3 arrivati con TS 5.
+    // - emitDecoratorMetadata è quello che fa funzionare la dependency
+    //   injection: fa emettere al compilatore, accanto a ogni classe
+    //   decorata, i TIPI dei parametri del costruttore come metadata
+    //   leggibili a runtime tramite reflect-metadata. È così che NestJS,
+    //   vedendo `constructor(private prisma: PrismaService)`, sa quale
+    //   provider iniettare: i tipi TypeScript non sopravvivono alla
+    //   compilazione, quindi senza questi metadata a runtime non resta
+    //   nulla da ispezionare.
+    //
+    // ATTENZIONE: dimenticare emitDecoratorMetadata non produce un errore di
+    // compilazione. La DI inietta `undefined` e il guasto si manifesta molto
+    // più tardi, alla prima chiamata su una dipendenza mancante.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+
     "allowJs": true,
     "checkJs": false,
 

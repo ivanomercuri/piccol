@@ -3,14 +3,17 @@
 // era mai stato testato, nonostante gestisca anche un caso specifico e non
 // ovvio (i SyntaxError generati da express.json() su body malformati).
 //
-// NOTA (Fase 2.6): errorMiddleware.ts dichiara solo 3 parametri (err, req,
-// res) invece dei 4 richiesti da Express per essere riconosciuto come
-// error-handler — bug pre-esistente, documentato in CHECKPOINT.md e
-// docs/API.md, non corretto. Questo test lo chiama DIRETTAMENTE (bypassando
-// il dispatch di Express), quindi continua a funzionare a prescindere dal
-// bug: verifica il comportamento della funzione in isolamento, non il suo
-// effettivo aggancio nella catena di middleware di Express.
-import { Request, Response } from 'express';
+// NOTA (fase F0 della migrazione a NestJS): il bug di arità che questo file
+// documentava — 3 parametri invece di 4, quindi middleware mai invocato da
+// Express come error-handler — è stato CORRETTO. I test qui sotto chiamano
+// la funzione DIRETTAMENTE, quindi per costruzione non potevano rilevarlo:
+// verificano il comportamento della funzione in isolamento, non il suo
+// aggancio alla catena di Express. Quell'aggancio è ora verificato da
+// __tests__/errorHandling.test.ts, che passa da una richiesta HTTP vera.
+//
+// Resta qui, in fondo al file, un test sull'arità: è l'unica proprietà del
+// contratto con Express osservabile senza fare una richiesta, e costa nulla.
+import { Request, Response, NextFunction } from 'express';
 
 jest.mock('../config/logger', () => ({ error: jest.fn() }));
 
@@ -20,11 +23,18 @@ import errorMiddleware from '../middlewares/errorMiddleware';
 describe('errorMiddleware', () => {
   let req: Request;
   let res: Response;
+  let next: NextFunction;
 
   beforeEach(() => {
     req = { originalUrl: '/test', method: 'POST' } as unknown as Request;
 
     res = { error: jest.fn() } as unknown as Response;
+
+    // `next` non viene usato da errorMiddleware (è un gestore terminale: la
+    // risposta parte da qui e non si delega a nessuno), ma va passato perché
+    // fa parte della firma richiesta da Express. Lo teniamo come mock per
+    // poter verificare esplicitamente che NON venga chiamato.
+    next = jest.fn();
 
     jest.clearAllMocks();
   });
@@ -32,7 +42,7 @@ describe('errorMiddleware', () => {
   it('should always log the error via Winston, regardless of its type', () => {
     const err = new Error('Qualcosa si è rotto');
 
-    errorMiddleware(err, req, res);
+    errorMiddleware(err, req, res, next);
 
     expect(logger.error).toHaveBeenCalledWith('Errore:', {
       message: err.message,
@@ -49,7 +59,7 @@ describe('errorMiddleware', () => {
 
     err.status = 403;
 
-    errorMiddleware(err, req, res);
+    errorMiddleware(err, req, res, next);
 
     expect(res.error).toHaveBeenCalledWith(403, 'Non autorizzato');
   });
@@ -60,7 +70,7 @@ describe('errorMiddleware', () => {
     // client: deve sempre ricadere sui default.
     const err = new Error();
 
-    errorMiddleware(err, req, res);
+    errorMiddleware(err, req, res, next);
 
     expect(res.error).toHaveBeenCalledWith(500, 'Qualcosa è andato storto!');
   });
@@ -79,7 +89,7 @@ describe('errorMiddleware', () => {
 
     err.body = '{not valid json';
 
-    errorMiddleware(err, req, res);
+    errorMiddleware(err, req, res, next);
 
     expect(res.error).toHaveBeenCalledWith(
       400,
@@ -97,8 +107,34 @@ describe('errorMiddleware', () => {
 
     err.status = 400;
 
-    errorMiddleware(err, req, res);
+    errorMiddleware(err, req, res, next);
 
     expect(res.error).toHaveBeenCalledWith(400, 'Unrelated syntax error');
+  });
+
+  // Presidio del contratto con Express, non della logica applicativa.
+  //
+  // Express decide se un middleware è un error-handler contando i parametri
+  // che dichiara (fn.length): con 4 gli instrada un next(err), con 3 lo
+  // tratta come middleware ordinario e non lo chiama mai. È precisamente il
+  // bug che è vissuto in questo file per mesi senza che nessuno dei test
+  // sopra potesse accorgersene, perché chiamano la funzione direttamente.
+  //
+  // Questo test fallisce subito se qualcuno "ripulisce" il parametro next
+  // perché sembra inutilizzato — cosa che un linter può legittimamente
+  // suggerire, e che romperebbe di nuovo tutta la gestione degli errori in
+  // silenzio.
+  it('dichiara 4 parametri, altrimenti Express non lo riconosce come error-handler', () => {
+    expect(errorMiddleware.length).toBe(4);
+  });
+
+  // Contropartita del commento su `next` nel beforeEach: errorMiddleware è
+  // un gestore terminale. Se delegasse a next(), Express passerebbe al
+  // gestore di default dopo che la risposta è già stata inviata, con un
+  // "Cannot set headers after they are sent".
+  it('non delega a next: è un gestore terminale', () => {
+    errorMiddleware(new Error('boom'), req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
   });
 });

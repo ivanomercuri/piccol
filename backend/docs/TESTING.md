@@ -171,3 +171,10 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
   paranoid), chiudi la connessione con `sequelize.close()`.
 - Nuova route o flusso multi-step → `*Routes.test.js` con `supertest(require('../index'))`, dati univoci
   per evitare collisioni in esecuzione parallela, cleanup di eventuali righe/file creati.
+- **Comportamento trasversale all'app, non legato a un dominio** (gestione degli errori globale, 404,
+  wiring dei middleware) → `errorHandling.test.ts`, aggiunto nella fase F0 della migrazione a NestJS. È
+  una quarta categoria, nata da un caso concreto: il bug di arità di `errorMiddleware` viveva
+  nell'**aggancio** del middleware alla catena di Express, non nella sua logica, e i cinque test che
+  chiamavano la funzione in isolamento non potevano vederlo per costruzione. La regola che se ne ricava:
+  quando ciò che può rompersi è il *collegamento* fra i pezzi e non il comportamento di un pezzo, serve
+  una richiesta HTTP vera, anche se non c'è nessuna route nuova da testare.

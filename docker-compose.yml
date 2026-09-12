@@ -74,7 +74,11 @@ services:
       - "${BACKEND_DEBUG_PORT:?BACKEND_DEBUG_PORT is missing in .env}:9229"
     volumes:
       - ./backend:/app
-      - /app/node_modules
+      # Volume NOMINATO, non anonimo (vedi la nota sul volume in fondo al
+      # file): serve a impedire che il bind-mount di ./backend sovrascriva
+      # /app/node_modules con quello dell'host, che è installato per l'host e
+      # non per l'immagine Alpine.
+      - backend-node-modules:/app/node_modules
     env_file:
       # Inietta le variabili di .env (PORT, JWT_SECRET, ecc.) direttamente
       # nell'ambiente del container: l'app Node le trova già in
@@ -102,9 +106,23 @@ services:
     container_name: backend-test
     volumes:
       - ./backend:/app
-      - /app/node_modules
+      # Lo STESSO volume del servizio backend, non uno per conto proprio: i
+      # due servizi girano dalla stessa immagine con le stesse dipendenze,
+      # quindi averne due copie significa solo avere due cose che possono
+      # divergere. A runtime nessuno dei due scrive in node_modules (npm ci
+      # gira nel Dockerfile), quindi la condivisione è sicura.
+      - backend-node-modules:/app/node_modules
     env_file:
       - ./.env
+    environment:
+      # Va ripetuto qui e non solo sul servizio `backend`: DB_HOST non sta in
+      # .env (è il nome del servizio nella rete Docker, non una scelta di
+      # configurazione), quindi env_file non lo porta. Senza questa riga
+      # config/databaseUrl.ts si rifiuta di comporre l'URL e il `pretest`
+      # muore su "Missing environment variables required to build the
+      # database URL: DB_HOST" — motivo per cui questo servizio era rotto
+      # dalla migrazione a Prisma, indipendentemente dal volume stantio.
+      - DB_HOST=db
     command: [ "npm", "run", "test" ]
     depends_on:
       db:
@@ -126,6 +144,31 @@ services:
     depends_on:
       - backend
 volumes:
+  # node_modules del backend, condiviso fra i servizi `backend` e
+  # `test_backend`.
+  #
+  # PERCHÉ NOMINATO E NON ANONIMO. Prima era un volume anonimo
+  # (`- /app/node_modules`). Docker Compose però **riusa** il volume anonimo
+  # associato a un servizio invece di ricrearlo dall'immagine a ogni avvio,
+  # quindi quel volume si era fossilizzato: conteneva ancora i binari
+  # `sequelize` e `sequelize-cli`, cioè risaliva a prima della migrazione a
+  # Prisma, e non conteneva `prisma`. Effetto pratico:
+  # `docker compose run --rm test_backend` falliva con `sh: prisma: not
+  # found`, e un volume anonimo non ha un nome con cui individuarlo o
+  # rimuoverlo.
+  #
+  # Con un volume nominato il problema resta possibile, ma diventa visibile e
+  # governabile: `docker volume ls` lo mostra e si azzera deliberatamente.
+  #
+  # DOPO OGNI MODIFICA ALLE DIPENDENZE (package.json) va ricostruita
+  # l'immagine E rimosso questo volume, altrimenti i container continuano a
+  # usare i pacchetti vecchi:
+  #
+  #   docker compose down
+  #   docker volume rm piccol_backend-node-modules
+  #   docker compose build backend
+  #   docker compose up -d
+  backend-node-modules:
   # Rinominato da mysql-data nella migrazione a PostgreSQL: è un volume
   # diverso, con un layout su disco incompatibile con quello di MySQL — il
   # vecchio mysql-data resta sul sistema finché non lo si rimuove a mano
