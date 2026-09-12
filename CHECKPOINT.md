@@ -669,3 +669,29 @@ type-check e lint puliti, app verificata end-to-end. Sequelize non è più una d
 runtime (il modulo non esiste più) e quello sulla validazione `isEmail` del modello, mentre se ne sono
 aggiunti su casi prima non copribili (la password non finisce mai in chiaro nel database, il login di un
 customer non tocca la tabella users, la normalizzazione dell'email in aggiornamento profilo).
+
+## Pulizia dei branch (post-migrazioni)
+
+Tutto il lavoro delle migrazioni (TypeScript, PostgreSQL, Prisma) è stato integrato in **`main`** con un
+fast-forward: `main` era rimasto fermo al 5 dicembre 2025 con il progetto ancora in JavaScript, Sequelize e
+MySQL, mentre 55 commit di lavoro completato vivevano su un feature branch — situazione poco leggibile per
+chi apre il repository, che è il pubblico di un portfolio.
+
+Attenzione a un dettaglio emerso durante l'operazione: il `main` **locale** era a sua volta indietro di 14
+commit rispetto a `origin/main`. `git branch` mostra una fotografia che può essere vecchia: prima di
+ragionare sullo stato dei branch conviene sempre un `git fetch`.
+
+Branch rimossi perché interamente contenuti in `main`: `feature/migrazione-typescript`,
+`upload-images-middleware`.
+
+Branch `failed_tests` rimosso pur avendo **un commit non integrato** (`e7fda0b`, 8 giugno 2025): toccava
+sei file `.js` — `authService.js`, `authUserController.js`, `profileUserController.js` e i relativi test —
+che oggi non esistono più, essendo stati prima convertiti in TypeScript e poi riscritti integralmente per
+Prisma. Integrarlo avrebbe prodotto solo conflitti su percorsi inesistenti. Prima di cancellarlo è stato
+creato il tag **`archive/failed-tests`**, che mantiene quel commit raggiungibile in modo permanente: senza
+il tag, cancellare il branch lo avrebbe reso irraggiungibile e prima o poi eliminato dalla garbage
+collection di GitHub.
+
+Da qui in avanti: un branch tematico per ogni lavoro, che finisce in `main`; per gli esperimenti usa e
+getta (EXPLAIN, indici di prova, test di funzionalità PostgreSQL) conviene un branch locale mai pushato,
+da cui recuperare col cherry-pick solo ciò che merita.
