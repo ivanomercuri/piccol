@@ -135,9 +135,19 @@ Prisma richiede un **driver adapter** esplicito (client "Rust-free"): `@prisma/a
 Il client viene generato nel `Dockerfile` e non a runtime, perché `/app/node_modules` è un volume anonimo
 inizializzato dall'immagine: un client generato a runtime sparirebbe alla prima ricreazione del volume.
 
+**Il client va però generato anche sull'host** (`npm run generate` da `backend/`), altrimenti VS Code
+segnala `Module '"@prisma/client"' has no exported member 'PrismaClient'`: il server TypeScript
+dell'editor gira sull'host e legge `backend/node_modules`, dove `@prisma/client` è installato ma non
+generato. Va rifatto **ogni volta che si modifica `schema.prisma`**, altrimenti l'editor mostra i tipi
+vecchi (i test e l'app, che girano nel container, non se ne accorgono). Lo script passa valori fittizi per
+le variabili del database: `prisma generate` legge solo lo schema e non si connette, ma `prisma.config.ts`
+le pretende comunque — e `DB_HOST` in particolare non è in `.env`, vive nel blocco `environment` del
+servizio backend.
+
 Comandi Prisma (da `backend/`):
 
 ```bash
+npm run generate         # rigenera il client: serve sull'host per l'IntelliSense, dopo ogni modifica allo schema
 npm run migrate          # prisma migrate deploy: applica le migration pendenti
 npm run seed             # popola gli utenti di prova (upsert: ripetibile)
 npx prisma studio        # esplora i dati
