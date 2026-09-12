@@ -695,3 +695,66 @@ collection di GitHub.
 Da qui in avanti: un branch tematico per ogni lavoro, che finisce in `main`; per gli esperimenti usa e
 getta (EXPLAIN, indici di prova, test di funzionalità PostgreSQL) conviene un branch locale mai pushato,
 da cui recuperare col cherry-pick solo ciò che merita.
+
+## Stato al 2026-09-12 — punto di ripresa per una nuova sessione
+
+**Branch corrente: `feature/seed-dati-sviluppo`** (pushato, 1 commit oltre `main`). `main` contiene tutte
+e tre le migrazioni completate. Suite: **28 suite / 140 test verdi**, type-check pulito, lint con 1 solo
+warning pre-esistente (`hardLimitMB` in `handleMulterErrorsMiddleware.ts`).
+
+### Percorso di apprendimento PostgreSQL (in corso)
+
+L'utente ha dichiarato di non conoscere i temi PostgreSQL richiesti dalle aziende (indici, EXPLAIN,
+transazioni, N+1) e si è concordato di impararli **facendo**, sul progetto, un tema per volta. Ordine
+stabilito: dati realistici → lettura dei piani → indici → transazioni (via `createProduct`) → query
+complesse e N+1.
+
+**Fatto finora:**
+
+- `prisma/seed-dev.ts` (`npm run seed:dev`): 5.000 prodotti, ~7.500 immagini, ~10.000 collegamenti, in ~3
+  secondi. Generazione **deterministica** (Mulberry32 con seme fisso) perché i piani osservati restino
+  confrontabili nel tempo, e distribuzione dei prodotti **volutamente sbilanciata** fra i tre autori
+  (70/25/5%) per rendere osservabile la selettività degli indici.
+- Attivati e spiegati gli strumenti di diagnosi (vedi CLAUDE.md → "Diagnosi delle performance").
+- **Scoperta concreta**: il collo di bottiglia di `GET /products` **non è una query lenta ma la mancanza
+  di paginazione**. `findMany()` senza `take` restituisce tutti i 5.000 prodotti: 1,2 MB di JSON per
+  richiesta. Nessun indice risolverebbe: quando chiedi tutte le righe, la scansione sequenziale è già
+  ottimale. Era il prossimo intervento pianificato (paginazione con `take`/`skip` + `ORDER BY` stabile),
+  poi sospeso per la decisione qui sotto.
+- Lezione emersa dai dati: subito dopo il seed il planner stimava `rows=4` dove la realtà era 3.512,
+  perché le statistiche erano ferme a "tabella vuota". Risolto con `ANALYZE products`. È la causa
+  classica del "dopo l'import dei dati è diventato lento".
+
+### Decisione presa: migrazione a NestJS (assessment da fare)
+
+**Il prossimo lavoro è un assessment per migrare da Express a NestJS**, richiesto esplicitamente
+dall'utente, con lo stesso metodo usato per Prisma: prima il report (inventario, punti critici, decisioni
+da prendere), poi il via libera, poi l'implementazione a commit incrementali.
+
+Il ragionamento che ha portato alla decisione, da non rimettere in discussione:
+
+- L'utente **continuerà a costruire** su Piccol, non è un progetto in chiusura. Migrare ora che la
+  superficie è piccola (7 controller, 10 middleware, 4 service) costa molto meno che farlo con carrello,
+  ordini e pagamenti già scritti — ed evita di scrivere `createProduct` due volte.
+- Dato di mercato verificato: NestJS **non** è "il più richiesto" in assoluto (Express compare nel 40-55%
+  delle offerte Node), ma è più specializzato e mediamente pagato meglio, standard nei contesti enterprise.
+- Per chi viene da PHP/Symfony, NestJS è territorio familiare: dependency injection, moduli, decoratori.
+
+**Punti critici già individuati per l'assessment** (da approfondire, non ancora decisi):
+
+- `res.success`/`res.error` di `responseFormatter` → in NestJS diventerebbero un **interceptor**.
+- `errorMiddleware` → **exception filter** (e va deciso se correggere il bug di arità documentato sopra,
+  che in NestJS semplicemente non si riproporrebbe).
+- L'accumulo di `req.validationErrors` attraverso la catena di upload → è il pattern più lontano dal
+  modello NestJS (`ValidationPipe` + DTO con `class-validator`): richiede una decisione esplicita.
+- `req.user` valorizzato da `authUserMiddleware` → **guard** + decoratore custom.
+- I test passerebbero al `TestingModule` di NestJS.
+- Stima indicativa data all'utente: 10-15 sessioni serali.
+
+### Cose in sospeso, non urgenti
+
+- La configurazione di `pg_stat_statements` vive solo nel volume Docker: se la si vuole permanente va
+  messa nel `docker-compose.yml` del servizio `db`.
+- `createProduct` resta uno stub. Era il candidato naturale per imparare le transazioni; nascerà
+  direttamente in NestJS dopo la migrazione.
+- Il branch `feature/seed-dati-sviluppo` va mergiato in `main` quando si ritiene concluso.
