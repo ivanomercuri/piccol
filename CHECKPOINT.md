@@ -706,10 +706,12 @@ da cui recuperare col cherry-pick solo ciò che merita.
 
 ## Stato al 2026-09-12 — punto di ripresa per una nuova sessione
 
-**Branch corrente: `feature/migrazione-nestjs`** (NON ancora pushato, 3 commit oltre
+**Branch corrente: `feature/migrazione-nestjs`** (NON ancora pushato, oltre
 `feature/seed-dati-sviluppo`, che a sua volta è 1 commit oltre `main`). `main` contiene tutte e tre le
-migrazioni completate. Suite: **29 suite / 145 test verdi**, type-check pulito, lint con 1 solo warning
-pre-esistente (`hardLimitMB` in `handleMulterErrorsMiddleware.ts`).
+migrazioni completate. Suite (aggiornata al 2026-09-13, dopo F1): **33 suite / 174 test verdi**,
+type-check pulito, lint con 1 solo warning pre-esistente (`hardLimitMB` in
+`handleMulterErrorsMiddleware.ts`). **Runtime: Node 24** — i test vanno lanciati con `npm test` (che
+imposta `--experimental-vm-modules`), mai con `npx jest` nudo.
 
 Attenzione alla catena dei branch: `feature/migrazione-nestjs` è stato creato da
 `feature/seed-dati-sviluppo` e non da `main`, per non perdere `seed-dev.ts` durante il lavoro. Quando
@@ -738,7 +740,7 @@ complesse e N+1.
   perché le statistiche erano ferme a "tabella vuota". Risolto con `ANALYZE products`. È la causa
   classica del "dopo l'import dei dati è diventato lento".
 
-### Migrazione a NestJS: assessment FATTO, fase F0 FATTA
+### Migrazione a NestJS: assessment FATTO, fasi F0 e F1 FATTE
 
 **Documento di riferimento: `backend/docs/MIGRAZIONE-NESTJS.md`.** Contiene inventario, mappatura
 Express → NestJS pezzo per pezzo, le dieci decisioni con il loro esito, il piano in sette fasi e il
@@ -787,13 +789,27 @@ adattati **per primi** (F1), non per ultimi.
 - `exampleController.ts` cancellato su richiesta dell'utente, con `@types/pg`. `pg` invece resta
   (motivo in §8 del documento).
 
-**Il prossimo passo è F1**: `main.ts`, AppModule, `PrismaService`, `ConfigModule` con validazione,
-interceptor + exception filter + logger, router legacy montati dentro, i 4 test e2e ripuntati sul
-`TestingModule`. Checkpoint da rispettare: **145 verdi**. È la fase in cui la strategia incrementale si
-dimostra o cade — l'incognita dichiarata è l'ordine di registrazione fra router legacy e router di
-NestJS sulla stessa istanza Express, **da verificare empiricamente, non da dare per buona**.
+**Fatto in F1** (2026-09-13, registro completo in §9 del documento):
 
-Stima residua: 8-12 sessioni serali (F1→F6).
+- L'app è ora un'**applicazione NestJS che ospita i router Express legacy**: `main.ts`, `app.module.ts`,
+  `app.setup.ts` (con `configureApp`, condivisa fra avvio e test). `index.ts`, `server.ts`,
+  `errorMiddleware.ts` e `noPathMiddleware.ts` sono stati rimossi.
+- `AllExceptionsFilter`, `ResponseEnvelopeInterceptor`, adapter Winston, `PrismaModule`, `ConfigModule`
+  con validazione, CLI di Nest (`npm run dev` = `nest start --watch`).
+- **Incognita risolta: su uno stesso percorso vince il router legacy.** Quando un dominio migra, il suo
+  router si toglie da `mountLegacyRouters` nello stesso commit.
+- Le 5 suite e2e girano sull'app NestJS con **asserzioni invariate**.
+- **Node 24 obbligatorio**: NestJS 12 è ESM-only e Jest lo carica solo da Node 24.9 con
+  `--experimental-vm-modules`.
+- **Corretto un difetto introdotto in F0**: `test_backend` girava su un'immagine di 9 mesi prima; ora i due
+  servizi condividono `image: piccol-backend`.
+
+**Il prossimo passo è F2**: CustomerModule (`GET /`, `POST /register`, `POST /login`), il dominio più
+semplice, che stabilisce l'idioma controller/service/DTO e applica D1 e D2. Tre trappole già note, in §9:
+`@HttpCode(200)` sulle POST (NestJS risponde 201 di default), `customerRoutes` da smontare nello stesso
+commit, `exceptionFactory` della `ValidationPipe` per conservare la forma d'errore raggruppata.
+
+Stima residua: 7-10 sessioni serali (F2→F6).
 
 ### Cose in sospeso, non urgenti
 
@@ -814,6 +830,10 @@ Stima residua: 8-12 sessioni serali (F1→F6).
 - Le 3 advisory high residue (`deepmerge-ts`, `mysql2` via `@prisma/config`) sono transitive della CLI
   di Prisma, che è una devDependency. **`npm audit fix --force` NON va eseguito**: retrocederebbe prisma
   a 6.19.3, disfacendo la migrazione a Prisma 7.
+- **Da fare a mano sul `.env` locale** (fuori dal repository, non toccato): scrivere `MAX_FILE_SIZE=3` e
+  `MAX_FILE_HARD_SIZE=10` con il commento su una riga propria. Oggi il container riceve `3# in MB`, che
+  funziona solo grazie a `parseInt` e produce al client il messaggio "dimensione massima di 3# in MB MB".
+  `.env.example` è già corretto. Va fatto prima di F4, dove la variabile entra nella validazione.
 - Codice morto già deciso (D9) ma non ancora rimosso, pianificato in **F5**:
   `controllers/customer/profileCustomerController.ts` (file vuoto) e
   `middlewares/skipIfValidationErrorsMiddleware.ts` (no-op mai montato).

@@ -1,6 +1,6 @@
 # Assessment: migrazione da Express a NestJS
 
-Stato: **assessment, nessun codice scritto.** Segue il metodo già usato per la migrazione a Prisma:
+Stato: **F0 e F1 completate** (registri in §8 e §9); prossima fase **F2**. Segue il metodo già usato per la migrazione a Prisma:
 prima questo report (inventario, punti critici, decisioni da prendere), poi il via libera, poi
 l'implementazione a commit incrementali.
 
@@ -127,6 +127,9 @@ Due condizioni di cui essere consapevoli:
   registra il proprio router durante l'inizializzazione dell'app. Con `GET /` presente sia in
   `customerRoutes` sia (in futuro) in un controller NestJS, chi vince dipende da quell'ordine. È
   esattamente ciò che la fase F1 serve a dimostrare, con la suite verde come prova.
+
+> **Risolto in F1** (§9): vince sempre il router legacy, montato prima. Verificato nel sorgente di
+> `init()` e da `__tests__/nestHosting.test.ts`.
 
 ---
 
@@ -352,7 +355,7 @@ descritte in §4.2.
 | **D1** ✓ | Stile degli errori nei controller | (a) `throw HttpException` idiomatico; (b) conservare `res.error` via `@Res()` | **(a)**. (b) rinuncia a interceptor e filter, cioè al motivo per cui si migra |
 | **D2** ✓ | Forma della risposta di errore di validazione | (a) preservarla identica con `exceptionFactory` custom; (b) adottare il default NestJS; (c) ibrida: envelope e raggruppamento per campo conservati, `isFatal` eliminato | **(c)**. (b) è un breaking change che costringe a riscrivere le asserzioni dei 28 test e2e proprio dove servono; (a) porta avanti anche la complessità accidentale |
 | **D3** ⚠ | Autenticazione | (a) guard scritto a mano; (b) `@nestjs/passport` + `passport-jwt` | **(b) — scelta dell'utente**, contro la mia raccomandazione (a). Motivazione: riconoscibilità in ambito enterprise. Impatto reale in §4.2 |
-| **D4** ✓ | Accesso a Prisma | (a) `PrismaService` iniettabile; (b) mantenere il singleton | **(a)**. È ciò che rende iniettabile tutto il resto. Attenzione: `seed.ts` e `seed-dev.ts` girano fuori da NestJS e devono continuare a funzionare |
+| **D4** ✓ | Accesso a Prisma | (a) `PrismaService` iniettabile; (b) mantenere il singleton | **(a)**, affinata in F1: il token iniettabile è la classe `PrismaClient` stessa, con `useValue` sul singleton esistente, invece di una `PrismaService extends PrismaClient` che creerebbe un secondo pool (§9). `seed.ts` e `seed-dev.ts` continuano a usare il singleton, fuori da NestJS |
 | **D5** ✓ | Configurazione | (a) `@nestjs/config` con validazione centralizzata; (b) lasciare i throw sparsi | **(a)**, la politica no-fallback è preservata (vedi 4.5) |
 | **D6** ✓ | Toolchain | (a) `@nestjs/cli` (`nest start --watch`); (b) restare su nodemon + ts-node | **(a)**. Richiede di rifare il wiring del debugger: `--debug 0.0.0.0:9229` al posto del flag `--inspect` attuale, e `CMD` nel Dockerfile |
 | **D7** ✓ | Il bug di arità di `errorMiddleware` | (a) correggerlo **prima**, in Express, con un test e2e che prima falla; (b) lasciarlo assorbire dalla migrazione | **(a)**. Un exception filter non può riprodurre il bug, quindi con (b) la correzione avviene senza che nessun test l'abbia mai dimostrata. Con (a) si guadagna un test di regressione sul JSON malformato → 400 |
@@ -370,7 +373,7 @@ sessione serale.
 | Fase | Contenuto | Sessioni |
 |---|---|---|
 | **F0** ✅ | Dipendenze, flag dei decoratori in `tsconfig`, fix di `test_backend`, D7 (fix arità + test). Nessun cambio di comportamento voluto, tranne D7. **Fatta**, vedi §8 | 1 |
-| **F1** | `main.ts`, `AppModule`, `PrismaService`, `ConfigModule` con validazione (**spostata qui da F0**: `ConfigModule.forRoot({ validate })` richiede un grafo dei moduli, che in F0 non esiste ancora), interceptor + exception filter + logger. NestJS fa da host e **monta tutti i router legacy** via `app.use()`. I 4 test e2e ripuntati sul TestingModule. **Checkpoint: 145 verdi** — è qui che la strategia si dimostra | 1-2 |
+| **F1** ✅ | `main.ts`, `AppModule`, `PrismaService`, `ConfigModule` con validazione (**spostata qui da F0**: `ConfigModule.forRoot({ validate })` richiede un grafo dei moduli, che in F0 non esiste ancora), interceptor + exception filter + logger. NestJS fa da host e **monta tutti i router legacy** via `app.use()`. I 4 test e2e ripuntati sul TestingModule. **Checkpoint: 145 verdi** — è qui che la strategia si dimostra | 1-2 |
 | **F2** | CustomerModule (3 endpoint, nessun guard, nessun upload): il dominio più semplice, stabilisce l'idioma controller/service/DTO e applica D1+D2 | 1 |
 | **F3** | AuthUserGuard, `@CurrentUser()`, UserModule (6 endpoint). Muoiono `authUserMiddleware` e i quattro controlli ridondanti di `profileUserController` | 2 |
 | **F4** | ProductModule: `GET /products` e tutta la catena di upload/validazione (la parte difficile). Qui rientra la **paginazione** sospesa dal percorso PostgreSQL, dato che l'handler viene riscritto comunque | 2-3 |
@@ -429,6 +432,11 @@ comportamento, con l'unica eccezione voluta di D7.
    comporre l'URL. **Conseguenza da tenere a mente: il comando documentato
    `docker compose run --rm test_backend` non funzionava dalla migrazione a Prisma in poi**, e la
    suite veniva eseguita per altre vie. Ora funziona.
+
+   > **Correzione emersa in F1: le cause erano tre, non due.** `test_backend` girava su un'immagine
+   > propria, `piccol-test_backend`, ferma a 9 mesi prima (Node 20.19.6), che nessuno ricostruiva.
+   > In F0 la suite passava solo perché il volume condiviso l'aveva creato per primo il container
+   > `backend`, con l'immagine aggiornata. Dettagli e correzione al punto 8 di §9.
 4. **Correggere l'arità ha fatto emergere 5 errori di compilazione**, tutti nei punti di chiamata di
    `errorMiddleware.test.ts` (`Expected 4 arguments, but got 3`). È un effetto desiderabile: il
    contratto con Express, che prima viveva solo in un commento, è ora verificato dal compilatore ai
@@ -486,7 +494,121 @@ va eseguito.
 
 ---
 
-## 9. Cosa questo assessment non copre
+## 9. Registro di esecuzione — F1 (completata il 2026-09-13)
+
+Stato finale: **33 suite / 174 test verdi**, type-check pulito, lint con il solo warning pre-esistente su
+`hardLimitMB`. Verificata anche l'app in esecuzione con `nest start --watch`: health-check, JSON
+malformato, 404, e un flusso completo registrazione → profilo → logout → stesso token rifiutato con
+"Token non più valido". Nessun comportamento visibile dal client è cambiato.
+
+Conteggio: 145 − 8 (i test unitari di `errorMiddleware` e `noPathMiddleware`, rimossi con i middleware;
+i loro casi sono stati portati nei nuovi test) + 37 nuovi = 174.
+
+### Fatto
+
+- **Avvio**: `main.ts` (sostituisce `index.ts` e `server.ts`), `app.module.ts`, e `app.setup.ts`, che
+  contiene `configureApp` — la stessa funzione chiamata da main.ts e dall'helper dei test, perché i test
+  attraversino la stessa catena della produzione.
+- **Infrastruttura trasversale** in `common/`: `AllExceptionsFilter`, `ResponseEnvelopeInterceptor`,
+  `WinstonLoggerService`. Più `middlewares/jsonSyntaxErrorMiddleware.ts` e `config/env.validation.ts`.
+- **`PrismaModule`** globale e **`ConfigModule`** con validazione.
+- **CLI di NestJS** (D6): `nest-cli.json`, `tsconfig.build.json`, script `dev`/`build`/`start`;
+  `nodemon` rimosso; `dist/` aggiunto a `.gitignore`, `.dockerignore` ed eslint.
+- **Le 5 suite e2e ripuntate** su `__tests__/helpers/createTestApp.ts`. Cambiato solo il bootstrap:
+  le chiamate `request(app)` e **tutte le asserzioni sono rimaste identiche**, come previsto da §5.
+- **Nuovi test** (37): `allExceptionsFilter`, `jsonSyntaxErrorMiddleware`, `responseEnvelopeInterceptor`,
+  `envValidation`, `winstonLoggerService` (unitari) e `nestHosting` (e2e, con controller di prova).
+- Documentazione allineata: `CLAUDE.md` (che ora rimanda anche a questo documento), `AGENTS.md`,
+  `TESTING.md`, `API.md`, `.env.example`.
+
+### L'incognita di §3, risolta
+
+Dal sorgente di `@nestjs/core/nest-application.js`: `app.use()` scrive sull'istanza Express nel momento
+della chiamata, mentre `init()` registra, **in quest'ordine**, body parser, rotte NestJS, gestore 404 e
+gestore errori. Quindi la catena effettiva è:
+
+    responseFormatter → CORS → express.json() → jsonSyntaxErrorMiddleware
+    → router legacy → rotte NestJS → 404 NestJS → gestore errori NestJS
+
+**Regola operativa per F2–F4**: su uno stesso metodo e percorso vince il router legacy. Il router di un
+dominio va tolto da `mountLegacyRouters` **nello stesso commit** in cui nasce il suo modulo NestJS,
+altrimenti la rotta nuova non è raggiungibile. `nestHosting.test.ts` lo verifica esplicitamente con un
+controller NestJS su `GET /`, che resta oscurato dal router customer.
+
+### Cose emerse solo implementando
+
+1. **Tutti i pacchetti di NestJS 12 sono ESM-only, e questo ha imposto Node 24.** L'app compilata in
+   CommonJS li carica anche su Node 20.19+, ma il caricatore di moduli di Jest no: la condizione, letta
+   nel sorgente di `jest-runtime`, è che esista `vm.SourceTextModule.prototype.hasAsyncGraph`, cioè
+   **Node 24.9+ e il flag `--experimental-vm-modules`**. Provato su Node 24.21 senza flag: fallisce
+   ancora. Con il flag: 137/137 verdi, comprese le 15 suite basate su `jest.mock`. Immagine passata a
+   `node:24-alpine`, flag nello script `test` (non nel Dockerfile: serve al test runner, non all'app),
+   vincolo dichiarato in `engines`. Alternative scartate: tornare a NestJS 11 (contraddice la richiesta
+   di usare le ultime versioni); la modalità ESM nativa di Jest (obbligherebbe a riscrivere tutti i
+   `jest.mock` di 15 suite che F2–F4 riscrivono comunque). Node 20 era inoltre fuori supporto dal 30
+   aprile 2026.
+2. **Il body parser di NestJS andava disattivato.** `init()` lo registra dopo gli `app.use()`: i router
+   legacy avrebbero ricevuto `req.body` vuoto. Soluzione: `bodyParser: false` e `express.json()` montato
+   esplicitamente in testa. **Nota per F5**: quando i router legacy spariscono si potrà tornare al parser
+   di NestJS, ma `jsonSyntaxErrorMiddleware` va conservato (o sostituito), altrimenti il messaggio
+   "errore json: ..." si perde per il motivo del punto 3.
+3. **`ExpressAdapter.mapException` converte il SyntaxError del parser in `new BadRequestException(message)`
+   perdendo l'errore originale**: il filter non potrebbe più distinguere un JSON malformato da un 400
+   qualsiasi. La traduzione in "errore json: ..." avviene quindi al confine Express, subito dopo il
+   parser, dove l'informazione c'è ancora.
+4. **Il 404 di NestJS non è distinguibile in modo strutturato** da una `NotFoundException` lanciata da un
+   controller: il suo gestore lancia `NotFoundException('Cannot <METODO> <URL>')`. Il filter lo
+   riconosce confrontando il messaggio esatto, URL compreso. È un accoppiamento al formato di NestJS,
+   accettato consapevolmente e presidiato da `errorHandling.test.ts`.
+5. **D4 affinata: niente `PrismaService extends PrismaClient`.** Sarebbe stata una seconda istanza, cioè
+   un secondo pool di connessioni accanto al singleton usato dai router legacy — cosa che `AGENTS.md`
+   vieta. Il token iniettabile è la classe `PrismaClient` stessa, con `useValue` sul singleton:
+   `constructor(private readonly prisma: PrismaClient)`. `nestHosting.test.ts` verifica che l'istanza
+   iniettata sia **la stessa** del codice legacy.
+6. **Cambio deliberato di sicurezza nel filter.** Il vecchio `errorMiddleware` rispondeva con `err.message`
+   anche per errori imprevisti, esponendo al client dettagli interni (testo di errori del database, nomi
+   di tabelle). Il filter risponde 500 con "Qualcosa è andato storto!" per tutto ciò che non è una
+   HttpException, e il dettaglio va solo nei log. Logga inoltre solo i 5xx, come già faceva `res.error`.
+   Nessun test esistente dipendeva dal vecchio comportamento.
+7. **Trappola per F2: le POST NestJS rispondono 201 di default**, quelle legacy 200. Migrando `POST
+   /register` e `POST /login` serve `@HttpCode(200)`, altrimenti il contratto cambia. Fissato in un test.
+8. **`test_backend` girava su un'immagine di 9 mesi prima.** Compose costruisce un'immagine per ogni
+   servizio con `build:` (`piccol-test_backend`), e quella non veniva mai ricostruita: Node 20.19.6,
+   dipendenze precedenti a Prisma. Il volume `node_modules` condiviso introdotto in F0 mascherava il
+   problema a metà, perché si inizializza dall'immagine del **primo** container che lo crea: dopo un reset
+   del volume, la suite funzionava o no a seconda di quale servizio partiva per primo. Ora entrambi i
+   servizi dichiarano `image: piccol-backend` e girano per costruzione sulla stessa immagine; la vecchia è
+   stata rimossa. **Corregge quanto scritto in F0** (§8, punto 3): i 145 test di allora erano verdi, ma
+   non sullo stesso Node del container `backend`.
+9. **`MAX_FILE_SIZE` vale `3# in MB` dentro il container.** Il parser `env_file` di Compose non riconosce
+   un commento in linea senza uno spazio prima del `#`, e `.env.example` aveva `MAX_FILE_SIZE=3# in MB`.
+   Il middleware legacy funziona per caso, perché `parseInt` si ferma alla prima non-cifra. Due
+   conseguenze: validarla come numero avrebbe impedito l'avvio (resta fuori dalla validazione fino a
+   F4), e **un bug visibile al client**: il messaggio di file troppo grande interpola la variabile grezza
+   e dice "dimensione massima di 3# in MB MB". `.env.example` è corretto e verificato col parser di
+   Docker; **il `.env` locale va corretto a mano**.
+10. **Dipendenza nascosta scoperta da un test unitario.** `config/env.validation.ts` usa `@Type` di
+    class-transformer, che chiama `Reflect.getMetadata`: nell'app funzionava perché NestJS carica
+    `reflect-metadata` prima, cioè solo per ordine degli import. Il test, che carica il modulo da solo,
+    falliva. Ora il modulo importa esplicitamente ciò di cui ha bisogno.
+11. **Limite onesto della validazione aggregata.** Finché i moduli legacy restano nel grafo degli import,
+    i loro controlli a livello di modulo (`tokenService.ts`, `databaseUrl.ts`) scattano all'import, prima
+    di `ConfigModule`: una variabile del database mancante produce ancora il messaggio di `databaseUrl.ts`,
+    non l'elenco completo. La politica "nessun fallback" è rispettata in entrambi i casi; l'elenco
+    completo diventa il comportamento effettivo man mano che i moduli legacy migrano.
+
+### Da ricordare nelle fasi successive
+
+- **F2**: `@HttpCode(200)` sulle POST; togliere `customerRoutes` da `mountLegacyRouters` nello stesso
+  commit; `exceptionFactory` della `ValidationPipe` per la forma d'errore decisa in D2.
+- **F3**: il messaggio di successo (es. "Logout effettuato con successo") oggi l'interceptor lo lascia
+  vuoto; il meccanismo per impostarlo va progettato lì, con un chiamante vero.
+- **F4**: `MAX_FILE_SIZE` nel contratto di `env.validation.ts`, dopo la correzione del `.env` locale.
+- **F5**: valutare il ritorno al body parser di NestJS (punto 2) senza perdere "errore json: ...".
+
+---
+
+## 10. Cosa questo assessment non copre
 
 - **Il frontend**, fermo allo scaffold Vite, non è toccato. Il backend continua a servire solo JSON e
   a permettere CORS da `localhost:3000`.

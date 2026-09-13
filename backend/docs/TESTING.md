@@ -169,12 +169,19 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
 - Nuovo modello o vincolo da verificare → `*.model.test.js`: niente mock su `../models`, traccia gli id
   creati, ripulisci in `afterEach`/`afterAll` (con `force: true, paranoid: false` se il modello è
   paranoid), chiudi la connessione con `sequelize.close()`.
-- Nuova route o flusso multi-step → `*Routes.test.js` con `supertest(require('../index'))`, dati univoci
-  per evitare collisioni in esecuzione parallela, cleanup di eventuali righe/file creati.
+- Nuova route o flusso multi-step → `*Routes.test.ts` con l'app costruita da `helpers/createTestApp.ts`
+  (`request(nestApp.getHttpServer())`, e `await nestApp.close()` in `afterAll`), dati univoci per evitare
+  collisioni in esecuzione parallela, cleanup di eventuali righe/file creati. Fino alla fase F1 si usava
+  `supertest(require('../index'))`: `index.ts` non esiste più.
 - **Comportamento trasversale all'app, non legato a un dominio** (gestione degli errori globale, 404,
   wiring dei middleware) → `errorHandling.test.ts`, aggiunto nella fase F0 della migrazione a NestJS. È
   una quarta categoria, nata da un caso concreto: il bug di arità di `errorMiddleware` viveva
   nell'**aggancio** del middleware alla catena di Express, non nella sua logica, e i cinque test che
   chiamavano la funzione in isolamento non potevano vederlo per costruzione. La regola che se ne ricava:
   quando ciò che può rompersi è il *collegamento* fra i pezzi e non il comportamento di un pezzo, serve
-  una richiesta HTTP vera, anche se non c'è nessuna route nuova da testare.
+  una richiesta HTTP vera, anche se non c'è nessuna route nuova da testare. Dalla fase F1 ne fa parte anche
+  `nestHosting.test.ts`, che verifica la convivenza fra router legacy e rotte NestJS registrando
+  controller di prova visibili solo nel test.
+- **Eseguire Jest sempre tramite `npm test`**, mai con `npx jest` nudo: lo script imposta
+  `NODE_OPTIONS=--experimental-vm-modules`, senza il quale ogni suite che importa NestJS fallisce con
+  "Must use import to load ES Module".

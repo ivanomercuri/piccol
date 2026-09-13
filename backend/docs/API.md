@@ -289,7 +289,7 @@ Route `multipart/form-data`. Pipeline completa di validazione già collegata (ve
 
 ### `GET /routes`
 
-Non montata sotto nessun prefisso (`app.use(listRoutes)` in `index.js`), quindi raggiungibile a
+Non montata sotto nessun prefisso (`app.use(listRoutes)` in `mountLegacyRouters`, `app.setup.ts`), quindi raggiungibile a
 `GET /routes` sulla root del server.
 
 - Se `SHOW_ROUTES` (env) non è esattamente `"true"` → **403** `Accesso negato`.

@@ -4,8 +4,8 @@ This file is the **SINGLE SOURCE OF TRUTH** for AI Agents working on this projec
 The goal is to showcase Senior-Level Node.js skills using a strict Layered Architecture.
 
 ## 1. Tech Stack
-- **Runtime:** Node.js
-- **Framework:** Express.js
+- **Runtime:** Node.js 24.9+ (required: NestJS 12 packages are ESM-only, and Jest can load them only on 24.9+ with `--experimental-vm-modules`)
+- **Framework:** NestJS 12, **migration from Express in progress** (see `backend/docs/MIGRAZIONE-NESTJS.md`). Until it ends, the NestJS app hosts the not-yet-migrated Express routers, mounted in `backend/app.setup.ts`.
 - **Database:** PostgreSQL (v16 via Docker)
 - **ORM:** Prisma 7 (schema in `backend/prisma/schema.prisma`)
 - **Testing:** Jest
@@ -35,7 +35,8 @@ All backend code is located in `/backend`.
 - `/backend/middlewares`: Reusable middleware.
     - **IMPORTANT:** Always check this folder before writing new validation logic.
     - Use `responseFormatter.js` for consistent JSON responses.
-    - Use `errorMiddleware.js` for global error handling.
+    - Global error handling is `common/filters/all-exceptions.filter.ts` (NestJS). `errorMiddleware` and `noPathMiddleware` no longer exist.
+- `/backend/common`: NestJS cross-cutting infrastructure — `filters/`, `interceptors/`, `logger/`. New NestJS files follow the Nest naming convention (`*.module.ts`, `*.filter.ts`, `*.interceptor.ts`); the camelCase legacy files disappear as their domains migrate.
 - `/backend/routes`: Express routers. Grouped by domain.
 - `/backend/__tests__`: All Jest test files reside here.
 

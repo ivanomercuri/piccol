@@ -9,6 +9,11 @@ backend rigorosamente a livelli. Il backend è la parte attivamente sviluppata; 
 al momento solo lo scaffold di Vite e **non** è l'oggetto del lavoro — non aggiungere funzionalità frontend
 a meno che non venga esplicitamente richiesto.
 
+**Lavoro in corso: migrazione da Express a NestJS**, a fasi. Il documento di riferimento è
+`backend/docs/MIGRAZIONE-NESTJS.md` (decisioni prese, piano, registro di ogni fase); lo stato di ripresa è
+in fondo a `CHECKPOINT.md`. Durante la migrazione l'app è un'applicazione **NestJS che ospita i router
+Express non ancora migrati**: alcune sezioni qui sotto descrivono ancora il codice legacy, e lo dicono.
+
 Alla radice del repo c'è @./AGENTS.md, la fonte di verità unica per le regole architetturali di questo
 progetto. Il riepilogo qui sotto lo riflette, con dettagli aggiuntivi trovati nel codice reale.
 
@@ -50,7 +55,7 @@ soddisfa **almeno uno** di questi criteri:
   modelli di identità paralleli, il pattern res.success/res.error, l'accumulo di
   validationErrors) o introduce un'incoerenza?
 - **Fallimento**: se questa parte lancia un'eccezione, chi la intercetta? È coerente con
-  errorMiddleware.ts?
+  `common/filters/all-exceptions.filter.ts`?
 - **Sicurezza**: se tocca dati utente/DB, sto validando l'input o fidandomi ciecamente?
 - **Leggibilità futura**: fra 3 mesi, il proprietario del progetto capirebbe perché è scritto così
   senza il tuo aiuto?
@@ -92,12 +97,20 @@ il testo dei commenti va in italiano.
 Tutti i comandi vanno eseguiti da `backend/` salvo diversa indicazione.
 
 ```bash
-npm run dev     # nodemon con debugger su 0.0.0.0:9229, avvia server.ts
+npm run dev     # nest start --watch, debugger su 0.0.0.0:9229; compila in dist/ ed esegue dist/main.js
+npm run build   # nest build: compila in dist/ (con tsconfig.build.json)
+npm start       # node dist/main, senza watch né debugger
 npm test        # jest (i file di test sono in backend/__tests__/*.test.ts)
 npm test -- authService.test.ts   # esegue un singolo file di test
 npm run lint    # eslint . --fix
 npm run type-check   # tsc --noEmit
 ```
+
+**Runtime: Node 24.9+** (immagine `node:24-alpine`, vincolo dichiarato in `engines`). Tutti i pacchetti
+di NestJS 12 sono ESM-only: l'app compilata in CommonJS li carica comunque, ma il caricatore di moduli di
+Jest ci riesce solo da Node 24.9 **e** con `--experimental-vm-modules`, che lo script `test` imposta in
+`NODE_OPTIONS`. Lanciare `jest` direttamente senza quel flag fa fallire tutte le suite che importano NestJS
+con "Must use import to load ES Module".
 
 `npm test` esegue prima uno script `pretest` (`prisma db push`) che crea il database di test separato
 `mydatabase_test` se non esiste e ne allinea lo schema — necessario perché parte della suite (vedi sotto)
@@ -158,7 +171,7 @@ npx prisma migrate dev --name <nome>   # nuova migration dopo aver modificato lo
 Variabili d'ambiente richieste (vedi `.env.example` alla radice del repo — `.env`/`.env.example` vivono lì,
 non in `backend/`, apposta per essere un unico file letto sia da Docker Compose per interpolare
 `docker-compose.yml` sia dall'app Node, vedi sotto): `PORT` (porta di ascolto del server, letta in
-`server.ts`), `JWT_SECRET`, `JWT_EXPIRES_IN` (durata dei token, formato `jsonwebtoken` es. `1h`/`7d`),
+`main.ts`), `JWT_SECRET`, `JWT_EXPIRES_IN` (durata dei token, formato `jsonwebtoken` es. `1h`/`7d`),
 `SHOW_ROUTES`, `MAX_FILE_SIZE` (MB, limite di business per le immagini caricate), `MAX_FILE_HARD_SIZE` (MB,
 limite hard di multer — attualmente hardcoded a 10 in
 `uploadMiddleware.ts`/`handleMulterErrorsMiddleware.ts` invece di essere letto realmente da questa
@@ -167,7 +180,7 @@ variabile), `DB_ROOT_PASSWORD`, `DB_NAME`, e le porte pubblicate sull'host (`BAC
 
 **Nessuna di queste ha un fallback**: sia `docker-compose.yml` (via la sintassi `${VAR:?messaggio}`, che
 fa fallire `docker compose` prima ancora di creare un container se una variabile manca) sia il codice Node
-(`server.ts`, `services/tokenService.ts`, `config/databaseUrl.ts`) si rifiutano esplicitamente di partire
+(`config/env.validation.ts`, `services/tokenService.ts`, `config/databaseUrl.ts`) si rifiutano esplicitamente di partire
 con un errore leggibile se una di queste manca da `.env`, invece di far partire l'app con un valore
 indovinato in silenzio. L'unica eccezione deliberata è `NODE_ENV`, letto in `config/databaseUrl.ts` e
 `prisma/client.ts` senza obbligo: non fa parte del contratto di `.env` di questo progetto, è una
@@ -178,9 +191,12 @@ imposta mai esplicitamente, quindi pretenderla romperebbe l'avvio in sviluppo.
 YAML (es. la mappatura delle porte del servizio `backend` è `"${BACKEND_HOST_PORT:?...}:${PORT:?...}"`, non
 più numeri fissi) e lo inietta come variabili d'ambiente reali nel container tramite `env_file`, così l'app
 Node lo trova in `process.env` a prescindere dal fatto che `backend/` (l'unica cartella montata nel
-container) non contenga più `.env`. `backend/index.ts` punta comunque esplicitamente al nuovo percorso
-(`path.resolve(__dirname, '..', '.env')`) come rete di sicurezza per un'eventuale esecuzione diretta
-sull'host, fuori da Docker.
+container) non contenga più `.env`. `backend/main.ts` punta comunque esplicitamente al nuovo percorso
+(`path.resolve(__dirname, '..', '..', '.env')`, calcolato da `dist/`, dove main.ts gira compilato) come
+rete di sicurezza per un'eventuale esecuzione diretta sull'host, fuori da Docker. Il caricamento deve
+restare la prima istruzione di main.ts, perché diversi moduli legacy leggono `process.env` già all'import.
+La validazione dell'intero contratto la fa invece `config/env.validation.ts`, passata a `ConfigModule`:
+un solo errore che elenca tutte le variabili mancanti.
 
 ## Architettura
 
@@ -226,14 +242,24 @@ il casing è significativo o indifferente, non un dettaglio da appiattire.
 
 ### Convenzioni di risposta ed errore
 
-`middlewares/responseFormatter.ts` viene eseguito per primo nella catena di `index.ts` e monkey-patcha
-`res.success(data, message, code)` / `res.error(code, message, err)` su ogni risposta — controller e route
-handler usano questi metodi invece del `res.json` grezzo. `res.error` logga via Winston
-(`config/logger.ts`, scrive in `backend/logs/`) ogni volta che viene passata un'istanza di `Error`.
-`middlewares/errorMiddleware.ts` è l'ultimo middleware in `index.ts` ed è il gestore catch-all di
-`next(err)` (normalizza anche i SyntaxError di parsing JSON del body in un 400).
-`middlewares/noPathMiddleware.ts` gestisce le route non trovate (404). Risolvi sempre gli errori tramite
-questa coppia res.success/res.error invece di inventare un nuovo formato di risposta.
+Il formato delle risposte è uno solo (`{ success, status, data, message }` in caso di successo,
+`{ success, status, data: null, error }` in caso di errore), prodotto oggi da due meccanismi, uno per mondo:
+
+- **Router Express legacy**: `middlewares/responseFormatter.ts` viene montato per primo da `app.setup.ts` e
+  monkey-patcha `res.success(data, message, code)` / `res.error(code, message, err)` su ogni risposta — i
+  controller legacy usano questi metodi invece del `res.json` grezzo. `res.error` logga via Winston
+  (`config/logger.ts`, scrive in `backend/logs/`) ogni volta che viene passata un'istanza di `Error`.
+- **Controller NestJS** (dalla fase F2): restituiscono il dato nudo e **lanciano** eccezioni HTTP
+  (`throw new UnauthorizedException('...')`), mai `res.error`. `common/interceptors/response-envelope.interceptor.ts`
+  avvolge il dato; `common/filters/all-exceptions.filter.ts` formatta le eccezioni. Attenzione: le POST
+  NestJS rispondono **201** di default, le legacy 200 — migrando serve `@HttpCode(200)`.
+
+`AllExceptionsFilter` è anche il gestore catch-all di tutta l'app: riceve gli errori Express propagati con
+`next(err)` e le rotte inesistenti (404 → "Non trovato"), che prima gestivano `errorMiddleware.ts` e
+`noPathMiddleware.ts`, rimossi. Per un errore che non è una HttpException risponde 500 con un messaggio
+generico e **non fa mai trapelare** il messaggio interno, che finisce solo nei log; logga soltanto i 5xx.
+Il JSON malformato è tradotto in "errore json: ..." da `middlewares/jsonSyntaxErrorMiddleware.ts`, montato
+subito dopo il parser, perché NestJS perderebbe l'errore originale prima che arrivi al filter.
 
 ### Pattern di accumulo degli errori di validazione
 
@@ -310,18 +336,29 @@ ancora stata implementata.
   `mydatabase_test`. Ogni file traccia gli id che crea e li ripulisce in `afterEach`/`afterAll`, e chiude
   sempre la connessione con `prisma.$disconnect()` in `afterAll` — altrimenti Jest resta appeso.
 - **Route end-to-end con supertest** (`*Routes.test.ts`, es. `userRoutes.test.ts`): fanno richieste HTTP
-  vere contro `import app from '../index'` (l'app Express, senza `.listen()` — supertest ci gira attorno da solo),
+  vere contro l'app costruita da `__tests__/helpers/createTestApp.ts` (stesso `AppModule` e stessa
+  `configureApp` di main.ts, senza `.listen()`: si passa `nestApp.getHttpServer()` a supertest, e in
+  `afterAll` si chiama `nestApp.close()`, che chiude anche il pool Prisma),
   attraversando l'intero stack fino al DB di test. Usano email/dati univoci per evitare collisioni tra
   test file eseguiti in parallelo, e ripuliscono le righe create in `afterAll`. `productRoutes.test.ts`
   ripulisce anche i file caricati in `backend/uploads/` dal test che supera la validazione (dato che
   `createProduct` è uno stub e non lo fa da solo, vedi sopra).
+- **Comportamento trasversale all'app** (`errorHandling.test.ts`, `nestHosting.test.ts`): gestione degli
+  errori, 404, convivenza fra router legacy e rotte NestJS. Stesso helper dei test di rotta;
+  `nestHosting.test.ts` registra controller di prova visibili solo nel test.
 
 Quando aggiungi un test che tocca il DB (modello o route), segui questi due accorgimenti o la suite smette
 di essere ripetibile: (1) usa dati univoci (email/nomi con timestamp o suffisso random) invece di valori
 fissi, (2) ripulisci sempre quello che crei.
 
-### Mounting delle route (`backend/index.ts`)
+### Avvio e mounting delle route (`backend/main.ts`, `backend/app.setup.ts`)
 
-`/` → route customer, `/admin` → route admin (al momento solo `/admin/user`), `/products` → route
-prodotto, più `listRoutes` (elenco route di debug, dietro la variabile d'ambiente `SHOW_ROUTES=true`,
-significativo solo fuori produzione).
+`main.ts` crea l'app NestJS da `app.module.ts` e chiama `configureApp` (in `app.setup.ts`), la stessa
+funzione usata dai test. Ordine effettivo della catena: `responseFormatter` → CORS → `express.json()` →
+`jsonSyntaxErrorMiddleware` → **router legacy** → rotte NestJS → 404 NestJS → gestore errori NestJS.
+
+I router legacy (in `mountLegacyRouters`): `/` → route customer, `/admin` → route admin (al momento solo
+`/admin/user`), `/products` → route prodotto, più `listRoutes` (elenco route di debug, dietro
+`SHOW_ROUTES=true`). **Su uno stesso metodo e percorso vince sempre il router legacy**, perché viene
+registrato prima: quando un dominio migra a NestJS, il suo router va tolto da `mountLegacyRouters` nello
+stesso commit (verificato in `__tests__/nestHosting.test.ts`).
