@@ -597,6 +597,25 @@ controller NestJS su `GET /`, che resta oscurato dal router customer.
     non l'elenco completo. La politica "nessun fallback" è rispettata in entrambi i casi; l'elenco
     completo diventa il comportamento effettivo man mano che i moduli legacy migrano.
 
+### Rifinitura dopo F1: `useTestApp` al posto di `createTestApp`
+
+Le 6 suite end-to-end ripetevano a mano lo stesso ciclo di vita (variabili, `beforeAll` di avvio,
+`nestApp.close()` in coda all'`afterAll` di pulizia), con un vincolo invisibile: la chiusura doveva venire
+dopo la pulizia. Verificato perché conta:
+
+- nello stesso blocco Jest esegue gli `afterAll` **nell'ordine di scrittura**, e quelli di un `describe`
+  **prima** di quelli alla radice del file;
+- **una query Prisma dopo `$disconnect()` non fallisce: si riconnette in silenzio**, anche con l'adapter
+  `pg`. Una chiusura scritta prima della pulizia non avrebbe quindi prodotto nessun test rosso, ma un pool
+  riaperto e mai chiuso, cioè Jest appeso a fine esecuzione senza indicazione del file responsabile.
+
+`helpers/useTestApp.ts` registra da sé avvio e chiusura e va chiamato alla radice del file: l'ordine
+giusto diventa una conseguenza della struttura invece di una regola da ricordare, e dimenticare la
+chiusura non è più possibile. `createTestApp` non è più esportata, così non esiste un secondo modo di
+avviare un'app senza chiuderla. L'accesso a `testApp` prima dell'avvio produce un errore che spiega il
+problema (verificato con un file temporaneo), invece di un `undefined` che esplode dentro supertest.
+Suite invariata: 33 suite / 174 test, e processo Jest terminato pulito.
+
 ### Da ricordare nelle fasi successive
 
 - **F2**: `@HttpCode(200)` sulle POST; togliere `customerRoutes` da `mountLegacyRouters` nello stesso

@@ -169,10 +169,14 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
 - Nuovo modello o vincolo da verificare → `*.model.test.js`: niente mock su `../models`, traccia gli id
   creati, ripulisci in `afterEach`/`afterAll` (con `force: true, paranoid: false` se il modello è
   paranoid), chiudi la connessione con `sequelize.close()`.
-- Nuova route o flusso multi-step → `*Routes.test.ts` con l'app costruita da `helpers/createTestApp.ts`
-  (`request(nestApp.getHttpServer())`, e `await nestApp.close()` in `afterAll`), dati univoci per evitare
-  collisioni in esecuzione parallela, cleanup di eventuali righe/file creati. Fino alla fase F1 si usava
-  `supertest(require('../index'))`: `index.ts` non esiste più.
+- Nuova route o flusso multi-step → `*Routes.test.ts` con `const testApp = useTestApp()` **alla radice del
+  file, fuori dal describe**, e `request(testApp.http)` nei test; dati univoci per evitare collisioni in
+  esecuzione parallela, cleanup di eventuali righe/file creati in un `afterAll` **dentro** il describe.
+  La posizione non è estetica: Jest esegue gli `afterAll` di un describe prima di quelli alla radice, e
+  nello stesso blocco nell'ordine di scrittura. Così la chiusura dell'app, che disconnette Prisma, segue
+  sempre la pulizia. Al contrario, Prisma si riconnetterebbe in silenzio per eseguire la pulizia e
+  lascerebbe aperto un pool che fa restare Jest appeso, senza che nessun test fallisca. Fino alla fase F1
+  si usava `supertest(require('../index'))`: `index.ts` non esiste più.
 - **Comportamento trasversale all'app, non legato a un dominio** (gestione degli errori globale, 404,
   wiring dei middleware) → `errorHandling.test.ts`, aggiunto nella fase F0 della migrazione a NestJS. È
   una quarta categoria, nata da un caso concreto: il bug di arità di `errorMiddleware` viveva

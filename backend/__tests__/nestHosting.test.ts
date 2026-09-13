@@ -8,20 +8,14 @@
 // In F1 l'applicazione non ha ancora nessun controller NestJS vero. Per
 // esercitare filter, interceptor e dependency injection con richieste HTTP
 // reali, il file registra controller di prova visibili SOLO in questo test
-// (tramite createTestApp), senza aggiungere endpoint all'app vera.
-import type { Server } from 'http';
-import {
-  BadRequestException,
-  Controller,
-  Get,
-  INestApplication,
-  Post,
-} from '@nestjs/common';
+// (tramite l'opzione `controllers` di useTestApp), senza aggiungere endpoint
+// all'app vera.
+import { BadRequestException, Controller, Get, Post } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { WinstonLoggerService } from '../common/logger/winston-logger.service';
 import { prisma as sharedPrismaClient } from '../prisma/client';
-import { createTestApp } from './helpers/createTestApp';
+import { useTestApp } from './helpers/useTestApp';
 
 // Controller di prova con un metodo per ciascun comportamento da verificare.
 @Controller('__probe')
@@ -73,22 +67,13 @@ class ShadowedRootController {
   }
 }
 
+// Avvio e chiusura gestiti dall'helper, alla radice del file (vedi
+// helpers/useTestApp.ts). I controller di prova esistono solo in quest'app.
+const testApp = useTestApp({
+  controllers: [ProbeController, ShadowedRootController],
+});
+
 describe('Convivenza router legacy e rotte NestJS', () => {
-  let nestApp: INestApplication;
-  let app: Server;
-
-  beforeAll(async () => {
-    nestApp = await createTestApp({
-      controllers: [ProbeController, ShadowedRootController],
-    });
-
-    app = nestApp.getHttpServer();
-  });
-
-  afterAll(async () => {
-    await nestApp.close();
-  });
-
   describe('ordine di registrazione', () => {
     // Il cuore dell'incognita. I router legacy sono montati con app.use()
     // prima di init(), le rotte NestJS vengono aggiunte dentro init(): quindi
@@ -96,7 +81,7 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     // F2–F4: quando un dominio migra, il suo router legacy va smontato nello
     // stesso commit, altrimenti la nuova rotta NestJS non è raggiungibile.
     it('su uno stesso metodo e percorso vince il router legacy, montato prima', async () => {
-      const res = await request(app).get('/');
+      const res = await request(testApp.http).get('/');
 
       expect(res.status).toBe(200);
 
@@ -107,7 +92,7 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     // riguardano. Un Router Express che non trova una rotta chiama next(),
     // quindi la richiesta prosegue fino alle rotte NestJS.
     it('una rotta NestJS che non collide con i router legacy è raggiungibile', async () => {
-      const res = await request(app).get('/__probe');
+      const res = await request(testApp.http).get('/__probe');
 
       expect(res.status).toBe(200);
     });
@@ -117,7 +102,7 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     // errorHandling.test.ts lo stesso caso è verificato senza controller
     // NestJS.
     it('una rotta inesistente risponde ancora 404 "Non trovato"', async () => {
-      const res = await request(app).get('/__probe/non-esiste');
+      const res = await request(testApp.http).get('/__probe/non-esiste');
 
       expect(res.status).toBe(404);
 
@@ -129,7 +114,7 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     // Prova end-to-end che i flag dei decoratori in tsconfig.json funzionano
     // anche sotto ts-jest, e che PrismaModule consegna il singleton condiviso.
     it('inietta PrismaClient, ed è la stessa istanza usata dal codice legacy', async () => {
-      const res = await request(app).get('/__probe');
+      const res = await request(testApp.http).get('/__probe');
 
       expect(res.body.data).toEqual({ injected: true, sameInstanceAsLegacy: true });
     });
@@ -139,7 +124,7 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     // Un controller NestJS restituisce il dato nudo; l'interceptor lo
     // avvolge nello stesso formato di res.success.
     it('avvolge il valore restituito nel formato del progetto', async () => {
-      const res = await request(app).get('/__probe');
+      const res = await request(testApp.http).get('/__probe');
 
       expect(res.body).toEqual({
         success: true,
@@ -154,7 +139,7 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     // servirà @HttpCode(200) per non cambiare il contratto. Il test fissa
     // anche che lo status nell'involucro coincide con quello HTTP reale.
     it('su una POST riporta il 201 di default di NestJS, sia nell\'HTTP sia nell\'involucro', async () => {
-      const res = await request(app).post('/__probe');
+      const res = await request(testApp.http).post('/__probe');
 
       expect(res.status).toBe(201);
 
@@ -162,7 +147,7 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     });
 
     it('usa data: null quando il controller non restituisce nulla', async () => {
-      const res = await request(app).get('/__probe/empty');
+      const res = await request(testApp.http).get('/__probe/empty');
 
       expect(res.body.data).toBeNull();
     });
@@ -172,7 +157,7 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     // Un'eccezione HTTP lanciata da un controller arriva al client con il
     // suo status e il suo messaggio, nel formato di res.error.
     it('formatta un\'eccezione HTTP lanciata da un controller', async () => {
-      const res = await request(app).get('/__probe/bad-request');
+      const res = await request(testApp.http).get('/__probe/bad-request');
 
       expect(res.status).toBe(400);
 
@@ -189,11 +174,11 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     // ha ricevuto per iniezione) serve sia a verificare il log sia a non
     // sporcare backend/logs/ a ogni esecuzione della suite.
     it('risponde 500 generico a un errore imprevisto e lo logga senza esporlo', async () => {
-      const logger = nestApp.get(WinstonLoggerService);
+      const logger = testApp.nest.get(WinstonLoggerService);
 
       const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined);
 
-      const res = await request(app).get('/__probe/crash');
+      const res = await request(testApp.http).get('/__probe/crash');
 
       expect(res.status).toBe(500);
 

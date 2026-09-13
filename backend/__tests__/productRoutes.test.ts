@@ -8,9 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import request from 'supertest';
-import type { Server } from 'http';
-import type { INestApplication } from '@nestjs/common';
-import { createTestApp } from './helpers/createTestApp';
+import { useTestApp } from './helpers/useTestApp';
 import { prisma } from '../prisma/client';
 
 // Un PNG 1x1 valido (pixel trasparente), ben sotto ai limiti di dimensione
@@ -23,20 +21,13 @@ const VALID_PNG = Buffer.from(
 
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 
+// Avvio e chiusura dell'app NestJS, gestiti dall'helper. Chiamato qui, alla
+// radice del file e fuori dal describe, perché la chiusura (che disconnette
+// Prisma) avvenga sempre DOPO gli afterAll di pulizia del describe: vedi il
+// commento in helpers/useTestApp.ts.
+const testApp = useTestApp();
+
 describe('Product routes', () => {
-  // Bootstrap dell'app NestJS (fase F1): unica parte cambiata di questo file.
-  // `app` resta il nome usato da tutte le chiamate request(app) qui sotto, che
-  // quindi non cambiano; ora è il server HTTP dell'app NestJS invece
-  // dell'app Express esportata dal vecchio index.ts.
-  let nestApp: INestApplication;
-  let app: Server;
-
-  beforeAll(async () => {
-    nestApp = await createTestApp();
-
-    app = nestApp.getHttpServer();
-  });
-
   const emailsToClean: string[] = [];
   const productIds: number[] = [];
 
@@ -62,7 +53,7 @@ describe('Product routes', () => {
 
     emailsToClean.push(email);
 
-    const registerRes = await request(app)
+    const registerRes = await request(testApp.http)
       .post('/admin/user/register')
       .send({ name, email, password: 'password123' });
 
@@ -99,21 +90,17 @@ describe('Product routes', () => {
     await prisma.product.deleteMany({ where: { id: { in: productIds } } });
 
     await prisma.user.deleteMany({ where: { email: { in: emailsToClean } } });
-
-    // Chiude l'app NestJS: PrismaModule.onApplicationShutdown esegue il
-    // $disconnect che prima si chiamava qui a mano.
-    await nestApp.close();
   });
 
   describe('GET /products', () => {
     it('should return 401 without a token', async () => {
-      const res = await request(app).get('/products');
+      const res = await request(testApp.http).get('/products');
 
       expect(res.status).toBe(401);
     });
 
     it("should return only the requesting admin's own products", async () => {
-      const res = await request(app)
+      const res = await request(testApp.http)
         .get('/products')
         .set('Authorization', `Bearer ${adminA.token}`);
 
@@ -135,7 +122,7 @@ describe('Product routes', () => {
         data: { level: 'superadmin' },
       });
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .get('/products')
         .set('Authorization', `Bearer ${adminA.token}`);
 
@@ -158,13 +145,13 @@ describe('Product routes', () => {
 
   describe('POST /products/new', () => {
     it('should return 401 without a token', async () => {
-      const res = await request(app).post('/products/new');
+      const res = await request(testApp.http).post('/products/new');
 
       expect(res.status).toBe(401);
     });
 
     it('should return 400 with a grouped image error when no file and no fields are sent', async () => {
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/products/new')
         .set('Authorization', `Bearer ${adminA.token}`);
 
@@ -180,7 +167,7 @@ describe('Product routes', () => {
     });
 
     it('should return 400 when the uploaded file is not a JPG/PNG', async () => {
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/products/new')
         .set('Authorization', `Bearer ${adminA.token}`)
         .field('name', 'Prodotto test')
@@ -198,7 +185,7 @@ describe('Product routes', () => {
     it('should return 400 when more than one image is uploaded (checkNumberFilesMiddleware)', async () => {
       // Verifica in HTTP reale il limite collegato in questa sessione (vedi
       // routes/productRoutes.ts): prima non era collegato a nessuna route.
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/products/new')
         .set('Authorization', `Bearer ${adminA.token}`)
         .field('name', 'Prodotto test')
@@ -220,7 +207,7 @@ describe('Product routes', () => {
     it('should let a fully valid request through the whole pipeline (still hits the createProduct stub)', async () => {
       const filesBefore = fs.readdirSync(uploadsDir);
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/products/new')
         .set('Authorization', `Bearer ${adminA.token}`)
         .field('name', 'Prodotto valido')

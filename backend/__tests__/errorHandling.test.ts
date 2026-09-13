@@ -14,30 +14,15 @@
 // visto dal client deve restare identico mentre l'implementazione passa da
 // Express a NestJS, e questo file è ciò che lo dimostra.
 import request from 'supertest';
-import type { Server } from 'http';
-import type { INestApplication } from '@nestjs/common';
-import { createTestApp } from './helpers/createTestApp';
+import { useTestApp } from './helpers/useTestApp';
+
+// Avvio e chiusura dell'app NestJS, gestiti dall'helper. Chiamato qui, alla
+// radice del file e fuori dal describe, perché la chiusura (che disconnette
+// Prisma) avvenga sempre DOPO gli afterAll di pulizia del describe: vedi il
+// commento in helpers/useTestApp.ts.
+const testApp = useTestApp();
 
 describe('Gestione errori a livello di app', () => {
-  // Bootstrap dell'app NestJS (fase F1): unica parte cambiata di questo file.
-  // `app` resta il nome usato da tutte le chiamate request(app) qui sotto, che
-  // quindi non cambiano; ora è il server HTTP dell'app NestJS invece
-  // dell'app Express esportata dal vecchio index.ts.
-  let nestApp: INestApplication;
-  let app: Server;
-
-  beforeAll(async () => {
-    nestApp = await createTestApp();
-
-    app = nestApp.getHttpServer();
-  });
-
-  afterAll(async () => {
-    // Chiude l'app NestJS: PrismaModule.onApplicationShutdown esegue il
-    // $disconnect che prima si chiamava qui a mano.
-    await nestApp.close();
-  });
-
   describe('body JSON malformato', () => {
     // express.json() lancia un SyntaxError con .status 400 e una proprietà
     // `body` prima che la richiesta raggiunga qualsiasi route handler.
@@ -52,7 +37,7 @@ describe('Gestione errori a livello di app', () => {
     // successo, quindi non si arriva al controller): serve solo che sia una
     // POST esistente.
     it('risponde 400 nel formato del progetto, non con la pagina HTML di Express', async () => {
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/admin/user/login')
         .set('Content-Type', 'application/json')
         .send('{"email": "rotto"');
@@ -77,7 +62,7 @@ describe('Gestione errori a livello di app', () => {
     // motivo sbagliato (es. una risposta 400 prodotta dalla validazione dei
     // campi invece che dal parsing del body).
     it('un body JSON valido ma incompleto arriva alla validazione, non al gestore JSON', async () => {
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/admin/user/login')
         .set('Content-Type', 'application/json')
         .send({});
@@ -97,7 +82,7 @@ describe('Gestione errori a livello di app', () => {
     // presidio di quel riconoscimento, che dipende dal formato esatto del
     // messaggio di NestJS: se una versione futura lo cambiasse, fallirebbe qui.
     it('risponde 404 nel formato del progetto', async () => {
-      const res = await request(app).get('/questa-rotta-non-esiste');
+      const res = await request(testApp.http).get('/questa-rotta-non-esiste');
 
       expect(res.status).toBe(404);
 

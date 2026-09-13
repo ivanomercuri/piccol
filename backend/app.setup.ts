@@ -10,7 +10,7 @@ import listRoutes from './routes/listRoutes';
 
 /**
  * Punto unico in cui si configura l'app NestJS, usato sia da main.ts sia dai
- * test end-to-end (__tests__/helpers/createTestApp.ts).
+ * test end-to-end (__tests__/helpers/useTestApp.ts).
  *
  * PERCHÉ UN FILE CONDIVISO
  * È un errore classico dei progetti NestJS: main.ts configura l'app (pipe,

@@ -336,9 +336,11 @@ ancora stata implementata.
   `mydatabase_test`. Ogni file traccia gli id che crea e li ripulisce in `afterEach`/`afterAll`, e chiude
   sempre la connessione con `prisma.$disconnect()` in `afterAll` — altrimenti Jest resta appeso.
 - **Route end-to-end con supertest** (`*Routes.test.ts`, es. `userRoutes.test.ts`): fanno richieste HTTP
-  vere contro l'app costruita da `__tests__/helpers/createTestApp.ts` (stesso `AppModule` e stessa
-  `configureApp` di main.ts, senza `.listen()`: si passa `nestApp.getHttpServer()` a supertest, e in
-  `afterAll` si chiama `nestApp.close()`, che chiude anche il pool Prisma),
+  vere contro l'app avviata da `useTestApp()` (`__tests__/helpers/useTestApp.ts`: stesso `AppModule` e
+  stessa `configureApp` di main.ts, senza `.listen()`). `useTestApp()` va chiamato **alla radice del
+  file, fuori dal describe**: registra da sé avvio e chiusura, e da quella posizione la chiusura (che
+  disconnette Prisma) gira sempre dopo gli `afterAll` di pulizia del describe. Le richieste usano
+  `request(testApp.http)`; nessun file chiama più `close()` o `$disconnect()` a mano,
   attraversando l'intero stack fino al DB di test. Usano email/dati univoci per evitare collisioni tra
   test file eseguiti in parallelo, e ripuliscono le righe create in `afterAll`. `productRoutes.test.ts`
   ripulisce anche i file caricati in `backend/uploads/` dal test che supera la validazione (dato che

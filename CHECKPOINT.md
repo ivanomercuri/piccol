@@ -798,7 +798,9 @@ adattati **per primi** (F1), non per ultimi.
   con validazione, CLI di Nest (`npm run dev` = `nest start --watch`).
 - **Incognita risolta: su uno stesso percorso vince il router legacy.** Quando un dominio migra, il suo
   router si toglie da `mountLegacyRouters` nello stesso commit.
-- Le 5 suite e2e girano sull'app NestJS con **asserzioni invariate**.
+- Le 5 suite e2e girano sull'app NestJS con **asserzioni invariate**. Dopo F1 il loro ciclo di vita è
+  gestito da `useTestApp()`, da chiamare **alla radice del file**: la chiusura dell'app deve seguire la
+  pulizia, e Prisma dopo il disconnect si riconnette in silenzio lasciando Jest appeso.
 - **Node 24 obbligatorio**: NestJS 12 è ESM-only e Jest lo carica solo da Node 24.9 con
   `--experimental-vm-modules`.
 - **Corretto un difetto introdotto in F0**: `test_backend` girava su un'immagine di 9 mesi prima; ora i due

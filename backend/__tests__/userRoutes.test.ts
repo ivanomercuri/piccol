@@ -4,25 +4,16 @@
 // verificare che un vecchio JWT smetta davvero di funzionare dopo queste
 // operazioni, perché "current_token" vive nel DB.
 import request from 'supertest';
-import type { Server } from 'http';
-import type { INestApplication } from '@nestjs/common';
-import { createTestApp } from './helpers/createTestApp';
+import { useTestApp } from './helpers/useTestApp';
 import { prisma } from '../prisma/client';
 
+// Avvio e chiusura dell'app NestJS, gestiti dall'helper. Chiamato qui, alla
+// radice del file e fuori dal describe, perché la chiusura (che disconnette
+// Prisma) avvenga sempre DOPO gli afterAll di pulizia del describe: vedi il
+// commento in helpers/useTestApp.ts.
+const testApp = useTestApp();
+
 describe('Admin/User routes', () => {
-  // Bootstrap dell'app NestJS (fase F1): unica parte cambiata di questo file.
-  // `app` resta il nome usato da tutte le chiamate request(app) qui sotto, che
-  // quindi non cambiano; ora è il server HTTP dell'app NestJS invece
-  // dell'app Express esportata dal vecchio index.ts.
-  let nestApp: INestApplication;
-  let app: Server;
-
-  beforeAll(async () => {
-    nestApp = await createTestApp();
-
-    app = nestApp.getHttpServer();
-  });
-
   const emailsToClean: string[] = [];
 
   async function registerUser(name = 'Route Test User') {
@@ -32,7 +23,7 @@ describe('Admin/User routes', () => {
 
     emailsToClean.push(email);
 
-    const res = await request(app)
+    const res = await request(testApp.http)
       .post('/admin/user/register')
       .send({ name, email, password: 'password123' });
 
@@ -41,10 +32,6 @@ describe('Admin/User routes', () => {
 
   afterAll(async () => {
     await prisma.user.deleteMany({ where: { email: { in: emailsToClean } } });
-
-    // Chiude l'app NestJS: PrismaModule.onApplicationShutdown esegue il
-    // $disconnect che prima si chiamava qui a mano.
-    await nestApp.close();
   });
 
   describe('POST /admin/user/register', () => {
@@ -64,7 +51,7 @@ describe('Admin/User routes', () => {
     });
 
     it('should return 400 when required fields are missing', async () => {
-      const res = await request(app).post('/admin/user/register').send({});
+      const res = await request(testApp.http).post('/admin/user/register').send({});
 
       expect(res.status).toBe(400);
     });
@@ -86,7 +73,7 @@ describe('Admin/User routes', () => {
 
       emailsToClean.push(lowercaseEmail);
 
-      const registerRes = await request(app)
+      const registerRes = await request(testApp.http)
         .post('/admin/user/register')
         .send({
           name: 'Case Test',
@@ -104,7 +91,7 @@ describe('Admin/User routes', () => {
 
       // Login con la forma minuscola, pur essendosi registrati con le
       // maiuscole: deve funzionare.
-      const loginLower = await request(app)
+      const loginLower = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email: lowercaseEmail, password: 'password123' });
 
@@ -113,7 +100,7 @@ describe('Admin/User routes', () => {
       // E anche il percorso inverso: login con maiuscole su una riga salvata
       // in minuscolo, che è il caso reale più frequente (l'utente digita
       // l'email come gli pare al momento del login).
-      const loginMixed = await request(app)
+      const loginMixed = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email: mixedCaseEmail, password: 'password123' });
 
@@ -125,7 +112,7 @@ describe('Admin/User routes', () => {
     it('should return a token for correct credentials', async () => {
       const { email } = await registerUser('Login Test');
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email, password: 'password123' });
 
@@ -137,7 +124,7 @@ describe('Admin/User routes', () => {
     it('should return 401 for a wrong password', async () => {
       const { email } = await registerUser('Wrong Password Test');
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email, password: 'wrong-password' });
 
@@ -149,7 +136,7 @@ describe('Admin/User routes', () => {
 
   describe('protected routes (require a Bearer token)', () => {
     it('GET /admin/user should return 401 without a token', async () => {
-      const res = await request(app).get('/admin/user');
+      const res = await request(testApp.http).get('/admin/user');
 
       expect(res.status).toBe(401);
 
@@ -159,7 +146,7 @@ describe('Admin/User routes', () => {
     it('GET /admin/user should return the profile with a valid token', async () => {
       const { token, email } = await registerUser('Profilo Test');
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .get('/admin/user')
         .set('Authorization', `Bearer ${token}`);
 
@@ -177,7 +164,7 @@ describe('Admin/User routes', () => {
 
       emailsToClean.push(newEmail);
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .patch('/admin/user')
         .set('Authorization', `Bearer ${token}`)
         .send({ name: 'Aggiornato', email: newEmail });
@@ -192,7 +179,7 @@ describe('Admin/User routes', () => {
     it('PATCH /admin/user/password should change the password and update login behavior accordingly', async () => {
       const { email, token } = await registerUser('Cambio Password');
 
-      const changeRes = await request(app)
+      const changeRes = await request(testApp.http)
         .patch('/admin/user/password')
         .set('Authorization', `Bearer ${token}`)
         .send({ oldPassword: 'password123', newPassword: 'newpassword456' });
@@ -200,14 +187,14 @@ describe('Admin/User routes', () => {
       expect(changeRes.status).toBe(200);
 
       // La vecchia password non deve più funzionare al login...
-      const oldLoginRes = await request(app)
+      const oldLoginRes = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email, password: 'password123' });
 
       expect(oldLoginRes.status).toBe(401);
 
       // ...quella nuova sì.
-      const newLoginRes = await request(app)
+      const newLoginRes = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email, password: 'newpassword456' });
 
@@ -217,7 +204,7 @@ describe('Admin/User routes', () => {
     it('PATCH /admin/user/password should return 400 if oldPassword is wrong', async () => {
       const { token } = await registerUser('Password Sbagliata');
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .patch('/admin/user/password')
         .set('Authorization', `Bearer ${token}`)
         .send({ oldPassword: 'wrong', newPassword: 'newpassword456' });
@@ -230,7 +217,7 @@ describe('Admin/User routes', () => {
     it('POST /admin/user/logout should invalidate the token for subsequent requests', async () => {
       const { token } = await registerUser('Logout Test');
 
-      const logoutRes = await request(app)
+      const logoutRes = await request(testApp.http)
         .post('/admin/user/logout')
         .set('Authorization', `Bearer ${token}`);
 
@@ -239,7 +226,7 @@ describe('Admin/User routes', () => {
       // Lo stesso identico token, usato subito dopo il logout, deve essere
       // rifiutato: è il comportamento che rende possibile invalidare i
       // vecchi token, descritto in CLAUDE.md.
-      const afterLogoutRes = await request(app)
+      const afterLogoutRes = await request(testApp.http)
         .get('/admin/user')
         .set('Authorization', `Bearer ${token}`);
 
