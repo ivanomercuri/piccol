@@ -1,14 +1,29 @@
 // GET /routes non è montata sotto nessun prefisso (app.use(listRoutes) in
-// index.ts): raggiungibile direttamente a /routes. Il comportamento gated da
-// SHOW_ROUTES era già coperto da un test unitario sul controller
-// (listRoutesController.test.ts); qui verifichiamo lo stesso comportamento
-// attraversando davvero l'app Express, per essere certi che il mounting in
-// index.ts sia quello giusto.
+// mountLegacyRouters, app.setup.ts): raggiungibile direttamente a /routes. Il
+// comportamento gated da SHOW_ROUTES era già coperto da un test unitario sul
+// controller (listRoutesController.test.ts); qui verifichiamo lo stesso
+// comportamento attraversando davvero l'app, per essere certi che il
+// mounting sia quello giusto. Destinato a sparire in F5 insieme alla rotta
+// (decisione D8).
 import request from 'supertest';
-import app from '../index';
-import { prisma } from '../prisma/client';
+import type { Server } from 'http';
+import type { INestApplication } from '@nestjs/common';
+import { createTestApp } from './helpers/createTestApp';
 
 describe('GET /routes', () => {
+  // Bootstrap dell'app NestJS (fase F1): unica parte cambiata di questo file.
+  // `app` resta il nome usato da tutte le chiamate request(app) qui sotto, che
+  // quindi non cambiano; ora è il server HTTP dell'app NestJS invece
+  // dell'app Express esportata dal vecchio index.ts.
+  let nestApp: INestApplication;
+  let app: Server;
+
+  beforeAll(async () => {
+    nestApp = await createTestApp();
+
+    app = nestApp.getHttpServer();
+  });
+
   const originalShowRoutes = process.env.SHOW_ROUTES;
 
   afterEach(() => {
@@ -16,7 +31,9 @@ describe('GET /routes', () => {
   });
 
   afterAll(async () => {
-    await prisma.$disconnect();
+    // Chiude l'app NestJS: PrismaModule.onApplicationShutdown esegue il
+    // $disconnect che prima si chiamava qui a mano.
+    await nestApp.close();
   });
 
   it('should return 403 when SHOW_ROUTES is not "true"', async () => {

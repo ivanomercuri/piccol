@@ -62,13 +62,15 @@ services:
         condition: service_healthy
   backend:
     build: ./backend
+    # Nome dell'immagine esplicito e CONDIVISO con test_backend (vedi lì).
+    image: piccol-backend
     container_name: express-backend
     user: "1000:1000"
     ports:
       # Lato host (sinistra) e porta interna dell'app (destra) configurabili
       # separatamente: BACKEND_HOST_PORT è "a quale porta ci arrivi tu dalla
       # tua macchina", PORT è "su quale porta ascolta l'app dentro il
-      # container" (già letta da server.ts) — due concetti distinti che
+      # container" (letta da main.ts tramite ConfigService) — due concetti distinti che
       # possono cambiare indipendentemente.
       - "${BACKEND_HOST_PORT:?BACKEND_HOST_PORT is missing in .env}:${PORT:?PORT is missing in .env}"
       - "${BACKEND_DEBUG_PORT:?BACKEND_DEBUG_PORT is missing in .env}:9229"
@@ -91,8 +93,8 @@ services:
       # ADMINER_DEFAULT_SERVER sopra, e per lo stesso motivo non sta in .env.
       # È però obbligatoria: config/databaseUrl.ts si rifiuta di comporre
       # l'URL del database se manca. Va quindi ripetuta su ogni servizio che
-      # esegue codice dell'app — vedi test_backend più sotto, che per anni non
-      # l'ha avuta.
+      # esegue codice dell'app — vedi test_backend più sotto, che non l'ha
+      # avuta dalla migrazione a Prisma fino alla fase F0 di quella a NestJS.
       #
       # Qui non ci sono credenziali del database: arrivano da env_file, che
       # legge lo stesso .env. Ripeterle sarebbe una seconda copia degli stessi
@@ -105,6 +107,19 @@ services:
         condition: service_healthy
   test_backend:
     build: ./backend
+    # Stessa immagine del servizio backend, non una propria.
+    #
+    # Senza `image:`, Compose costruisce e nomina un'immagine diversa per ogni
+    # servizio che ha `build:` — qui `piccol-test_backend` — e la ricostruisce
+    # solo se glielo si chiede per quel servizio. Quell'immagine era rimasta
+    # ferma a 9 mesi prima (Node 20.19, dipendenze precedenti a Prisma), mentre
+    # `backend` veniva ricostruito. Il volume node_modules condiviso nascondeva
+    # il problema a metà: si inizializza dall'immagine del PRIMO container che
+    # lo crea, quindi la suite funzionava o no a seconda di quale servizio
+    # partiva per primo dopo un reset del volume. Con un solo nome d'immagine
+    # i due servizi girano per costruzione sullo stesso Node e sulle stesse
+    # dipendenze.
+    image: piccol-backend
     container_name: backend-test
     volumes:
       - ./backend:/app

@@ -1,4 +1,11 @@
-FROM node:20-alpine
+# Node 24 (LTS) e non 20, per due motivi indipendenti:
+# - Node 20 è fuori supporto dal 30 aprile 2026: niente più patch di sicurezza.
+# - Tutti i pacchetti di NestJS 12 sono ESM-only. L'app, compilata in
+#   CommonJS, li carica comunque anche su Node 20.19+ (require di moduli ESM),
+#   ma il caricatore di moduli di JEST lo supporta solo da Node 24.9, e solo
+#   con il flag --experimental-vm-modules (impostato nello script `test` di
+#   package.json, non qui: serve al test runner, non all'app).
+FROM node:24-alpine
 
 # Installiamo curl come root prima di cambiare utente
 RUN apk add curl

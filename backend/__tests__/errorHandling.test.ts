@@ -1,37 +1,52 @@
 // Gestione degli errori a livello di APPLICAZIONE, non di singola funzione.
 //
-// Perché questo file esiste separato da errorMiddleware.test.ts: quel file
-// chiama errorMiddleware direttamente, passandogli un finto err/req/res, e
-// quindi verifica soltanto *cosa fa la funzione*. Non può accorgersi se la
-// funzione non viene mai invocata, perché bypassa completamente il dispatch
-// di Express. Ed è esattamente lì che stava il bug corretto in questa fase:
-// Express riconosce un middleware come error-handler solo se dichiara
-// ESATTAMENTE 4 parametri (err, req, res, next), ed errorMiddleware ne
-// dichiarava 3 — quindi `app.use(errorMiddleware)` lo registrava come un
-// normale middleware che non veniva mai chiamato su next(err).
+// Nato nella fase F0 per dimostrare il bug di arità di errorMiddleware (3
+// parametri invece dei 4 che Express conta per riconoscere un gestore
+// d'errore, quindi mai invocato). La lezione che questo file incorpora resta
+// valida: un test che verifica un'unità in isolamento non dice nulla sul
+// fatto che quell'unità sia collegata. Per il wiring serve una richiesta HTTP
+// vera.
 //
-// La lezione che questo file incorpora: un test che verifica il
-// comportamento di un'unità in isolamento non dice nulla sul fatto che
-// quell'unità sia collegata. Per il wiring serve una richiesta HTTP vera.
-//
-// Non tocca il database, ma importa l'app intera (che istanzia il Prisma
-// Client): serve comunque il $disconnect in afterAll, altrimenti Jest resta
-// appeso sul pool di connessioni aperto.
+// Dalla fase F1 errorMiddleware e noPathMiddleware non esistono più: il loro
+// compito è passato ad AllExceptionsFilter (common/filters/), aiutato da
+// jsonSyntaxErrorMiddleware per il caso del JSON malformato. Le asserzioni
+// qui sotto NON sono cambiate — è proprio questo il punto: il contratto
+// visto dal client deve restare identico mentre l'implementazione passa da
+// Express a NestJS, e questo file è ciò che lo dimostra.
 import request from 'supertest';
-import app from '../index';
-import { prisma } from '../prisma/client';
+import type { Server } from 'http';
+import type { INestApplication } from '@nestjs/common';
+import { createTestApp } from './helpers/createTestApp';
 
 describe('Gestione errori a livello di app', () => {
+  // Bootstrap dell'app NestJS (fase F1): unica parte cambiata di questo file.
+  // `app` resta il nome usato da tutte le chiamate request(app) qui sotto, che
+  // quindi non cambiano; ora è il server HTTP dell'app NestJS invece
+  // dell'app Express esportata dal vecchio index.ts.
+  let nestApp: INestApplication;
+  let app: Server;
+
+  beforeAll(async () => {
+    nestApp = await createTestApp();
+
+    app = nestApp.getHttpServer();
+  });
+
   afterAll(async () => {
-    await prisma.$disconnect();
+    // Chiude l'app NestJS: PrismaModule.onApplicationShutdown esegue il
+    // $disconnect che prima si chiamava qui a mano.
+    await nestApp.close();
   });
 
   describe('body JSON malformato', () => {
     // express.json() lancia un SyntaxError con .status 400 e una proprietà
     // `body` prima che la richiesta raggiunga qualsiasi route handler.
-    // Quell'errore deve arrivare a errorMiddleware e uscire nel formato
-    // standard del progetto (res.error), non come pagina HTML di default di
-    // Express — che oltretutto esporrebbe uno stack trace in sviluppo.
+    // Percorso dalla fase F1: jsonSyntaxErrorMiddleware lo traduce in una
+    // BadRequestException con il messaggio "errore json: ...", NestJS la
+    // rilancia nel proprio sistema di filtri e AllExceptionsFilter la formatta.
+    // Il risultato deve restare quello del formato standard del progetto, non
+    // la pagina HTML di default di Express — che oltretutto esporrebbe uno
+    // stack trace in sviluppo.
     //
     // La rotta scelta è irrilevante (il body non viene mai parsato con
     // successo, quindi non si arriva al controller): serve solo che sia una
@@ -76,10 +91,11 @@ describe('Gestione errori a livello di app', () => {
   });
 
   describe('rotte inesistenti', () => {
-    // noPathMiddleware è montato prima di errorMiddleware: una 404 non è un
-    // errore propagato con next(err) e non deve quindi passare dal gestore
-    // degli errori. Verificato qui perché la correzione dell'arità cambia
-    // quali middleware sono raggiungibili, e questo non deve regredire.
+    // Dalla fase F1 la 404 la produce il gestore di NestJS in coda all'app,
+    // con un messaggio inglese ("Cannot GET /..."): è AllExceptionsFilter a
+    // riconoscerla e a sostituirlo con "Non trovato". Questo test è anche il
+    // presidio di quel riconoscimento, che dipende dal formato esatto del
+    // messaggio di NestJS: se una versione futura lo cambiasse, fallirebbe qui.
     it('risponde 404 nel formato del progetto', async () => {
       const res = await request(app).get('/questa-rotta-non-esiste');
 

@@ -4,16 +4,33 @@
 // al DB di test reale. È l'unico modo per verificare che tutti questi pezzi,
 // testati singolarmente altrove, funzionino anche insieme.
 import request from 'supertest';
-import app from '../index';
+import type { Server } from 'http';
+import type { INestApplication } from '@nestjs/common';
+import { createTestApp } from './helpers/createTestApp';
 import { prisma } from '../prisma/client';
 
 describe('Customer routes', () => {
+  // Bootstrap dell'app NestJS (fase F1): unica parte cambiata di questo file.
+  // `app` resta il nome usato da tutte le chiamate request(app) qui sotto, che
+  // quindi non cambiano; ora è il server HTTP dell'app NestJS invece
+  // dell'app Express esportata dal vecchio index.ts.
+  let nestApp: INestApplication;
+  let app: Server;
+
+  beforeAll(async () => {
+    nestApp = await createTestApp();
+
+    app = nestApp.getHttpServer();
+  });
+
   const emailsToClean: string[] = [];
 
   afterAll(async () => {
     await prisma.customer.deleteMany({ where: { email: { in: emailsToClean } } });
 
-    await prisma.$disconnect();
+    // Chiude l'app NestJS: PrismaModule.onApplicationShutdown esegue il
+    // $disconnect che prima si chiamava qui a mano.
+    await nestApp.close();
   });
 
   describe('GET /', () => {
