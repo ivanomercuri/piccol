@@ -159,3 +159,28 @@ keep entries short, one line each)
   An explicit function was preferred over a Sequelize `beforeSave` hook: the
   hook would not cover the login's `findOne`, and it would turn the rule into
   hidden state in a project that uses no hooks anywhere else.
+- Duplicate email on registration and profile update (User and Customer,
+  NestJS migration F3): the unique-constraint violation (Prisma P2002) is
+  translated into `409 Email già registrata` by `rejectDuplicateEmail`,
+  instead of a generic 500. The error is caught **after** the write rather
+  than checked with a `findUnique` beforehand: a pre-check is racy (two
+  concurrent registrations would both see the email as free), so the database
+  constraint stays the only arbiter. Only the error code is checked, because
+  with the Prisma 7 `pg` driver adapter `meta.target` is absent. Rejected: the
+  generic 500 (a normal, expected case reported as an unexpected failure and
+  logged as one).
+- Failed login (both identities, F3): a single `401 Credenziali non valide`
+  for unknown email and wrong password, and bcrypt runs against a dummy hash
+  when the account does not exist, so neither the message nor the response
+  time reveals which emails are registered. Accepted trade-off: registration
+  still reveals it through the 409 above; the login endpoint is the one
+  targeted by credential stuffing, where knowing valid accounts helps most.
+- Password change invalidates the current token (F3): new password hash and
+  `current_token = null` are written in the same `update`, so a failure cannot
+  leave the password changed with the old token still valid. The client must
+  log in again. Rejected: keeping the old token valid (a stolen token would
+  survive the victim's password change) and returning a freshly issued token
+  (changes the response shape from `data: {}` to a token).
+- User email format (F3): `@IsEmail` on User registration and profile update,
+  as already on Customer registration. Login DTOs still do not validate the
+  format, so a malformed email keeps producing the uniform 401.

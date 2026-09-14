@@ -149,9 +149,8 @@ Registra un nuovo cliente storefront.
 - **400** → errori di validazione raggruppati per campo, **un messaggio per campo**: per un campo mancante
   `"... è richiesto/a"`, per un valore presente ma non valido il motivo (es. `"Email non valida"`,
   `"Password deve essere un testo"`). Un body assente o un array JSON producono gli stessi errori per campo.
-- **500** → errore generico `"Qualcosa è andato storto!"`. Caso noto: **email già registrata** (violazione
-  del vincolo `unique`). Fino alla fase F2 il messaggio era il testo grezzo dell'errore del database; ora il
-  dettaglio resta solo nei log. Un 409 dedicato è una decisione aperta (`docs/MIGRAZIONE-NESTJS.md`, F2).
+- **409** → `Email già registrata` (dalla fase F3; prima era un 500)
+- **500** → errore generico `"Qualcosa è andato storto!"`
 
 ### `POST /login`
 
@@ -166,7 +165,8 @@ Registra un nuovo cliente storefront.
   (`services/tokenService.ts`)
 - **400** → errori di validazione (campi mancanti o non stringa). Fino alla fase F2 un'email non stringa
   produceva un 500.
-- **401** → `Utente non trovato` oppure `Password errata`
+- **401** → `Credenziali non valide`, sia per email inesistente sia per password errata (dalla fase F3;
+  prima i messaggi erano distinti e rivelavano quali email sono registrate)
 - **500** → errore generico `"Qualcosa è andato storto!"`
 
 > Non esistono ancora endpoint per profilo, cambio password o logout del Customer.
@@ -187,12 +187,13 @@ che non è una stringa produce un 400 (fino alla fase F3 poteva produrre un 500)
 | Campo | Tipo | Obbligatorio |
 |---|---|---|
 | `name` | string | sì |
-| `email` | string (il formato **non** è verificato) | sì |
+| `email` | string, formato email (verificato dalla fase F3) | sì |
 | `password` | string | sì |
 
 - **200** → `data`: token JWT, payload `{ id, email }`, **scade dopo 1 ora**
-- **400** → errori di validazione raggruppati per campo, un messaggio per campo
-- **500** → errore generico `"Qualcosa è andato storto!"` (es. email duplicata; decisione aperta su un 409)
+- **400** → errori di validazione raggruppati per campo, un messaggio per campo (es. `Email non valida`)
+- **409** → `Email già registrata` (dalla fase F3; prima era un 500)
+- **500** → errore generico `"Qualcosa è andato storto!"`
 
 Nota: `level` non è impostabile in registrazione — viene sempre creato come `admin` (default del modello
 `User`), e un `level` inviato nel body viene scartato. Non esiste un endpoint per creare un `superadmin`,
@@ -204,7 +205,7 @@ va fatto manualmente sul DB.
 
 - **200** → `data`: token JWT, payload `{ id, email }`, **scade dopo 1 ora**
 - **400** → errori di validazione
-- **401** → `Utente non trovato` oppure `Password errata`
+- **401** → `Credenziali non valide`, sia per email inesistente sia per password errata (dalla fase F3)
 - **500** → errore generico
 
 ### `GET /admin/user` 🔒
@@ -222,10 +223,11 @@ Aggiorna nome/email del proprio profilo.
 | Campo | Tipo | Obbligatorio |
 |---|---|---|
 | `name` | string | sì |
-| `email` | string | sì |
+| `email` | string, formato email (verificato dalla fase F3) | sì |
 
 - **200** → `data`: `{ id, name, email }`
 - **400** → errori di validazione
+- **409** → `Email già registrata`, se l'email appartiene a un altro utente (dalla fase F3; prima era un 500)
 - **500** → errore generico `"Qualcosa è andato storto!"` (fino alla fase F3:
   `Errore durante l'aggiornamento del profilo`)
 
@@ -237,16 +239,15 @@ Aggiorna nome/email del proprio profilo.
 
 **Body** (JSON): `oldPassword`, `newPassword` (entrambi obbligatori, stringhe).
 
-- **200** → `data: {}`, `message: "Password aggiornata con successo"`
+- **200** → `data: {}`, `message: "Password aggiornata con successo: effettua di nuovo il login"`
 - **400** → `La vecchia password non corrisponde` (oltre ai normali errori di validazione sui campi mancanti)
 - **500** → errore generico `"Qualcosa è andato storto!"` (fino alla fase F3:
   `Errore durante il cambio della password`)
 
-> ⚠️ Questo endpoint **non invalida `current_token`**: il vecchio JWT continua a funzionare anche dopo il
-> cambio password. Questo contraddice il pattern di invalidazione descritto in `CLAUDE.md`
-> ("i flussi di password/2FA dovrebbero fare lo stesso" del logout, cioè azzerare `current_token`). È
-> conservato dalla migrazione e fissato in un test, come decisione aperta — vedi
-> [Problemi noti](#problemi-noti--comportamenti-da-tenere-a-mente).
+> **Il token usato per la richiesta non vale più** (dalla fase F3): nuova password e `current_token = null`
+> vengono scritti insieme, come al logout. Qualunque richiesta successiva con quel token riceve
+> `401 Token non più valido`, anche sulle rotte legacy dei prodotti: il client deve rifare login con la
+> nuova password.
 
 ### `POST /admin/user/logout` 🔒
 
@@ -326,9 +327,9 @@ queste API (non sono bug "nascosti": sono osservabili leggendo il codice, ma fac
 
 - **`POST /products/new` è uno stub**: risponde 200 senza creare nulla. Vedi anche
   `CLAUDE.md` → "Parte nota come incompleta".
-- **Il cambio password non invalida il token corrente**: `PATCH /admin/user/password` non tocca
-  `current_token`, quindi un vecchio JWT resta valido anche dopo il cambio password — al contrario di
-  quanto succede al logout.
+- ~~**Il cambio password non invalida il token corrente**~~ — **CORRETTO** nella fase F3 della migrazione
+  a NestJS (decisione C in `docs/MIGRAZIONE-NESTJS.md`): `PATCH /admin/user/password` ora azzera
+  `current_token` insieme alla password, come il logout.
 - **`GET /products` restituisce 403 anche per errori inattesi**, non solo per autorizzazione mancante (il
   blocco `catch` chiama `res.error(403, 'Errore server', err)` invece di 500).
 - **Nessuna route di autenticazione protetta per `Customer`**: non esiste un `authCustomerMiddleware`, né

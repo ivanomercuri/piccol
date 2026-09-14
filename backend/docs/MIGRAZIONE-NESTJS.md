@@ -1,6 +1,6 @@
 # Assessment: migrazione da Express a NestJS
 
-Stato: **F0–F3 completate** (registri in §8–§11); prossima fase **F4**. **Quattro decisioni aperte** in §11. Segue il metodo già usato per la migrazione a Prisma:
+Stato: **F0–F3 completate** (registri in §8–§11), comprese le quattro decisioni di F3; prossima fase **F4**. Segue il metodo già usato per la migrazione a Prisma:
 prima questo report (inventario, punti critici, decisioni da prendere), poi il via libera, poi
 l'implementazione a commit incrementali.
 
@@ -680,6 +680,8 @@ nessun chiamante può più ometterlo.
 
 ### Decisione aperta (protocollo di AGENTS.md, categoria *Duplication*)
 
+> **Risolta in F3: opzione B, 409 "Email già registrata"** — vedi §11, decisione A.
+
 **Cosa succede se la stessa registrazione arriva due volte?** Oggi il vincolo `unique` sull'email fa
 lanciare a Prisma un errore P2002, che arriva al filter come errore imprevisto: **500**, "Qualcosa è andato
 storto!". È il comportamento legacy, conservato in F2 perché la migrazione non cambia i contratti senza una
@@ -784,10 +786,12 @@ del middleware legacy.
   dedicati dei controller legacy.
 - Campi non stringa → 400; campi non previsti (compreso `level` in registrazione) scartati.
 
-### Decisioni aperte
+### Decisioni aperte → prese il 2026-09-14
 
-Tutte conservano oggi il comportamento legacy, e ognuna si applica in **un solo punto** del codice. Le prime
-tre toccano la sicurezza e il contratto, quindi secondo il protocollo di AGENTS.md servono scelte esplicite.
+**Tutte e quattro risolte con l'opzione raccomandata**, su scelta esplicita dell'utente, e applicate subito
+dopo F3 (vedi "Applicazione delle decisioni" in fondo a questa sezione). Registrate anche nel Design
+Decisions Log di AGENTS.md. La tabella resta com'era al momento della scelta, per memoria delle
+alternative.
 
 | | Domanda | Opzioni | Dove si applica |
 |---|---|---|---|
@@ -802,6 +806,33 @@ l'esistenza di un'email in registrazione, quindi A e B vanno decise insieme. **C
 pattern di invalidazione che CLAUDE.md descrive come intenzionale; (b) è la più semplice e sicura; (c) evita
 di disconnettere l'utente ma cambia la forma della risposta. **D**: (b) rende coerenti le due identità e
 impedisce di salvare email inservibili, ma rifiuta con un 400 richieste che oggi vengono accettate.
+
+### Applicazione delle decisioni (2026-09-14)
+
+Stato finale: **36 suite / 203 test verdi**, lint pulito, tutte e quattro verificate anche sull'app in
+esecuzione. Prima di aggiornare i test, la suite è stata eseguita sul codice già modificato: sono falliti
+**esattamente i 12 test** che fissavano i comportamenti vecchi (8 per B, 3 per C, 1 per A) e nessun altro.
+Nessun test esistente usava email malformate per gli User, quindi D ha richiesto test nuovi.
+
+- **A — 409 "Email già registrata"**, in registrazione (User e Customer) **e in aggiornamento del profilo
+  degli User**: l'estensione al profilo non era nella tabella, ma è lo stesso caso di duplicazione e avrebbe
+  lasciato un 500 incoerente. L'errore si intercetta *dopo* la scrittura e non con un controllo preventivo,
+  che sarebbe esposto a una race condition fra due registrazioni simultanee.
+  **Scoperta**: con l'adapter `pg` l'errore P2002 non ha `meta.target`, quindi si controlla solo il codice
+  (verificato con una doppia create reale).
+- **B — "Credenziali non valide"** per entrambi i casi. In più, **bcrypt viene eseguito anche per gli
+  account inesistenti**, con un hash fittizio: con il solo messaggio unico, la *durata* della risposta
+  avrebbe continuato a rivelare quali email esistono. Il test verifica il confronto, non i tempi, che in
+  una suite sarebbero instabili.
+- **C — Il cambio password invalida il token**: password e `current_token = null` nella stessa query,
+  quindi atomiche. Il messaggio di successo ora avvisa di rifare login. Verificato che il vecchio token è
+  rifiutato sia dalle rotte NestJS sia da quelle legacy dei prodotti.
+- **D — `@IsEmail`** in registrazione e aggiornamento del profilo degli User. Il login resta senza, così
+  un'email malformata continua a produrre il 401 uniforme di B.
+
+**Nota per scrivere test simili**: due Promise destinate a fallire vanno avviate e attese una alla volta,
+ciascuna dentro il proprio `expect`. Avviandole insieme, la seconda può essere rifiutata mentre si attende
+la prima, senza ancora un gestore, e Jest fa fallire il test per rifiuto non gestito.
 
 ### Da ricordare in F4
 

@@ -708,7 +708,7 @@ da cui recuperare col cherry-pick solo ciò che merita.
 
 **Branch corrente: `feature/migrazione-nestjs`** (NON ancora pushato, oltre
 `feature/seed-dati-sviluppo`, che a sua volta è 1 commit oltre `main`). `main` contiene tutte e tre le
-migrazioni completate. Suite (aggiornata al 2026-09-14, dopo F3): **35 suite / 197 test verdi**,
+migrazioni completate. Suite (aggiornata al 2026-09-14, dopo F3 e le sue decisioni): **36 suite / 203 test verdi**,
 type-check pulito, lint con 1 solo warning pre-esistente (`hardLimitMB` in
 `handleMulterErrorsMiddleware.ts`). **Runtime: Node 24** — i test vanno lanciati con `npm test` (che
 imposta `--experimental-vm-modules`), mai con `npx jest` nudo.
@@ -827,9 +827,10 @@ adattati **per primi** (F1), non per ultimi.
 - Due trappole trovate nel sorgente di NestJS e passport, documentate: `PassportModule` va registrato con
   `register()`, e i tipi di passport oscurano il nome `User` nel namespace di Express.
 
-**Quattro decisioni aperte** (§11 del documento, tabella con opzioni e pro/contro): A) email duplicata 500
-o 409; B) messaggio unico per il 401 di login; C) il cambio password deve invalidare il token?; D) formato
-dell'email per gli User. Tutte conservano oggi il comportamento legacy, e ognuna si applica in un punto solo.
+**Le quattro decisioni di F3 sono prese e applicate** (§11 del documento e Design Decisions Log di AGENTS.md):
+A) email duplicata → 409 "Email già registrata", anche in aggiornamento profilo; B) login fallito → sempre
+"Credenziali non valide", con bcrypt eseguito anche per gli account inesistenti; C) il cambio password azzera
+il token, il client deve rifare login; D) `@IsEmail` per gli User.
 
 **Il prossimo passo è F4**: ProductModule, `GET /products` con paginazione, e l'intera catena di upload e
 validazione delle immagini — la fase con le incognite vere (FileValidator custom, `image-size`,

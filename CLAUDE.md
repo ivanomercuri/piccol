@@ -219,8 +219,10 @@ modello. Ogni identità ha il proprio service, che legge la propria tabella: `Us
 sicurezza, non la query: `CredentialsService` (`modules/auth/credentials.service.ts`) fa hash e confronto
 delle password, firma i token con `JwtService` e li salva tramite una funzione passata dal service
 dell'identità. `authenticate` e `issueTokenFor` ricevono l'entità **già letta**, e lanciano
-`UnauthorizedException` invece di restituire un esito. È anche l'unico punto con i messaggi del 401 di
-login. Non duplicare la logica di login/registrazione: se serve una terza entità autenticata, aggiungi la
+`UnauthorizedException` invece di restituire un esito. È anche l'unico punto del 401 di login, con un
+messaggio unico ("Credenziali non valide") e bcrypt eseguito anche per gli account inesistenti, così né il
+testo né la durata della risposta rivelano quali email sono registrate. Un'email già usata, in registrazione
+o in aggiornamento del profilo, produce 409 tramite `rejectDuplicateEmail` (`modules/auth/duplicate-email.ts`). Non duplicare la logica di login/registrazione: se serve una terza entità autenticata, aggiungi la
 sua query e riusa `CredentialsService`. Segreto, algoritmo (HS256) e scadenza dei token sono configurati
 una sola volta in `modules/auth/auth.module.ts`.
 
@@ -230,8 +232,8 @@ prodotti, `authUserMiddleware`) verifica il JWT *e* che corrisponda a `current_t
 ha `passReqToCallback: true` proprio per poter rileggere il token grezzo: senza, il confronto non sarebbe
 possibile e un token revocato verrebbe accettato. È questo che rende possibile invalidare i vecchi
 token al logout / cambio password (il logout imposta `current_token = null`; i flussi di
-password/2FA dovrebbero fare lo stesso per qualsiasi entità le cui credenziali cambiano — oggi il cambio
-password NON lo fa, comportamento legacy conservato e decisione aperta di F3).
+password/2FA fanno lo stesso: dalla fase F3 `UserAuthService.changePassword` scrive la nuova password e
+`current_token = null` nella stessa query, e il client deve rifare login).
 
 **Normalizzazione delle email (case-sensitivity)**: le email sono sempre salvate e cercate in minuscolo,
 tramite `services/emailNormalizer.ts`. Non è un vezzo: su MySQL la collation case-insensitive di default
