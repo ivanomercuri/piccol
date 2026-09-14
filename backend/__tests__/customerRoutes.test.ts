@@ -90,12 +90,11 @@ describe('Customer routes', () => {
       );
     });
 
-    it('should return 500 when registering with an email that already exists', async () => {
-      // Comportamento conservato, non ovvio: il vincolo UNIQUE del database
-      // arriva al filter come errore imprevisto e produce un 500, non un 409
-      // "amichevole". Un 409 è una decisione aperta (docs/MIGRAZIONE-NESTJS.md,
-      // fase F2). Cambiato invece il MESSAGGIO: prima era il testo grezzo
-      // dell'errore del database, ora è generico (vedi l'asserzione in fondo).
+    it('should return 409 when registering with an email that already exists', async () => {
+      // DECISIONE A (fase F3): prima era un 500 — con il testo grezzo
+      // dell'errore del database fino a F1, con un messaggio generico in F2.
+      // Ora il vincolo UNIQUE viene tradotto in un 409 con un messaggio che
+      // dice al client che cosa è successo.
       const email = `customer-route-test-dup-${Date.now()}@example.com`;
 
       emailsToClean.push(email);
@@ -112,13 +111,11 @@ describe('Customer routes', () => {
 
       const res = await request(testApp.http).post('/register').send(payload);
 
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(409);
 
       expect(res.body.success).toBe(false);
 
-      // Il dettaglio interno (nomi di colonne, testo dell'errore Prisma) non
-      // deve più arrivare al client: resta solo nei log.
-      expect(res.body.error).toBe('Qualcosa è andato storto!');
+      expect(res.body.error).toBe('Email già registrata');
     });
 
     // --- Comportamenti cambiati o fissati in F2 ---
@@ -230,7 +227,8 @@ describe('Customer routes', () => {
 
       expect(res.status).toBe(401);
 
-      expect(res.body.error).toBe('Password errata');
+      // Messaggio unico (decisione B, fase F3; prima "Password errata").
+      expect(res.body.error).toBe('Credenziali non valide');
     });
 
     it('should return 401 for a non-existent email', async () => {
@@ -240,7 +238,9 @@ describe('Customer routes', () => {
 
       expect(res.status).toBe(401);
 
-      expect(res.body.error).toBe('Utente non trovato');
+      // Stesso messaggio della password errata: dalla risposta non si capisce
+      // se l'email esiste (decisione B, fase F3; prima "Utente non trovato").
+      expect(res.body.error).toBe('Credenziali non valide');
     });
 
     // --- Comportamento cambiato in F2 ---

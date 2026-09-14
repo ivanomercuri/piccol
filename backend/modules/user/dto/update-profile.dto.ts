@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 
 /**
  * Body di PATCH /admin/user.
@@ -7,6 +7,10 @@ import { IsNotEmpty, IsString } from 'class-validator';
  * per un PATCH ci si aspetterebbe un aggiornamento parziale (docs/API.md lo
  * segnala). Renderli opzionali cambierebbe il contratto: è una scelta da fare
  * esplicitamente, non un effetto collaterale della migrazione.
+ *
+ * Il formato dell'email è verificato come in registrazione (decisione D):
+ * senza, un utente potrebbe sostituire la propria email valida con una
+ * inservibile.
  */
 export class UpdateProfileDto {
   @IsNotEmpty({ message: 'Nome è richiesto' })
@@ -14,6 +18,6 @@ export class UpdateProfileDto {
   name!: string;
 
   @IsNotEmpty({ message: 'Email è richiesta' })
-  @IsString({ message: 'Email deve essere un testo' })
+  @IsEmail({}, { message: 'Email non valida' })
   email!: string;
 }

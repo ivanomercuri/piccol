@@ -119,11 +119,12 @@ describe('UserAuthService', () => {
       });
     });
 
-    it('lancia "Utente non trovato" se l\'email non esiste', async () => {
+    // Messaggio unico della decisione B (fino a F3: "Utente non trovato").
+    it('lancia "Credenziali non valide" se l\'email non esiste', async () => {
       fakePrisma.user.findUnique.mockResolvedValue(null);
 
       await expect(service.login('nessuno@example.com', 'x')).rejects.toThrow(
-        new UnauthorizedException('Utente non trovato')
+        new UnauthorizedException('Credenziali non valide')
       );
     });
   });
@@ -139,18 +140,21 @@ describe('UserAuthService', () => {
       expect(fakePrisma.user.update).not.toHaveBeenCalled();
     });
 
-    // Caso base, e documentazione del comportamento conservato: l'update
-    // tocca SOLO la password. current_token resta quello di prima, quindi il
-    // token già emesso continua a funzionare (decisione aperta di F3). Se la
-    // decisione cambierà, questo test andrà aggiornato di proposito.
-    it('salva il nuovo hash e non modifica current_token (comportamento legacy)', async () => {
+    // DECISIONE C: il cambio password invalida il token corrente. Fino a F3
+    // l'update toccava solo la password, e un token rubato sopravviveva al
+    // cambio. Il test verifica anche che le due modifiche avvengano nella
+    // STESSA query: con due query separate, un errore fra l'una e l'altra
+    // lascerebbe la password cambiata e il vecchio token valido.
+    it('salva il nuovo hash e azzera current_token nella stessa scrittura', async () => {
       await service.changePassword(userRow({ id: 2 }), 'password123', 'nuovapassword');
+
+      expect(fakePrisma.user.update).toHaveBeenCalledTimes(1);
 
       const { where, data } = fakePrisma.user.update.mock.calls[0][0];
 
       expect(where).toEqual({ id: 2 });
 
-      expect(Object.keys(data)).toEqual(['password']);
+      expect(data.current_token).toBeNull();
 
       await expect(bcrypt.compare('nuovapassword', data.password)).resolves.toBe(true);
     });

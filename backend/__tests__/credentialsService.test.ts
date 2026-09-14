@@ -47,24 +47,41 @@ describe('CredentialsService', () => {
       password: await credentials.hashPassword('password123'),
     });
 
-    // Il "non trovato" fa parte dell'esito dell'autenticazione e ha un solo
-    // punto in cui produce il suo messaggio, per entrambe le identità.
-    it('senza entità lancia "Utente non trovato" e non salva nessun token', async () => {
+    // DECISIONE B: account inesistente e password errata producono lo STESSO
+    // messaggio. Fino a F3 erano "Utente non trovato" e "Password errata",
+    // che rivelavano quali email sono registrate.
+    it('dà lo stesso messaggio per account inesistente e password errata, senza salvare token', async () => {
+      const existing = await entity();
+
+      // I due login si avviano e si attendono UNO ALLA VOLTA, ciascuno dentro
+      // il proprio expect. Avviarli entrambi e attenderli dopo sarebbe un
+      // errore: mentre si attende il primo, il secondo può essere già
+      // rifiutato senza che nessuno lo stia ancora ascoltando, e Jest lo
+      // segnala come rifiuto non gestito facendo fallire il test.
       await expect(credentials.authenticate(null, 'x', persistToken)).rejects.toThrow(
-        new UnauthorizedException('Utente non trovato')
+        new UnauthorizedException('Credenziali non valide')
       );
 
+      await expect(credentials.authenticate(existing, 'sbagliata', persistToken)).rejects.toThrow(
+        new UnauthorizedException('Credenziali non valide')
+      );
+
+      // Un tentativo fallito non deve salvare token: altrimenti chiunque
+      // conosca un'email potrebbe invalidare la sessione del titolare.
       expect(persistToken).not.toHaveBeenCalled();
     });
 
-    // Un tentativo fallito non deve salvare token: altrimenti chiunque
-    // conosca un'email potrebbe invalidare la sessione del titolare.
-    it('con password errata lancia "Password errata" e non salva nessun token', async () => {
-      await expect(
-        credentials.authenticate(await entity(), 'sbagliata', persistToken)
-      ).rejects.toThrow(new UnauthorizedException('Password errata'));
+    // Il messaggio unico non basta: se per un account inesistente si
+    // rispondesse senza eseguire bcrypt, la risposta sarebbe molto più veloce
+    // e rivelerebbe comunque che l'email non esiste. Il test non misura tempi,
+    // che in una suite sarebbero instabili: verifica che il lavoro costoso
+    // venga svolto anche quando l'account manca.
+    it('esegue il confronto della password anche quando l\'account non esiste', async () => {
+      const compare = jest.spyOn(credentials, 'passwordMatches');
 
-      expect(persistToken).not.toHaveBeenCalled();
+      await expect(credentials.authenticate(null, 'qualunque', persistToken)).rejects.toThrow();
+
+      expect(compare).toHaveBeenCalledWith('qualunque', expect.stringMatching(/^\$2[aby]\$10\$/));
     });
 
     // Caso base: il token restituito è lo stesso che viene salvato, legato

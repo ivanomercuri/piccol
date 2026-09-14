@@ -82,7 +82,9 @@ export class UserController {
 
   @Patch('password')
   @UseGuards(AuthUserGuard)
-  @ResponseMessage('Password aggiornata con successo')
+  // Il messaggio avvisa il client che il token usato per questa richiesta non
+  // vale più (decisione C): deve rifare login.
+  @ResponseMessage('Password aggiornata con successo: effettua di nuovo il login')
   async changePassword(
     @CurrentUser() user: User,
     @Body() body: ChangePasswordDto

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 
 /**
  * Body di POST /admin/user/register. Sostituisce la catena di
@@ -9,10 +9,9 @@ import { IsNotEmpty, IsString } from 'class-validator';
  * inviasse `"level": "superadmin"` se lo vedrebbe scartare prima di arrivare
  * al service — oltre al fatto che il service mappa i campi uno per uno.
  *
- * A differenza del Customer, qui NON c'è @IsEmail: la validazione legacy
- * degli User non controllava il formato dell'email, e aggiungerlo
- * cambierebbe il contratto (un'email malformata oggi viene accettata). È
- * segnalato fra le decisioni aperte di F3 in docs/MIGRAZIONE-NESTJS.md.
+ * Il formato dell'email è verificato come per i Customer (decisione D, fase
+ * F3). Prima un utente poteva registrarsi con "abc" come email: un account
+ * senza un indirizzo a cui scrivere, e un'incoerenza fra le due identità.
  */
 export class RegisterUserDto {
   @IsNotEmpty({ message: 'Nome è richiesto' })
@@ -20,7 +19,7 @@ export class RegisterUserDto {
   name!: string;
 
   @IsNotEmpty({ message: 'Email è richiesta' })
-  @IsString({ message: 'Email deve essere un testo' })
+  @IsEmail({}, { message: 'Email non valida' })
   email!: string;
 
   @IsNotEmpty({ message: 'Password è richiesta' })

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient, User } from '@prisma/client';
 import { normalizeEmail } from '../../services/emailNormalizer';
+import { rejectDuplicateEmail } from '../auth/duplicate-email';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
 /** Ciò che GET /admin/user restituisce: mai password né current_token. */
@@ -52,10 +53,15 @@ export class UserProfileService {
     // L'email è normalizzata: è uno dei punti in cui un'email viene SCRITTA
     // (elenco in CLAUDE.md). Senza, un utente potrebbe salvarla con le
     // maiuscole e non riuscire più a fare login.
-    const updated = await this.prisma.user.update({
-      where: { id: userId },
-      data: { name: data.name, email: normalizeEmail(data.email) },
-    });
+    //
+    // Un'email già usata da un altro utente è lo stesso caso della
+    // registrazione, e ha la stessa risposta: 409 (decisione A).
+    const updated = await rejectDuplicateEmail(
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { name: data.name, email: normalizeEmail(data.email) },
+      })
+    );
 
     return { id: updated.id, name: updated.name, email: updated.email };
   }

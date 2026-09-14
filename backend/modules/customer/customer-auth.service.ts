@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { normalizeEmail } from '../../services/emailNormalizer';
 import { CredentialsService } from '../auth/credentials.service';
+import { rejectDuplicateEmail } from '../auth/duplicate-email';
 import { RegisterCustomerDto } from './dto/register-customer.dto';
 
 /**
@@ -45,19 +46,23 @@ export class CustomerAuthService {
     // L'email è normalizzata in minuscolo: su PostgreSQL il vincolo UNIQUE è
     // case-sensitive (vedi services/emailNormalizer.ts).
     //
-    // Se l'email esiste già, Prisma lancia un errore di vincolo univoco che
-    // arriva al filter come errore imprevisto: 500 con messaggio generico.
-    // È il comportamento conservato dalla versione legacy; la scelta di un
-    // 409 dedicato è una decisione aperta (docs/MIGRAZIONE-NESTJS.md, F2).
-    const customer = await this.prisma.customer.create({
-      data: {
-        email: normalizeEmail(data.email),
-        password: await this.credentials.hashPassword(data.password),
-        firstName: data.firstName,
-        lastName: data.lastName,
-        address: data.address,
-      },
-    });
+    // L'hash si calcola prima, fuori dalla scrittura: rejectDuplicateEmail
+    // deve intercettare solo gli errori del database.
+    const passwordHash = await this.credentials.hashPassword(data.password);
+
+    // Email già registrata → 409 "Email già registrata" (decisione A, presa
+    // in F3; fino ad allora era un 500 generico).
+    const customer = await rejectDuplicateEmail(
+      this.prisma.customer.create({
+        data: {
+          email: normalizeEmail(data.email),
+          password: passwordHash,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          address: data.address,
+        },
+      })
+    );
 
     return this.credentials.issueTokenFor(customer, (id, token) =>
       this.saveCurrentToken(id, token)
@@ -67,8 +72,7 @@ export class CustomerAuthService {
   /**
    * Autentica un cliente e restituisce il suo JWT.
    *
-   * @throws UnauthorizedException "Utente non trovato" o "Password errata",
-   *   gli stessi messaggi della versione legacy (da CredentialsService).
+   * @throws UnauthorizedException "Credenziali non valide" (da CredentialsService).
    */
   async login(email: string, password: string): Promise<string> {
     const customer = await this.prisma.customer.findUnique({

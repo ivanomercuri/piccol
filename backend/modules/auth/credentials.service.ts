@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 
 /**
  * Costo di bcrypt: 2^10 iterazioni. Prima il numero 10 era scritto a mano in
@@ -9,6 +10,15 @@ import bcrypt from 'bcryptjs';
  * diversa a seconda del flusso, senza nessun segnale.
  */
 const BCRYPT_ROUNDS = 10;
+
+/**
+ * Unico messaggio per ogni login fallito (decisione B, fase F3).
+ *
+ * Prima "Utente non trovato" e "Password errata" dicevano a chiunque quali
+ * email corrispondono a un account: il primo passo di un attacco con
+ * credenziali rubate altrove, che si concentra sugli account esistenti.
+ */
+const INVALID_CREDENTIALS = 'Credenziali non valide';
 
 /** Ciò che serve per autenticare un'entità: sia User sia Customer lo soddisfano. */
 export interface AuthenticatableEntity {
@@ -44,12 +54,19 @@ export type PersistToken = (entityId: number, token: string) => Promise<unknown>
  * sicurezza, non la query. Il service di ogni identità legge la propria
  * tabella e passa qui l'entità già letta.
  *
- * È anche il punto UNICO dove vivono i messaggi del 401 di login: la
- * decisione aperta su un messaggio unico (per non rivelare quali email sono
- * registrate) si applicherà qui, per entrambe le identità insieme.
+ * È anche il punto UNICO dove vive il messaggio del 401 di login, per
+ * entrambe le identità insieme.
  */
 @Injectable()
 export class CredentialsService {
+  /**
+   * Hash di una password casuale che nessuno conosce, calcolato alla prima
+   * richiesta di login per un account inesistente e poi riusato. Vedi
+   * authenticate(). Stato dell'istanza e non del modulo: il provider è unico
+   * nell'app, e non esiste un valore globale modificabile.
+   */
+  private unknownAccountHash?: Promise<string>;
+
   constructor(private readonly jwt: JwtService) {}
 
   hashPassword(plainPassword: string): Promise<string> {
@@ -71,28 +88,36 @@ export class CredentialsService {
    *
    * Accetta `null` di proposito: il "non trovato" è parte dell'esito
    * dell'autenticazione, e gestirlo qui evita che ogni service di identità
-   * ripeta lo stesso controllo con lo stesso messaggio.
+   * ripeta lo stesso controllo.
    *
    * Lancia invece di restituire { success: false }: in F2 l'esito era
    * un'unione discriminata perché il codice legacy di User doveva tradurlo in
    * res.error. Ora nessun chiamante ha bisogno di un codice di ritorno, e
    * l'eccezione arriva da sola ad AllExceptionsFilter.
    *
-   * @throws UnauthorizedException "Utente non trovato" o "Password errata".
-   *   Nel secondo caso nessun token viene salvato: un tentativo fallito non
-   *   deve invalidare la sessione del titolare legittimo dell'account.
+   * STESSO MESSAGGIO E STESSO TEMPO, che l'account esista o no
+   * Un messaggio unico non basta a nascondere quali email sono registrate. Se
+   * per un'email sconosciuta si rispondesse subito, mentre per una conosciuta
+   * si eseguisse bcrypt (decine di millisecondi, di proposito lento), la
+   * DURATA della risposta rivelerebbe ciò che il messaggio nasconde. Per
+   * questo, se l'account non esiste, si confronta comunque la password con un
+   * hash fittizio: il lavoro è lo stesso in entrambi i casi.
+   *
+   * @throws UnauthorizedException "Credenziali non valide". Nessun token
+   *   viene salvato: un tentativo fallito non deve invalidare la sessione del
+   *   titolare legittimo dell'account.
    */
   async authenticate(
     entity: AuthenticatableEntity | null,
     plainPassword: string,
     persistToken: PersistToken
   ): Promise<string> {
-    if (!entity) {
-      throw new UnauthorizedException('Utente non trovato');
-    }
+    const passwordHash = entity?.password ?? (await this.hashForUnknownAccount());
 
-    if (!(await this.passwordMatches(plainPassword, entity.password))) {
-      throw new UnauthorizedException('Password errata');
+    const passwordIsCorrect = await this.passwordMatches(plainPassword, passwordHash);
+
+    if (!entity || !passwordIsCorrect) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
     return this.issueTokenFor(entity, persistToken);
@@ -116,5 +141,17 @@ export class CredentialsService {
     await persistToken(entity.id, token);
 
     return token;
+  }
+
+  /**
+   * L'hash fittizio usato per gli account inesistenti, calcolato una volta sola.
+   * `??=` assegna solo se il campo è ancora undefined: dalla seconda chiamata
+   * in poi si riusa la stessa Promise, già risolta. Lo stesso costo
+   * (BCRYPT_ROUNDS) degli hash veri è ciò che rende uguali i tempi.
+   */
+  private hashForUnknownAccount(): Promise<string> {
+    this.unknownAccountHash ??= bcrypt.hash(randomUUID(), BCRYPT_ROUNDS);
+
+    return this.unknownAccountHash;
   }
 }

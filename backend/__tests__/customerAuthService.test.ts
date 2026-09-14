@@ -168,13 +168,13 @@ describe('CustomerAuthService', () => {
       });
     });
 
-    // Email sconosciuta: 401 con lo stesso messaggio della versione legacy,
-    // e nessuna scrittura sul database.
-    it('lancia UnauthorizedException "Utente non trovato" se l\'email non esiste', async () => {
+    // Email sconosciuta: 401 e nessuna scrittura sul database. Il messaggio è
+    // quello unico della decisione B (fino a F3: "Utente non trovato").
+    it('lancia UnauthorizedException "Credenziali non valide" se l\'email non esiste', async () => {
       fakePrisma.customer.findUnique.mockResolvedValue(null);
 
       await expect(service.login('nessuno@example.com', 'x')).rejects.toThrow(
-        new UnauthorizedException('Utente non trovato')
+        new UnauthorizedException('Credenziali non valide')
       );
 
       expect(fakePrisma.customer.update).not.toHaveBeenCalled();
@@ -184,7 +184,7 @@ describe('CustomerAuthService', () => {
     // salvato, un tentativo fallito invaliderebbe la sessione valida del
     // cliente legittimo — un modo per chiunque di sloggarlo conoscendone
     // solo l'email.
-    it('lancia UnauthorizedException "Password errata" e non salva nessun token', async () => {
+    it('lancia UnauthorizedException "Credenziali non valide" e non salva nessun token', async () => {
       fakePrisma.customer.findUnique.mockResolvedValue({
         id: 7,
         email: 'cliente@example.com',
@@ -192,7 +192,7 @@ describe('CustomerAuthService', () => {
       });
 
       await expect(service.login('cliente@example.com', 'sbagliata')).rejects.toThrow(
-        new UnauthorizedException('Password errata')
+        new UnauthorizedException('Credenziali non valide')
       );
 
       expect(fakePrisma.customer.update).not.toHaveBeenCalled();

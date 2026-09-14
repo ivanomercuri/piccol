@@ -131,7 +131,8 @@ describe('Admin/User routes', () => {
 
       expect(res.status).toBe(401);
 
-      expect(res.body.error).toBe('Password errata');
+      // Messaggio unico (decisione B, fase F3; prima "Password errata").
+      expect(res.body.error).toBe('Credenziali non valide');
     });
   });
 
@@ -374,21 +375,28 @@ describe('Admin/User routes', () => {
     });
 
     // Contratto delle risposte senza dati: `data: {}` e il messaggio di
-    // successo, impostato ora con @ResponseMessage.
+    // successo, impostato con @ResponseMessage. Due utenti distinti perché,
+    // dalla decisione C, il cambio password invalida il token con cui è stato
+    // chiesto: non si potrebbe più usarlo per il logout.
     it('risponde con data {} e il messaggio di successo a cambio password e logout', async () => {
-      const { token } = await registerUser('Messaggi');
+      const first = await registerUser('Messaggio Cambio');
 
-      const auth = { Authorization: `Bearer ${token}` };
+      const second = await registerUser('Messaggio Logout');
 
       const change = await request(testApp.http)
         .patch('/admin/user/password')
-        .set(auth)
+        .set('Authorization', `Bearer ${first.token}`)
         .send({ oldPassword: 'password123', newPassword: 'nuovapassword1' });
 
-      const logout = await request(testApp.http).post('/admin/user/logout').set(auth);
+      const logout = await request(testApp.http)
+        .post('/admin/user/logout')
+        .set('Authorization', `Bearer ${second.token}`);
 
       expect(change.body).toEqual(
-        expect.objectContaining({ data: {}, message: 'Password aggiornata con successo' })
+        expect.objectContaining({
+          data: {},
+          message: 'Password aggiornata con successo: effettua di nuovo il login',
+        })
       );
 
       expect(logout.body).toEqual(
@@ -396,10 +404,11 @@ describe('Admin/User routes', () => {
       );
     });
 
-    // Comportamento legacy CONSERVATO, e fissato perché non cambi per sbaglio:
-    // dopo il cambio password il token già emesso resta valido. È una delle
-    // decisioni aperte di F3; se verrà corretto, questo test andrà invertito.
-    it('dopo il cambio password il token precedente resta valido (comportamento legacy)', async () => {
+    // DECISIONE C (fase F3): il cambio password invalida il token corrente,
+    // sia sulle rotte NestJS sia su quelle legacy dei prodotti. Fino a F3 il
+    // token restava valido: chi l'aveva rubato restava dentro anche dopo che
+    // la vittima aveva cambiato password.
+    it('dopo il cambio password il token precedente è rifiutato ovunque', async () => {
       const { token } = await registerUser('Token Dopo Cambio');
 
       const auth = { Authorization: `Bearer ${token}` };
@@ -409,9 +418,63 @@ describe('Admin/User routes', () => {
         .set(auth)
         .send({ oldPassword: 'password123', newPassword: 'nuovapassword1' });
 
-      const res = await request(testApp.http).get('/admin/user').set(auth);
+      const nestRoute = await request(testApp.http).get('/admin/user').set(auth);
 
-      expect(res.status).toBe(200);
+      const legacyRoute = await request(testApp.http).get('/products').set(auth);
+
+      expect(nestRoute.status).toBe(401);
+
+      expect(nestRoute.body.error).toBe('Token non più valido');
+
+      expect(legacyRoute.status).toBe(401);
+
+      expect(legacyRoute.body.error).toBe('Token non più valido');
+    });
+
+    // DECISIONE A (fase F3), per gli User: registrazione con un'email già
+    // presente, e cambio della propria email in quella di un altro utente.
+    // È lo stesso caso di duplicazione, con la stessa risposta.
+    it('risponde 409 "Email già registrata" in registrazione e in aggiornamento del profilo', async () => {
+      const existing = await registerUser('Esistente');
+
+      const other = await registerUser('Altro');
+
+      const duplicateRegistration = await request(testApp.http)
+        .post('/admin/user/register')
+        .send({ name: 'Doppione', email: existing.email, password: 'password123' });
+
+      const duplicateUpdate = await request(testApp.http)
+        .patch('/admin/user')
+        .set('Authorization', `Bearer ${other.token}`)
+        .send({ name: 'Altro', email: existing.email });
+
+      for (const res of [duplicateRegistration, duplicateUpdate]) {
+        expect(res.status).toBe(409);
+
+        expect(res.body.error).toBe('Email già registrata');
+      }
+    });
+
+    // DECISIONE D (fase F3): il formato dell'email degli User è verificato,
+    // come già per i Customer. Prima "abc" veniva accettata in registrazione
+    // e in aggiornamento del profilo.
+    it('rifiuta un\'email malformata in registrazione e in aggiornamento del profilo', async () => {
+      const { token } = await registerUser('Formato Email');
+
+      const registration = await request(testApp.http)
+        .post('/admin/user/register')
+        .send({ name: 'Senza Formato', email: 'non-una-email', password: 'password123' });
+
+      const update = await request(testApp.http)
+        .patch('/admin/user')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'Senza Formato', email: 'non-una-email' });
+
+      for (const res of [registration, update]) {
+        expect(res.status).toBe(400);
+
+        expect(res.body.error).toEqual([{ id: 'email', message: 'Email non valida' }]);
+      }
     });
 
     // Bug corretto: un'email non stringa al login faceva esplodere la
