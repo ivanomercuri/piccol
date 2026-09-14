@@ -3,7 +3,6 @@ import type { NestApplicationOptions } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import responseFormatter from './middlewares/responseFormatter';
 import { jsonSyntaxErrorMiddleware } from './middlewares/jsonSyntaxErrorMiddleware';
-import customerRoutes from './routes/customerRoutes';
 import adminRoutes from './routes/adminRoutes';
 import productRoutes from './routes/productRoutes';
 import listRoutes from './routes/listRoutes';
@@ -82,8 +81,8 @@ export function configureApp(app: NestExpressApplication): void {
  * è passato ad AllExceptionsFilter.
  */
 function mountLegacyRouters(app: NestExpressApplication): void {
-  app.use('/', customerRoutes);
-
+  // `app.use('/', customerRoutes)` rimosso in F2: il dominio Customer è ora
+  // servito da modules/customer/, e l'health-check da health.controller.ts.
   app.use('/admin', adminRoutes);
 
   app.use('/products', productRoutes);

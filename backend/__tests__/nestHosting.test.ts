@@ -57,12 +57,18 @@ class ProbeController {
   }
 }
 
-// Controller di prova che dichiara GET / — lo stesso metodo e percorso già
-// serviti dal router legacy customerRoutes. Serve a verificare chi vince.
-@Controller()
-class ShadowedRootController {
+// Controller di prova che dichiara GET /products — lo stesso metodo e
+// percorso già serviti dal router legacy productRoutes. Serve a verificare
+// chi vince.
+//
+// Fino alla fase F1 usava GET /, servito dal router legacy customerRoutes,
+// che in F2 è migrato a NestJS. /products resta legacy fino a F4: quando
+// migrerà anche lui, questo test andrà spostato su una rotta ancora legacy,
+// o rimosso se non ne resterà nessuna.
+@Controller('products')
+class ShadowedProductsController {
   @Get()
-  root() {
+  list() {
     return 'risposta NestJS';
   }
 }
@@ -70,7 +76,7 @@ class ShadowedRootController {
 // Avvio e chiusura gestiti dall'helper, alla radice del file (vedi
 // helpers/useTestApp.ts). I controller di prova esistono solo in quest'app.
 const testApp = useTestApp({
-  controllers: [ProbeController, ShadowedRootController],
+  controllers: [ProbeController, ShadowedProductsController],
 });
 
 describe('Convivenza router legacy e rotte NestJS', () => {
@@ -81,11 +87,14 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     // F2–F4: quando un dominio migra, il suo router legacy va smontato nello
     // stesso commit, altrimenti la nuova rotta NestJS non è raggiungibile.
     it('su uno stesso metodo e percorso vince il router legacy, montato prima', async () => {
-      const res = await request(testApp.http).get('/');
+      // Senza token, il router legacy risponde 401 "Token mancante" tramite
+      // authUserMiddleware. Se vincesse il controller NestJS di prova, la
+      // risposta sarebbe 200 con "risposta NestJS".
+      const res = await request(testApp.http).get('/products');
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(401);
 
-      expect(res.body.data).toBe('𝕴𝖙 𝖂𝖔𝖗𝖐𝖘!');
+      expect(res.body.error).toBe('Token mancante');
     });
 
     // Controprova: i router legacy non inghiottono le richieste che non li

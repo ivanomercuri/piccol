@@ -1,8 +1,13 @@
 // Test end-to-end con supertest: qui non mockiamo nulla, la richiesta HTTP
-// attraversa davvero index.ts (responseFormatter, express.json, il router
-// customer, express-validator, il controller, i services, il modello) fino
-// al DB di test reale. È l'unico modo per verificare che tutti questi pezzi,
-// testati singolarmente altrove, funzionino anche insieme.
+// attraversa davvero l'app (express.json, ValidationPipe, CustomerController,
+// CustomerAuthService, interceptor, filter) fino al DB di test reale. È
+// l'unico modo per verificare che tutti questi pezzi, testati singolarmente
+// altrove, funzionino anche insieme.
+//
+// Dalla fase F2 il dominio Customer è servito da NestJS invece che dal router
+// Express legacy. Le asserzioni che c'erano prima sono rimaste invariate: sono
+// la prova che il contratto visto dal client non è cambiato. I test aggiunti
+// in fondo alle sezioni fissano invece i comportamenti cambiati DI PROPOSITO.
 import request from 'supertest';
 import { useTestApp } from './helpers/useTestApp';
 import { prisma } from '../prisma/client';
@@ -86,10 +91,11 @@ describe('Customer routes', () => {
     });
 
     it('should return 500 when registering with an email that already exists', async () => {
-      // Comportamento attuale, non ovvio: il vincolo UNIQUE a livello DB
-      // arriva come eccezione generica al controller, che risponde 500 con
-      // il messaggio grezzo di Sequelize, non un 400 "amichevole" — vedi
-      // backend/docs/API.md.
+      // Comportamento conservato, non ovvio: il vincolo UNIQUE del database
+      // arriva al filter come errore imprevisto e produce un 500, non un 409
+      // "amichevole". Un 409 è una decisione aperta (docs/MIGRAZIONE-NESTJS.md,
+      // fase F2). Cambiato invece il MESSAGGIO: prima era il testo grezzo
+      // dell'errore del database, ora è generico (vedi l'asserzione in fondo).
       const email = `customer-route-test-dup-${Date.now()}@example.com`;
 
       emailsToClean.push(email);
@@ -109,6 +115,86 @@ describe('Customer routes', () => {
       expect(res.status).toBe(500);
 
       expect(res.body.success).toBe(false);
+
+      // Il dettaglio interno (nomi di colonne, testo dell'errore Prisma) non
+      // deve più arrivare al client: resta solo nei log.
+      expect(res.body.error).toBe('Qualcosa è andato storto!');
+    });
+
+    // --- Comportamenti cambiati o fissati in F2 ---
+
+    // Un campo mancante viola sia "è richiesto" sia il formato: il client
+    // deve ricevere il messaggio utile, "è richiesta", e il formato solo
+    // quando il valore c'è ma è sbagliato.
+    it('distingue un\'email mancante da un\'email malformata', async () => {
+      const missing = await request(testApp.http).post('/register').send({});
+
+      const malformed = await request(testApp.http)
+        .post('/register')
+        .send({ email: 'non-una-email' });
+
+      const messageFor = (body: { error: { id: string; message: string }[] }) =>
+        body.error.find((e) => e.id === 'email')?.message;
+
+      expect(messageFor(missing.body)).toBe('Email è richiesta');
+
+      expect(messageFor(malformed.body)).toBe('Email non valida');
+    });
+
+    // Prima un valore non stringa superava la validazione legacy e faceva
+    // esplodere il codice più avanti con un 500. Ora è un errore del client.
+    it('risponde 400 a un campo testuale che non è una stringa', async () => {
+      const res = await request(testApp.http).post('/register').send({
+        email: `tipo-sbagliato-${Date.now()}@example.com`,
+        password: 12345678,
+        firstName: 'A',
+        lastName: 'B',
+        address: 'X',
+      });
+
+      expect(res.status).toBe(400);
+
+      expect(res.body.error).toEqual([
+        { id: 'password', message: 'Password deve essere un testo' },
+      ]);
+    });
+
+    // Anche senza nessun body (nemmeno `{}`) la risposta deve essere un 400
+    // con gli errori per campo, non un errore interno.
+    it('risponde 400 con gli errori per campo anche se il body manca del tutto', async () => {
+      const res = await request(testApp.http).post('/register');
+
+      expect(res.status).toBe(400);
+
+      expect(Array.isArray(res.body.error)).toBe(true);
+    });
+
+    // Difesa dal "mass assignment": campi non previsti dal DTO, come `id` o
+    // `current_token`, non devono arrivare al database. Se `current_token`
+    // passasse, un client potrebbe impostare un token a propria scelta sul
+    // proprio account.
+    it('ignora i campi non previsti, come id e current_token', async () => {
+      const email = `customer-route-test-extra-${Date.now()}@example.com`;
+
+      emailsToClean.push(email);
+
+      const res = await request(testApp.http).post('/register').send({
+        email,
+        password: 'password123',
+        firstName: 'A',
+        lastName: 'B',
+        address: 'X',
+        id: 999999,
+        current_token: 'scelto-dal-client',
+      });
+
+      expect(res.status).toBe(200);
+
+      const created = await prisma.customer.findUniqueOrThrow({ where: { email } });
+
+      expect(created.id).not.toBe(999999);
+
+      expect(created.current_token).toBe(res.body.data);
     });
   });
 
@@ -155,6 +241,22 @@ describe('Customer routes', () => {
       expect(res.status).toBe(401);
 
       expect(res.body.error).toBe('Utente non trovato');
+    });
+
+    // --- Comportamento cambiato in F2 ---
+
+    // Bug corretto: con un'email non stringa il login legacy chiamava
+    // toLowerCase() su un numero, esplodeva e rispondeva 500.
+    it('risponde 400, non 500, a un\'email che non è una stringa', async () => {
+      const res = await request(testApp.http)
+        .post('/login')
+        .send({ email: 123, password: 'password123' });
+
+      expect(res.status).toBe(400);
+
+      expect(res.body.error).toEqual([
+        { id: 'email', message: 'Email deve essere un testo' },
+      ]);
     });
   });
 });

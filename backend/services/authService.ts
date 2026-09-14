@@ -3,11 +3,23 @@ import { prisma } from '../prisma/client';
 import { signToken } from './tokenService';
 import { normalizeEmail } from './emailNormalizer';
 
-interface AuthResult {
-  success: boolean;
-  message?: string;
-  token?: string;
-}
+/**
+ * Esito di un tentativo di autenticazione.
+ *
+ * È una "unione discriminata": due forme possibili, distinte dal valore del
+ * campo `success`. Prima era un solo tipo con `message?` e `token?` entrambi
+ * opzionali, che permetteva stati privi di senso (success true senza token,
+ * oppure con un messaggio d'errore) e obbligava chi lo usava a controllare
+ * campi che in quel ramo non potevano mancare. Con l'unione, dopo
+ * `if (result.success)` TypeScript SA che `token` è una stringa; nel ramo
+ * opposto sa che c'è `message`. Nessun controllo superfluo, nessun cast.
+ *
+ * Non c'è un equivalente diretto in PHP, dove si otterrebbe con due classi
+ * distinte e un instanceof.
+ */
+export type AuthResult =
+  | { success: true; token: string }
+  | { success: false; message: string };
 
 // Forma minima che serve alla logica condivisa qui sotto: sia User sia
 // Customer la soddisfano. Non è un "contratto" da verificare a runtime come
@@ -25,7 +37,15 @@ interface AuthenticatableEntity {
  * token e sua persistenza. Riceve l'entità GIÀ recuperata dal database e una
  * funzione che sa come salvarle il token, così l'unica cosa che cambia fra
  * User e Customer resta la query — la logica di sicurezza vive in un punto
- * solo, come prima della migrazione a Prisma.
+ * solo.
+ *
+ * ESPORTATA DALLA FASE F2 della migrazione a NestJS: il login dei Customer
+ * vive ora in modules/customer/customer-auth.service.ts, quello degli User è
+ * ancora qui sotto. Esportare questa funzione permette a entrambi di usarla
+ * invece di duplicarla (vietato da CLAUDE.md). Quando anche User migrerà, in
+ * F3, diventerà un provider iniettabile: oggi dipende da signToken, che legge
+ * JWT_SECRET da process.env, e non ha ancora senso iniettarla in un solo
+ * chiamante NestJS.
  *
  * Prima questa condivisione era ottenuta con una funzione generica sul
  * modello Sequelize (`ModelStatic<Model<TAttrs>>` più un controllo runtime
@@ -34,7 +54,7 @@ interface AuthenticatableEntity {
  * condivisione è quindi passata dal "modello generico" all'"entità già
  * letta", che è ciò che alla logica serviva davvero.
  */
-async function completeAuthentication(
+export async function completeAuthentication(
   entity: AuthenticatableEntity,
   plainPassword: string,
   persistToken: (token: string) => Promise<unknown>
@@ -62,7 +82,7 @@ async function completeAuthentication(
  * salvata: su PostgreSQL, che confronta le stringhe in modo case-sensitive,
  * cercare "Mario@x.com" non troverebbe la riga salvata come "mario@x.com".
  */
-async function authenticateUser(
+export async function authenticateUser(
   email: string,
   password: string
 ): Promise<AuthResult> {
@@ -81,30 +101,3 @@ async function authenticateUser(
     })
   );
 }
-
-/**
- * Login di un cliente dello storefront. Identico ad authenticateUser tranne
- * per il delegate interrogato: User e Customer restano due entità separate,
- * non una gerarchia (vedi CLAUDE.md, "due modelli di identità paralleli").
- */
-async function authenticateCustomer(
-  email: string,
-  password: string
-): Promise<AuthResult> {
-  const customer = await prisma.customer.findUnique({
-    where: { email: normalizeEmail(email) },
-  });
-
-  if (!customer) {
-    return { success: false, message: 'Utente non trovato' };
-  }
-
-  return completeAuthentication(customer, password, (token) =>
-    prisma.customer.update({
-      where: { id: customer.id },
-      data: { current_token: token },
-    })
-  );
-}
-
-export { authenticateUser, authenticateCustomer };

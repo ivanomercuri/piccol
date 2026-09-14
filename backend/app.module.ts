@@ -1,20 +1,22 @@
-import { Module } from '@nestjs/common';
+import { Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import winstonLogger from './config/logger';
 import { validateEnvironment } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseEnvelopeInterceptor } from './common/interceptors/response-envelope.interceptor';
 import { WinstonLoggerService } from './common/logger/winston-logger.service';
+import { groupValidationErrors } from './common/validation/validation-exception.factory';
+import { HealthController } from './health.controller';
+import { CustomerModule } from './modules/customer/customer.module';
 
 /**
  * Modulo radice dell'applicazione NestJS.
  *
- * Nella fase F1 non contiene ancora nessun modulo di dominio: le rotte sono
- * tutte servite dai router Express legacy, montati dentro l'app da
- * app.setup.ts. Qui vive solo l'infrastruttura trasversale, che dalla fase
- * F2 servirà ai moduli Customer, User e Product.
+ * Contiene l'infrastruttura trasversale e i domini già migrati: dalla fase F2
+ * il dominio Customer e l'health-check. User e Product sono ancora serviti
+ * dai router Express legacy, montati dentro l'app da app.setup.ts.
  *
  * PER CHI VIENE DA SYMFONY
  * Un @Module è l'equivalente di un bundle con la sua configurazione dei
@@ -35,7 +37,9 @@ import { WinstonLoggerService } from './common/logger/winston-logger.service';
       validate: validateEnvironment,
     }),
     PrismaModule,
+    CustomerModule,
   ],
+  controllers: [HealthController],
   providers: [
     // Factory invece di una classe iniettabile: l'adapter riceve l'istanza
     // Winston dal costruttore (vedi winston-logger.service.ts), e questo è
@@ -52,6 +56,27 @@ import { WinstonLoggerService } from './common/logger/winston-logger.service';
     // dipendenze iniettate — il filter riceve il logger.
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseEnvelopeInterceptor },
+    // Valida il body di ogni controller NestJS contro il DTO dichiarato nel
+    // parametro @Body(). Registrata qui e non in main.ts per lo stesso motivo
+    // di filter e interceptor: vale anche nei test.
+    // - whitelist: scarta i campi non dichiarati nel DTO, così un client non
+    //   può far arrivare al codice campi come `id` o `current_token`;
+    // - transform: il controller riceve un'istanza della classe DTO, non il
+    //   JSON grezzo;
+    // - exceptionFactory: produce la forma d'errore raggruppata per campo del
+    //   progetto invece di quella di default di NestJS (decisione D2).
+    // Non tocca i router legacy, che non passano dalle pipe di NestJS.
+    //
+    // `useValue` e non `useClass`: la pipe va configurata con delle opzioni,
+    // e non ha dipendenze da farsi iniettare.
+    {
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({
+        whitelist: true,
+        transform: true,
+        exceptionFactory: groupValidationErrors,
+      }),
+    },
   ],
 })
 export class AppModule {}

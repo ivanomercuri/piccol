@@ -1,12 +1,15 @@
 // authService dopo la migrazione a Prisma: non più una funzione generica su
-// un modello Sequelize, ma due funzioni esplicite (authenticateUser /
-// authenticateCustomer) che condividono la logica di sicurezza tramite
-// completeAuthentication. Cambia di conseguenza anche il modo di testarle:
+// un modello Sequelize, ma funzioni esplicite per entità che condividono la
+// logica di sicurezza tramite completeAuthentication. Dalla fase F2 della
+// migrazione a NestJS qui resta solo authenticateUser: il login dei Customer
+// e i suoi test sono in modules/customer/ e customerAuthService.test.ts.
+//
+// Cambia di conseguenza anche il modo di testarle:
 // prima si passava un finto "modello" con findOne/getAttributes, ora si
 // mocka il client Prisma condiviso.
 import bcrypt from 'bcryptjs';
 import jwt, { JwtPayload } from 'jsonwebtoken';
-import { authenticateUser, authenticateCustomer } from '../services/authService';
+import { authenticateUser, AuthResult } from '../services/authService';
 import { prisma } from '../prisma/client';
 
 // Il client Prisma è un modulo condiviso: mockarlo qui isola completamente
@@ -14,14 +17,25 @@ import { prisma } from '../prisma/client';
 jest.mock('../prisma/client', () => ({
   prisma: {
     user: { findUnique: jest.fn(), update: jest.fn() },
-    customer: { findUnique: jest.fn(), update: jest.fn() },
   },
 }));
 
 const mockedPrisma = prisma as unknown as {
   user: { findUnique: jest.Mock; update: jest.Mock };
-  customer: { findUnique: jest.Mock; update: jest.Mock };
 };
+
+// AuthResult è un'unione discriminata: `token` esiste solo nella forma con
+// success true, e TypeScript non permette di leggerlo senza averlo prima
+// verificato. Questa funzione fa la verifica UNA volta per tutti i test: se
+// il login non è riuscito il test fallisce qui, con un messaggio chiaro,
+// invece di proseguire leggendo un token inesistente.
+function tokenOf(result: AuthResult): string {
+  if (!result.success) {
+    throw new Error(`Atteso un login riuscito, ottenuto: ${result.message}`);
+  }
+
+  return result.token;
+}
 
 describe('authService', () => {
   beforeEach(() => {
@@ -42,14 +56,12 @@ describe('authService', () => {
 
       const result = await authenticateUser('test@example.com', 'password');
 
-      expect(result.success).toBe(true);
-
-      expect(result.token).toBeDefined();
+      const token = tokenOf(result);
 
       // Il token appena firmato deve finire sulla riga dell'utente.
       expect(mockedPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 1 },
-        data: { current_token: result.token },
+        data: { current_token: token },
       });
     });
 
@@ -118,47 +130,9 @@ describe('authService', () => {
 
       const result = await authenticateUser('test@example.com', 'password');
 
-      const decoded = jwt.decode(result.token as string) as JwtPayload;
+      const decoded = jwt.decode(tokenOf(result)) as JwtPayload;
 
       expect(decoded.exp! - decoded.iat!).toBeCloseTo(3600, -1);
-    });
-  });
-
-  describe('authenticateCustomer', () => {
-    // Customer segue lo stesso percorso di User ma su un delegate diverso:
-    // il test conferma che le due entità restano davvero separate (vedi
-    // CLAUDE.md, "due modelli di identità paralleli") e che il login di un
-    // customer non tocchi la tabella users.
-    it('authenticates against the customer table, not users', async () => {
-      const hashed = await bcrypt.hash('password', 10);
-
-      mockedPrisma.customer.findUnique.mockResolvedValue({
-        id: 7,
-        email: 'cliente@example.com',
-        password: hashed,
-      });
-
-      const result = await authenticateCustomer(
-        'cliente@example.com',
-        'password'
-      );
-
-      expect(result.success).toBe(true);
-
-      expect(mockedPrisma.customer.update).toHaveBeenCalledWith({
-        where: { id: 7 },
-        data: { current_token: result.token },
-      });
-
-      expect(mockedPrisma.user.findUnique).not.toHaveBeenCalled();
-    });
-
-    it('fails if customer is not found', async () => {
-      mockedPrisma.customer.findUnique.mockResolvedValue(null);
-
-      const result = await authenticateCustomer('nobody@example.com', 'pw');
-
-      expect(result.success).toBe(false);
     });
   });
 });

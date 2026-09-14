@@ -3,24 +3,15 @@ import { prisma } from '../prisma/client';
 import { signToken } from './tokenService';
 import { normalizeEmail } from './emailNormalizer';
 
-// Dati accettati dalla registrazione di ciascuna entità. Prima erano un
-// unico tipo generico con indice `[key: string]: unknown`, perché la
-// funzione condivisa non poteva sapere quali campi avesse il modello che
-// riceveva: ora che le due funzioni sono distinte, ognuna dichiara
-// esattamente i propri campi e un campo di troppo o mancante è un errore di
-// compilazione, non un problema scoperto dal database a runtime.
+// Dati accettati dalla registrazione di un utente interno/admin. Ogni entità
+// dichiara esattamente i propri campi: un campo di troppo o mancante è un
+// errore di compilazione, non un problema scoperto dal database a runtime.
+// (Quelli del Customer sono in modules/customer/dto/register-customer.dto.ts
+// dalla fase F2.)
 interface UserRegistrationData {
   name: string;
   email: string;
   password: string;
-}
-
-interface CustomerRegistrationData {
-  email: string;
-  password: string;
-  firstName: string;
-  lastName: string;
-  address?: string | null;
 }
 
 /**
@@ -28,8 +19,13 @@ interface CustomerRegistrationData {
  * creata e sua persistenza su current_token. Come in authService, la
  * condivisione avviene sull'entità già creata invece che su un modello
  * generico — l'unica cosa che cambia fra User e Customer è la create.
+ *
+ * ESPORTATA DALLA FASE F2, per lo stesso motivo di completeAuthentication in
+ * authService.ts: la registrazione dei Customer vive ora in
+ * modules/customer/customer-auth.service.ts, e deve usare questa stessa
+ * funzione invece di duplicarla. Diventerà un provider iniettabile in F3.
  */
-async function issueTokenFor(
+export async function issueTokenFor(
   entity: { id: number; email: string },
   persistToken: (token: string) => Promise<unknown>
 ): Promise<string> {
@@ -46,7 +42,7 @@ async function issueTokenFor(
 }
 
 /** Registra un utente interno/admin e restituisce il suo JWT. */
-async function registerUser(data: UserRegistrationData): Promise<string> {
+export async function registerUser(data: UserRegistrationData): Promise<string> {
   const hashedPassword = await bcrypt.hash(data.password, 10);
 
   // L'email è salvata in minuscolo: su PostgreSQL il vincolo UNIQUE è
@@ -68,29 +64,3 @@ async function registerUser(data: UserRegistrationData): Promise<string> {
     })
   );
 }
-
-/** Registra un cliente dello storefront e restituisce il suo JWT. */
-async function registerCustomer(
-  data: CustomerRegistrationData
-): Promise<string> {
-  const hashedPassword = await bcrypt.hash(data.password, 10);
-
-  const customer = await prisma.customer.create({
-    data: {
-      email: normalizeEmail(data.email),
-      password: hashedPassword,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      address: data.address ?? null,
-    },
-  });
-
-  return issueTokenFor(customer, (token) =>
-    prisma.customer.update({
-      where: { id: customer.id },
-      data: { current_token: token },
-    })
-  );
-}
-
-export { registerUser, registerCustomer };
