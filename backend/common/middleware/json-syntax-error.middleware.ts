@@ -29,7 +29,14 @@ import { Request, Response, NextFunction } from 'express';
  * Posizione nella catena: va montato subito dopo express.json() (vedi
  * app.setup.ts). Express fa avanzare un errore solo verso i middleware
  * registrati DOPO quello che l'ha generato, quindi qui arrivano soltanto gli
- * errori del parser — non quelli dei router legacy, montati più avanti.
+ * errori del parser — non quelli delle rotte NestJS, registrate più avanti.
+ *
+ * È un middleware Express e non un NestMiddleware (quelli registrati con
+ * MiddlewareConsumer) perché NestJS li chiama con tre soli parametri: la
+ * firma a quattro, l'unica che Express riconosce come gestore d'errore,
+ * andrebbe persa. Vive in common/ con il resto dell'infrastruttura
+ * trasversale; fino alla fase F5 stava in middlewares/, accanto ai
+ * middleware legacy.
  */
 export function jsonSyntaxErrorMiddleware(
   err: unknown,

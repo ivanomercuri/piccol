@@ -2,9 +2,11 @@ import dotenv from 'dotenv';
 import path from 'path';
 
 // Il caricamento di .env DEVE restare la prima istruzione del file, prima
-// degli import dell'app: diversi moduli legacy (tokenService.ts,
-// prisma/client.ts tramite databaseUrl.ts) leggono process.env nel momento
-// stesso in cui vengono importati, e lanciano se una variabile manca.
+// degli import dell'app: prisma/client.ts, tramite databaseUrl.ts, legge
+// process.env nel momento stesso in cui viene importato, e lancia se una
+// variabile manca. databaseUrl.ts carica .env anche da sé (gli serve per la
+// CLI di Prisma), ma l'app non deve dipendere da quell'effetto collaterale
+// nascosto dentro un altro modulo.
 // TypeScript, compilando in CommonJS, emette i require nello stesso ordine
 // in cui compaiono gli import, intervallati dalle istruzioni: questa riga
 // viene quindi eseguita prima che app.module venga caricato.

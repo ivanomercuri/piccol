@@ -62,8 +62,8 @@ export class WinstonLoggerService implements LoggerService {
  * NestJS chiama il logger con una convenzione posizionale, non con oggetti:
  * `log(messaggio, contesto)` ed `error(messaggio, stack, contesto)`, dove il
  * contesto è il nome della classe che scrive (es. "RoutesResolver"). Il
- * codice del progetto invece passa metadati strutturati, come fa oggi
- * res.error: `error('Errore:', { message, stack, path, method })`. Questa
+ * codice del progetto invece passa metadati strutturati, come fa
+ * AllExceptionsFilter: `error('Errore:', { message, stack, path, method })`. Questa
  * funzione accetta entrambe le forme:
  *
  * - un oggetto viene fuso nei metadati così com'è;

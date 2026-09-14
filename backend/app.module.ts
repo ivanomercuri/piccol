@@ -16,9 +16,10 @@ import { ProductModule } from './modules/product/product.module';
 /**
  * Modulo radice dell'applicazione NestJS.
  *
- * Contiene l'infrastruttura trasversale e i domini migrati: Customer e
- * l'health-check (F2), User (F3), Product (F4). Resta legacy solo la rotta di
- * debug /routes, montata da app.setup.ts e destinata a sparire in F5.
+ * Contiene l'infrastruttura trasversale e i tre domini dell'applicazione:
+ * Customer con l'health-check, User, Product. Dalla fase F5 della migrazione
+ * a NestJS tutte le rotte passano da qui: app.setup.ts monta soltanto i
+ * middleware Express che devono precedere le rotte (CORS e parser JSON).
  *
  * PER CHI VIENE DA SYMFONY
  * Un @Module è l'equivalente di un bundle con la sua configurazione dei
@@ -31,9 +32,10 @@ import { ProductModule } from './modules/product/product.module';
       // Disponibile in ogni modulo senza doverlo importare ovunque.
       isGlobal: true,
       // Il file .env lo carica già main.ts con dotenv, prima di qualunque
-      // import (i moduli legacy leggono process.env nel momento stesso in
-      // cui vengono importati, quindi il caricamento non può aspettare la
-      // costruzione di questo modulo). ConfigModule qui VALIDA soltanto.
+      // import (prisma/client.ts compone la stringa di connessione nel
+      // momento stesso in cui viene importato, quindi il caricamento non può
+      // aspettare la costruzione di questo modulo). ConfigModule qui VALIDA
+      // soltanto.
       // Nei container le variabili arrivano comunque da env_file.
       ignoreEnvFile: true,
       validate: validateEnvironment,
@@ -69,7 +71,6 @@ import { ProductModule } from './modules/product/product.module';
     //   JSON grezzo;
     // - exceptionFactory: produce la forma d'errore raggruppata per campo del
     //   progetto invece di quella di default di NestJS (decisione D2).
-    // Non tocca i router legacy, che non passano dalle pipe di NestJS.
     //
     // `useValue` e non `useClass`: la pipe va configurata con delle opzioni,
     // e non ha dipendenze da farsi iniettare.

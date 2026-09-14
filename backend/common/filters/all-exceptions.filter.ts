@@ -13,11 +13,11 @@ const UNEXPECTED_ERROR_MESSAGE = 'Qualcosa è andato storto!';
 const ROUTE_NOT_FOUND_MESSAGE = 'Non trovato';
 
 /**
- * Forma di ogni risposta d'errore del progetto: identica a quella che
- * produce oggi res.error in middlewares/responseFormatter.ts, così client e
- * test end-to-end non vedono differenze fra una rotta legacy e una NestJS.
- * `error` può essere una stringa o un array (docs/API.md → "Formato delle
- * risposte").
+ * Forma di ogni risposta d'errore del progetto. È la stessa che produceva
+ * res.error nelle rotte Express, conservata per tutta la migrazione a NestJS
+ * così che client e test end-to-end non vedessero differenze fra una rotta
+ * migrata e una non ancora migrata. `error` può essere una stringa o un array
+ * (docs/API.md → "Formato delle risposte").
  */
 interface ErrorEnvelope {
   success: false;
@@ -27,9 +27,9 @@ interface ErrorEnvelope {
 }
 
 /**
- * Gestore unico degli errori dell'applicazione: sostituisce sia
+ * Gestore unico degli errori dell'applicazione. Ha sostituito sia
  * errorMiddleware.ts (errori propagati con next(err)) sia noPathMiddleware.ts
- * (rotte inesistenti).
+ * (rotte inesistenti), e dalla fase F5 anche res.error.
  *
  * `@Catch()` senza argomenti significa "intercetta tutto", non solo le
  * HttpException: anche un errore imprevisto (una query fallita, un bug) deve
@@ -37,13 +37,12 @@ interface ErrorEnvelope {
  * NestJS.
  *
  * COSA LO RAGGIUNGE
- * - le eccezioni lanciate dai controller NestJS (dalla fase F2);
- * - gli errori Express propagati con next(err) — NestJS registra in coda
- *   all'app un gestore che li rilancia dentro il proprio sistema di filtri;
+ * - le eccezioni lanciate da controller, guard, pipe e interceptor NestJS;
+ * - gli errori dei middleware Express propagati con next(err), come quello
+ *   di json-syntax-error.middleware.ts — NestJS registra in coda all'app un
+ *   gestore che li rilancia dentro il proprio sistema di filtri;
  * - le rotte inesistenti — NestJS registra in coda anche un gestore 404 che
  *   lancia NotFoundException.
- * I router legacy che rispondono da sé con res.error NON passano da qui: una
- * risposta già inviata non è un'eccezione.
  *
  * È registrato come provider APP_FILTER in AppModule e non con
  * app.useGlobalFilters() in main.ts: in quel modo vale anche nei test, che
@@ -64,14 +63,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // Solo gli errori 5xx sono "imprevisti" e meritano il log con lo stack.
     // I 4xx (validazione, autenticazione fallita, rotta inesistente) sono
     // parte del funzionamento normale: loggarli come errori sommergerebbe
-    // quelli veri. È la stessa politica di res.error, che logga solo quando
-    // il controller gli passa un'istanza di Error, cioè nei rami catch.
+    // quelli veri. È la stessa politica che aveva res.error, che loggava solo
+    // quando il controller gli passava un'istanza di Error, cioè nei rami
+    // catch.
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logUnexpected(exception, request);
     }
 
     // Se qualcuno ha già iniziato a rispondere (ad esempio un middleware
-    // legacy che invia la risposta e poi chiama anche next(err)), un secondo
+    // Express che invia la risposta e poi chiama anche next(err)), un secondo
     // invio lancerebbe "Cannot set headers after they are sent" dentro il
     // gestore degli errori stesso. L'errore è già stato loggato sopra se
     // grave; qui non resta che fermarsi.
@@ -91,7 +91,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   private logUnexpected(exception: unknown, request: Request): void {
     // Stessa forma di metadati usata da res.error e dal vecchio
-    // errorMiddleware, così i log restano confrontabili nel tempo.
+    // errorMiddleware prima della migrazione, così i log restano
+    // confrontabili nel tempo.
     this.logger.error('Errore:', {
       message:
         exception instanceof Error ? exception.message : String(exception),

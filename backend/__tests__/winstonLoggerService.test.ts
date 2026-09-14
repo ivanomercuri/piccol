@@ -37,7 +37,7 @@ describe('WinstonLoggerService', () => {
     });
   });
 
-  // La convenzione del progetto (res.error, AllExceptionsFilter): metadati
+  // La convenzione del progetto (AllExceptionsFilter): metadati
   // strutturati in un oggetto, che devono arrivare a Winston così come sono.
   it('fonde nei metadati un oggetto passato come parametro', () => {
     service.error('Errore:', { path: '/products', method: 'GET' });

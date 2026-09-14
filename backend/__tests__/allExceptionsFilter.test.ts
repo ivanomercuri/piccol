@@ -86,8 +86,8 @@ describe('AllExceptionsFilter', () => {
 
   // Contropartita del test sopra: il dettaglio tolto al client deve
   // arrivare ai log, completo di stack e di contesto della richiesta — con la
-  // stessa forma di metadati usata da res.error, così i log restano
-  // confrontabili con quelli delle rotte legacy.
+  // stessa forma di metadati che usava res.error, così i log restano
+  // confrontabili con quelli di prima della migrazione.
   it('logga gli errori 5xx con messaggio, stack, percorso e metodo', () => {
     const internal = new Error('connessione rifiutata');
 
@@ -103,7 +103,8 @@ describe('AllExceptionsFilter', () => {
 
   // I 4xx sono errori del client e fanno parte del funzionamento normale
   // (validazione, token scaduto): loggarli come errori annegherebbe quelli
-  // veri. Stessa politica di res.error, che logga solo nei rami catch.
+  // veri. Stessa politica che aveva res.error, che loggava solo nei rami
+  // catch.
   it('non logga gli errori 4xx', () => {
     filter.catch(new BadRequestException('Email non valida'), hostFor(request, response));
 

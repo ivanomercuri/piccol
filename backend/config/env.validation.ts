@@ -42,10 +42,7 @@ import {
  * messaggio chiaro.
  *
  * COSA NON C'È, E PERCHÉ
- * - SHOW_ROUTES: la legge solo listRoutesController, destinato a sparire in
- *   F5 (decisione D8); in sua assenza la rotta resta disabilitata, che è il
- *   comportamento sicuro.
- * - Le porte pubblicate sull'host (BACKEND_HOST_PORT, ecc.): servono a
+ *  * - Le porte pubblicate sull'host (BACKEND_HOST_PORT, ecc.): servono a
  *   docker-compose.yml, non all'app.
  */
 class EnvironmentVariables {
@@ -101,18 +98,18 @@ class EnvironmentVariables {
  * configurazione validata, oppure lanciare.
  *
  * Lancia UN solo errore che elenca TUTTE le variabili mancanti o non valide:
- * è il vantaggio rispetto ai controlli sparsi a livello di modulo
- * (tokenService.ts, databaseUrl.ts), che si fermano alla prima. Chi configura
- * l'ambiente scopre tutto in un solo tentativo di avvio invece che uno per
- * volta.
+ * è il vantaggio rispetto ai controlli sparsi a livello di modulo (come
+ * quelli di tokenService.ts e databaseUrl.ts), che si fermano alla prima.
+ * Chi configura l'ambiente scopre tutto in un solo tentativo di avvio invece
+ * che uno per volta.
  *
- * Nota onesta sulla fase di transizione: finché i moduli legacy restano nel
- * grafo degli import, i loro controlli a livello di modulo scattano PRIMA di
- * questo (vengono eseguiti all'import, questo durante la costruzione del
- * modulo). Quindi per ora una variabile del database mancante produce ancora
- * il messaggio di databaseUrl.ts. La politica "nessun fallback" è rispettata
- * in entrambi i casi; l'elenco completo diventa il comportamento effettivo
- * man mano che i moduli legacy vengono migrati.
+ * Eccezione nota, ed è permanente: databaseUrl.ts ha un proprio controllo,
+ * che scatta PRIMA di questo. prisma/client.ts compone la stringa di
+ * connessione all'import (questa funzione gira invece durante la costruzione
+ * del modulo), e databaseUrl.ts deve bastare a sé stesso perché lo usa anche
+ * prisma.config.ts, eseguito dalla CLI di Prisma fuori dall'app. Quindi una
+ * variabile del database mancante produce il messaggio di databaseUrl.ts.
+ * La politica "nessun fallback" è rispettata in entrambi i casi.
  */
 export function validateEnvironment(
   config: Record<string, unknown>

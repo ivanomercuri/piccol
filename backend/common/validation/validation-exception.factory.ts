@@ -3,9 +3,9 @@ import type { ValidationError } from 'class-validator';
 
 /**
  * Un errore di validazione come lo vede il client: il campo e UN messaggio.
- * È la stessa forma prodotta da middlewares/validationHandlerMiddleware.ts per
- * le rotte legacy, così un client non distingue una rotta migrata da una che
- * non lo è ancora (decisione D2, docs/MIGRAZIONE-NESTJS.md).
+ * È la stessa forma che produceva middlewares/validationHandlerMiddleware.ts
+ * prima della migrazione a NestJS, conservata perché fa parte del contratto
+ * API (decisione D2, docs/MIGRAZIONE-NESTJS.md).
  */
 export interface FieldValidationError {
   id: string;

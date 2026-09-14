@@ -38,7 +38,7 @@ describe('ResponseEnvelopeInterceptor', () => {
   }
 
   // Il caso base: ciò che il controller restituisce finisce in `data`,
-  // dentro l'involucro identico a quello di res.success.
+  // dentro l'involucro del progetto (docs/API.md).
   it('avvolge il valore restituito dal controller nel formato del progetto', async () => {
     const result = await lastValueFrom(
       interceptor.intercept(contextWithStatus(200), handlerReturning({ id: 1 }))
@@ -54,7 +54,7 @@ describe('ResponseEnvelopeInterceptor', () => {
 
   // Lo status non è fisso a 200: è quello già impostato da NestJS sulla
   // risposta. Rilevante perché le POST NestJS rispondono 201 di default,
-  // mentre i router legacy rispondono 200 — da ricordare migrando in F2.
+  // mentre quelle del progetto fissano 200 con @HttpCode.
   it('riporta lo status reale della risposta, non un 200 fisso', async () => {
     const result = await lastValueFrom(
       interceptor.intercept(contextWithStatus(201), handlerReturning({ created: true }))
@@ -74,8 +74,9 @@ describe('ResponseEnvelopeInterceptor', () => {
   });
 
   // Il messaggio di successo dichiarato con @ResponseMessage sul metodo del
-  // controller finisce nel campo `message`, come il secondo argomento di
-  // res.success nelle rotte legacy (es. "Logout effettuato con successo").
+  // controller finisce nel campo `message`, dove prima della migrazione
+  // arrivava il secondo argomento di res.success (es. "Logout effettuato con
+  // successo").
   it('usa il messaggio dichiarato con @ResponseMessage sul metodo', async () => {
     class Controller {
       @ResponseMessage('Logout effettuato con successo')

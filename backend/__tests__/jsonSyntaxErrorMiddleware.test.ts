@@ -4,7 +4,7 @@
 // un gestore d'errore Express, riconosciuto solo se dichiara 4 parametri.
 import { BadRequestException } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import { jsonSyntaxErrorMiddleware } from '../middlewares/jsonSyntaxErrorMiddleware';
+import { jsonSyntaxErrorMiddleware } from '../common/middleware/json-syntax-error.middleware';
 
 describe('jsonSyntaxErrorMiddleware', () => {
   const req = {} as Request;

@@ -1,9 +1,7 @@
 import express from 'express';
 import type { NestApplicationOptions } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import responseFormatter from './middlewares/responseFormatter';
-import { jsonSyntaxErrorMiddleware } from './middlewares/jsonSyntaxErrorMiddleware';
-import listRoutes from './routes/listRoutes';
+import { jsonSyntaxErrorMiddleware } from './common/middleware/json-syntax-error.middleware';
 
 /**
  * Punto unico in cui si configura l'app NestJS, usato sia da main.ts sia dai
@@ -20,40 +18,54 @@ import listRoutes from './routes/listRoutes';
 /**
  * Opzioni di creazione dell'app.
  *
- * `bodyParser: false` è necessario finché esistono router legacy. NestJS
- * registra il proprio parser JSON dentro init(), cioè DOPO tutti gli
- * app.use() eseguiti in configureApp — l'ordine di init() è: body parser,
- * moduli, rotte NestJS, gestori 404/errori (verificato in
- * @nestjs/core/nest-application.js). I router legacy, montati prima,
- * riceverebbero quindi un req.body vuoto. Si disattiva il parser di NestJS e
- * si monta express.json() esplicitamente in testa, dove serve a tutti.
+ * `bodyParser: false`: il parser JSON di NestJS resta disattivato anche ora
+ * che i router Express legacy non esistono più (fase F5 della migrazione).
+ * Il motivo originale era proprio quei router; quello che resta è il
+ * messaggio "errore json: ..." del contratto API (docs/API.md).
+ *
+ * NestJS registra il proprio parser dentro init(), cioè DOPO tutti gli
+ * app.use() di configureApp — l'ordine di init() è: body parser, moduli,
+ * rotte NestJS, gestori 404/errori (verificato in
+ * @nestjs/core/nest-application.js). Express fa avanzare un errore solo
+ * verso i middleware registrati dopo quello che l'ha generato: con il parser
+ * di NestJS, jsonSyntaxErrorMiddleware starebbe PRIMA del parser e non ne
+ * vedrebbe mai gli errori. E non si può nemmeno registrarlo dopo init(),
+ * perché finirebbe dietro al gestore 404, che risponde a tutto. A valle resta
+ * solo il gestore di NestJS, che converte il SyntaxError in una
+ * BadRequestException perdendo l'errore originale (vedi il commento in
+ * json-syntax-error.middleware.ts).
+ *
+ * Effetto collaterale voluto: il parser di NestJS attiverebbe anche
+ * express.urlencoded, cioè i body `application/x-www-form-urlencoded`, che
+ * l'API oggi non accetta. Tenendo il parser esplicito, il contratto non si
+ * allarga in silenzio.
+ *
+ * Trappola verificata: impostando `true` SENZA togliere express.json() da
+ * configureApp, il JSON malformato continua a funzionare, perché NestJS salta
+ * il proprio parser JSON se ne trova già montato uno con lo stesso nome di
+ * funzione (isMiddlewareApplied in express-adapter.js); ma aggiunge comunque
+ * quello urlencoded. È ciò che rileva il test "non legge i body
+ * application/x-www-form-urlencoded" in __tests__/errorHandling.test.ts.
  */
 export const NEST_APP_OPTIONS: NestApplicationOptions = { bodyParser: false };
 
 /**
- * Applica all'app la catena di middleware e i router legacy.
+ * Applica all'app i middleware Express che devono precedere le rotte.
  *
  * Va chiamata PRIMA di app.init() (o di app.listen(), che lo esegue): tutto
  * ciò che si registra qui con app.use() finisce sull'istanza Express nel
  * momento stesso della chiamata, quindi prima delle rotte NestJS e dei loro
  * gestori 404/errori, che init() aggiunge in coda. L'ordine risultante è:
  *
- *   responseFormatter → CORS → express.json() → traduzione errori JSON
- *   → router legacy → rotte NestJS → 404 NestJS → gestore errori NestJS
+ *   CORS → express.json() → traduzione errori JSON
+ *   → rotte NestJS → 404 NestJS → gestore errori NestJS
  *
- * CONSEGUENZA DA TENERE A MENTE NELLE FASI F2–F4
- * Se una rotta NestJS e una legacy rispondono allo stesso metodo e percorso,
- * vince SEMPRE la legacy, perché viene prima. Quando un dominio migra, il
- * suo router va quindi tolto da mountLegacyRouters nello stesso commit in
- * cui nasce il modulo NestJS: la versione nuova non sarebbe raggiungibile
- * finché la vecchia resta montata. Il comportamento è verificato in
- * __tests__/nestHosting.test.ts.
+ * Fino alla fase F4 questa funzione montava anche i router Express non
+ * ancora migrati e il middleware responseFormatter (res.success/res.error)
+ * che usavano. Sono spariti in F5 con l'ultima rotta legacy, GET /routes
+ * (decisione D8 in docs/MIGRAZIONE-NESTJS.md).
  */
 export function configureApp(app: NestExpressApplication): void {
-  // Deve precedere i router legacy, che chiamano res.success/res.error. Non
-  // interferisce con le rotte NestJS, che non usano quei metodi.
-  app.use(responseFormatter);
-
   // Stesso comportamento del vecchio app.use(cors()): nessuna opzione, quindi
   // tutte le origini ammesse.
   app.enableCors();
@@ -61,27 +73,6 @@ export function configureApp(app: NestExpressApplication): void {
   app.use(express.json());
 
   // Subito dopo il parser, perché intercetti solo gli errori del parser:
-  // vedi il commento in jsonSyntaxErrorMiddleware.ts.
+  // vedi il commento in json-syntax-error.middleware.ts.
   app.use(jsonSyntaxErrorMiddleware);
-
-  mountLegacyRouters(app);
-}
-
-/**
- * I router Express non ancora migrati. È la parte transitoria di questo
- * file, tenuta in una funzione separata perché ha un ciclo di vita diverso
- * dal resto: ogni fase F2–F4 toglie una riga da qui, e F5 cancella la
- * funzione. Il resto di configureApp invece resta.
- *
- * Il 404 (noPathMiddleware) e il gestore degli errori (errorMiddleware) non
- * compaiono più: montati qui, verrebbero prima delle rotte NestJS e le
- * renderebbero irraggiungibili — il 404 catturerebbe tutto. Il loro compito
- * è passato ad AllExceptionsFilter.
- */
-function mountLegacyRouters(app: NestExpressApplication): void {
-  // Rimossi `app.use('/', customerRoutes)` in F2 (modules/customer/ e
-  // health.controller.ts), `app.use('/admin', adminRoutes)` in F3
-  // (modules/user/) e `app.use('/products', productRoutes)` in F4
-  // (modules/product/).
-  app.use(listRoutes);
 }

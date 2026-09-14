@@ -10,8 +10,9 @@ import { Observable, map } from 'rxjs';
 import { RESPONSE_MESSAGE_KEY } from '../decorators/response-message.decorator';
 
 /**
- * Forma di ogni risposta di successo del progetto: identica a quella di
- * res.success in middlewares/responseFormatter.ts.
+ * Forma di ogni risposta di successo del progetto (docs/API.md → "Formato
+ * delle risposte"). È la stessa che produceva res.success nelle rotte
+ * Express, rimasta invariata per tutta la migrazione a NestJS.
  */
 export interface SuccessEnvelope<T> {
   success: true;
@@ -23,7 +24,8 @@ export interface SuccessEnvelope<T> {
 /**
  * Avvolge nel formato del progetto ciò che un controller NestJS restituisce.
  *
- * È il corrispettivo di res.success: con NestJS il controller non chiama più
+ * Ha preso il posto di res.success (middlewares/responseFormatter.ts, rimosso
+ * nella fase F5 della migrazione): con NestJS il controller non chiama più
  * un metodo sulla risposta, restituisce semplicemente il dato
  * (`return user;`), e questo interceptor lo incapsula. Il controller resta
  * ignaro del formato di trasporto — che è il motivo per cui si usa un
@@ -40,8 +42,7 @@ export interface SuccessEnvelope<T> {
  * controller è semplicemente sincrona.
  *
  * Non tocca gli errori: un'eccezione non passa da map() e arriva invece ad
- * AllExceptionsFilter. Non tocca nemmeno i router legacy, che non sono
- * controller NestJS e rispondono da sé.
+ * AllExceptionsFilter.
  */
 @Injectable()
 export class ResponseEnvelopeInterceptor<T>
@@ -59,8 +60,8 @@ export class ResponseEnvelopeInterceptor<T>
 
     // context.getHandler() è il metodo del controller che sta per essere
     // eseguito: il messaggio si legge dai SUOI metadati. Le rotte senza
-    // @ResponseMessage restano con il messaggio vuoto, come res.success
-    // chiamato senza secondo argomento.
+    // @ResponseMessage restano con il messaggio vuoto, come faceva
+    // res.success chiamato senza secondo argomento.
     const message =
       this.reflector.get<string | undefined>(
         RESPONSE_MESSAGE_KEY,
@@ -73,7 +74,8 @@ export class ResponseEnvelopeInterceptor<T>
         // Lo status si legge qui e non si fissa a 200: NestJS lo imposta
         // sulla risposta PRIMA di eseguire gli interceptor (verificato in
         // router-execution-context.js), e varia — ad esempio 201 per le POST,
-        // che è il default di NestJS e NON quello dei router legacy.
+        // che è il default di NestJS, o 200 dove un controller lo fissa con
+        // @HttpCode.
         status: response.statusCode,
         // Un controller che non restituisce nulla produrrebbe una risposta
         // senza la chiave `data`. `null` rende il contratto stabile: `data`

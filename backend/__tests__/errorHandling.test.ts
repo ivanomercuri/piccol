@@ -70,8 +70,29 @@ describe('Gestione errori a livello di app', () => {
       expect(res.status).toBe(400);
 
       // Errore di validazione: `error` è l'array raggruppato per campo
-      // prodotto da validationHandlerMiddleware, non la stringa "errore json:".
+      // prodotto dalla ValidationPipe globale, non la stringa "errore json:".
       expect(Array.isArray(res.body.error)).toBe(true);
+    });
+
+    // Presidio della scelta di tenere disattivato il parser di NestJS
+    // (commento di NEST_APP_OPTIONS in app.setup.ts). Quel parser attiverebbe
+    // anche express.urlencoded: un body di form verrebbe letto, e il login
+    // arriverebbe al service. Con il solo express.json() il body di form
+    // resta vuoto e la richiesta si ferma alla validazione, come ha sempre
+    // fatto. Se qualcuno riattivasse il parser di NestJS, il contratto si
+    // allargherebbe in silenzio: questo test lo renderebbe visibile.
+    it('non legge i body application/x-www-form-urlencoded', async () => {
+      const res = await request(testApp.http)
+        .post('/admin/user/login')
+        .type('form')
+        .send({ email: 'qualcuno@example.com', password: 'password' });
+
+      expect(res.status).toBe(400);
+
+      expect(res.body.error).toEqual([
+        { id: 'email', message: expect.any(String) },
+        { id: 'password', message: expect.any(String) },
+      ]);
     });
   });
 
@@ -87,6 +108,18 @@ describe('Gestione errori a livello di app', () => {
       expect(res.status).toBe(404);
 
       expect(res.body.success).toBe(false);
+
+      expect(res.body.error).toBe('Non trovato');
+    });
+
+    // Comportamento cambiato di proposito nella fase F5 (decisione D8):
+    // GET /routes, la rotta di debug che elencava le rotte dietro
+    // SHOW_ROUTES, è stata cancellata e non portata a NestJS. Ora è una rotta
+    // inesistente come le altre, a prescindere dal valore di SHOW_ROUTES.
+    it('GET /routes non esiste più', async () => {
+      const res = await request(testApp.http).get('/routes');
+
+      expect(res.status).toBe(404);
 
       expect(res.body.error).toBe('Non trovato');
     });

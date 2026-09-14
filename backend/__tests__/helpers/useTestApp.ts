@@ -19,9 +19,9 @@ export interface TestApp {
 
 interface TestAppOptions {
   /**
-   * Controller aggiuntivi registrati solo per il test. Servono a
-   * nestHosting.test.ts per verificare la convivenza fra rotte NestJS e
-   * router legacy, senza aggiungere endpoint all'applicazione vera.
+   * Controller aggiuntivi registrati solo per il test. Servono ad
+   * appInfrastructure.test.ts per far lanciare errori controllati e
+   * osservare l'iniezione, senza aggiungere endpoint all'applicazione vera.
    */
   controllers?: Type<unknown>[];
 }

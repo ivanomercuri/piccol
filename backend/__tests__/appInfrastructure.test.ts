@@ -1,15 +1,18 @@
-// Convivenza fra router Express legacy e rotte NestJS nella stessa app.
+// Infrastruttura trasversale dell'app, verificata con richieste HTTP reali:
+// dependency injection, involucro delle risposte, gestione degli errori, 404.
 //
-// È il test che chiude l'incognita dichiarata nell'assessment (§3 di
-// docs/MIGRAZIONE-NESTJS.md): l'ordine di registrazione fra i router montati
-// con app.use() e le rotte di NestJS andava verificato, non dato per buono.
-// Tutte le fasi F2–F4 poggiano su quello che questo file dimostra.
+// Il file registra un controller di prova visibile SOLO in questo test
+// (tramite l'opzione `controllers` di useTestApp): serve a far lanciare
+// errori controllati e a osservare l'iniezione, senza aggiungere endpoint
+// all'app vera. È nato in F1, quando l'app non aveva ancora controller
+// NestJS veri.
 //
-// In F1 l'applicazione non ha ancora nessun controller NestJS vero. Per
-// esercitare filter, interceptor e dependency injection con richieste HTTP
-// reali, il file registra controller di prova visibili SOLO in questo test
-// (tramite l'opzione `controllers` di useTestApp), senza aggiungere endpoint
-// all'app vera.
+// Fino alla fase F4 si chiamava nestHosting.test.ts e verificava anche la
+// convivenza fra router Express legacy e rotte NestJS: su uno stesso metodo e
+// percorso vinceva il router legacy, montato prima (§9 di
+// docs/MIGRAZIONE-NESTJS.md). Quel test è sparito in F5 con l'ultimo router
+// legacy: non c'è più nulla con cui una rotta NestJS possa entrare in
+// conflitto.
 import { BadRequestException, Controller, Get, Post } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
@@ -31,9 +34,10 @@ class ProbeController {
   read() {
     return {
       injected: this.prisma !== undefined,
-      // Stessa istanza del singleton usato dai router legacy, non una
-      // seconda: un solo pool di connessioni per processo (PrismaModule).
-      sameInstanceAsLegacy: this.prisma === sharedPrismaClient,
+      // Stessa istanza del singleton di prisma/client.ts (usato anche dai
+      // seed e dai test dei modelli), non una seconda: un solo pool di
+      // connessioni per processo (PrismaModule).
+      sameInstanceAsShared: this.prisma === sharedPrismaClient,
     };
   }
 
@@ -65,68 +69,17 @@ class ProbeController {
   }
 }
 
-// Controller di prova che dichiara GET /routes — lo stesso metodo e percorso
-// serviti dal router legacy listRoutes. Serve a verificare chi vince.
-//
-// La rotta usata si è spostata con la migrazione: GET / fino a F1 (poi
-// migrata in F2), GET /products fino a F3 (migrata in F4). /routes è l'ultima
-// rotta legacy e sparisce in F5: con lei, questo test non avrà più ragione di
-// esistere, perché non ci sarà più nulla con cui un controller NestJS possa
-// entrare in conflitto.
-@Controller('routes')
-class ShadowedRoutesController {
-  @Get()
-  list() {
-    return 'risposta NestJS';
-  }
-}
-
 // Avvio e chiusura gestiti dall'helper, alla radice del file (vedi
-// helpers/useTestApp.ts). I controller di prova esistono solo in quest'app.
-const testApp = useTestApp({
-  controllers: [ProbeController, ShadowedRoutesController],
-});
+// helpers/useTestApp.ts). Il controller di prova esiste solo in quest'app.
+const testApp = useTestApp({ controllers: [ProbeController] });
 
-describe('Convivenza router legacy e rotte NestJS', () => {
-  describe('ordine di registrazione', () => {
-    // Il cuore dell'incognita. I router legacy sono montati con app.use()
-    // prima di init(), le rotte NestJS vengono aggiunte dentro init(): quindi
-    // su uno stesso percorso risponde il legacy. Conseguenza operativa per
-    // F2–F4: quando un dominio migra, il suo router legacy va smontato nello
-    // stesso commit, altrimenti la nuova rotta NestJS non è raggiungibile.
-    it('su uno stesso metodo e percorso vince il router legacy, montato prima', async () => {
-      // Con SHOW_ROUTES diverso da "true" il router legacy risponde 403
-      // "Accesso negato". Se vincesse il controller NestJS di prova, la
-      // risposta sarebbe 200 con "risposta NestJS".
-      const original = process.env.SHOW_ROUTES;
-
-      process.env.SHOW_ROUTES = 'false';
-
-      try {
-        const res = await request(testApp.http).get('/routes');
-
-        expect(res.status).toBe(403);
-
-        expect(res.body.error).toBe('Accesso negato');
-      } finally {
-        process.env.SHOW_ROUTES = original;
-      }
-    });
-
-    // Controprova: i router legacy non inghiottono le richieste che non li
-    // riguardano. Un Router Express che non trova una rotta chiama next(),
-    // quindi la richiesta prosegue fino alle rotte NestJS.
-    it('una rotta NestJS che non collide con i router legacy è raggiungibile', async () => {
-      const res = await request(testApp.http).get('/__probe');
-
-      expect(res.status).toBe(200);
-    });
-
-    // Il 404 di NestJS sta in coda a tutto: deve continuare a funzionare, nel
-    // formato del progetto, anche con rotte NestJS registrate. In
-    // errorHandling.test.ts lo stesso caso è verificato senza controller
-    // NestJS.
-    it('una rotta inesistente risponde ancora 404 "Non trovato"', async () => {
+describe('Infrastruttura trasversale dell\'app', () => {
+  describe('404', () => {
+    // Il gestore 404 di NestJS sta in coda a tutto: una rotta inesistente
+    // sotto un prefisso che ESISTE (quello del controller di prova) deve
+    // comunque arrivarci, nel formato del progetto. In errorHandling.test.ts
+    // lo stesso caso è verificato su un percorso qualsiasi.
+    it('una rotta inesistente risponde 404 "Non trovato"', async () => {
       const res = await request(testApp.http).get('/__probe/non-esiste');
 
       expect(res.status).toBe(404);
@@ -138,31 +91,32 @@ describe('Convivenza router legacy e rotte NestJS', () => {
   describe('dependency injection', () => {
     // Prova end-to-end che i flag dei decoratori in tsconfig.json funzionano
     // anche sotto ts-jest, e che PrismaModule consegna il singleton condiviso.
-    it('inietta PrismaClient, ed è la stessa istanza usata dal codice legacy', async () => {
+    it('inietta PrismaClient, ed è la stessa istanza di prisma/client.ts', async () => {
       const res = await request(testApp.http).get('/__probe');
 
-      expect(res.body.data).toEqual({ injected: true, sameInstanceAsLegacy: true });
+      expect(res.body.data).toEqual({ injected: true, sameInstanceAsShared: true });
     });
   });
 
   describe('ResponseEnvelopeInterceptor', () => {
     // Un controller NestJS restituisce il dato nudo; l'interceptor lo
-    // avvolge nello stesso formato di res.success.
+    // avvolge nel formato del progetto (docs/API.md).
     it('avvolge il valore restituito nel formato del progetto', async () => {
       const res = await request(testApp.http).get('/__probe');
 
       expect(res.body).toEqual({
         success: true,
         status: 200,
-        data: { injected: true, sameInstanceAsLegacy: true },
+        data: { injected: true, sameInstanceAsShared: true },
         message: '',
       });
     });
 
-    // TRAPPOLA DOCUMENTATA PER F2: le POST NestJS rispondono 201 di default,
-    // mentre POST /register e POST /login legacy rispondono 200. Migrandole
-    // servirà @HttpCode(200) per non cambiare il contratto. Il test fissa
-    // anche che lo status nell'involucro coincide con quello HTTP reale.
+    // TRAPPOLA DA RICORDARE: le POST NestJS rispondono 201 di default, mentre
+    // il contratto del progetto per POST /register, /login e /products/new è
+    // 200 (ereditato dalle rotte Express). Una nuova POST che deve rispondere
+    // 200 ha bisogno di @HttpCode(200). Il test fissa anche che lo status
+    // nell'involucro coincide con quello HTTP reale.
     it('su una POST riporta il 201 di default di NestJS, sia nell\'HTTP sia nell\'involucro', async () => {
       const res = await request(testApp.http).post('/__probe');
 
@@ -180,7 +134,7 @@ describe('Convivenza router legacy e rotte NestJS', () => {
 
   describe('AllExceptionsFilter', () => {
     // Un'eccezione HTTP lanciata da un controller arriva al client con il
-    // suo status e il suo messaggio, nel formato di res.error.
+    // suo status e il suo messaggio, nel formato d'errore del progetto.
     it('formatta un\'eccezione HTTP lanciata da un controller', async () => {
       const res = await request(testApp.http).get('/__probe/bad-request');
 

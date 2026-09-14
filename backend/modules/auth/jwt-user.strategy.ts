@@ -23,9 +23,8 @@ interface TokenPayload {
 
 /**
  * Autenticazione degli User tramite JWT, con @nestjs/passport e passport-jwt
- * (decisione D3). Sostituisce middlewares/authUserMiddleware.ts per le rotte
- * migrate a NestJS; il middleware resta finché lo usano le rotte legacy dei
- * prodotti (fino a F4).
+ * (decisione D3). Ha sostituito middlewares/authUserMiddleware.ts, rimosso
+ * nella fase F4 con le ultime rotte che lo usavano (quelle dei prodotti).
  *
  * COME SI DIVIDONO IL LAVORO
  * - passport-jwt estrae il token dall'header e ne verifica firma e scadenza.
