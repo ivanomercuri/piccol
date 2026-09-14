@@ -96,10 +96,10 @@ Solo le route **User** sono protette da autenticazione: non esiste un meccanismo
 `Customer`, quindi al momento non ci sono route customer protette da login (vedi
 [Problemi noti](#problemi-noti--comportamenti-da-tenere-a-mente)).
 
-Dalla fase F3 della migrazione a NestJS le route User sono protette da `AuthUserGuard`
-(`modules/auth/`, con `@nestjs/passport` e `passport-jwt`); le route legacy dei prodotti usano ancora
-`authUserMiddleware`, con gli stessi messaggi. Entrambi verificano il JWT **e** che coincida con la colonna
-`current_token` sul record `User` nel DB: un token è quindi valido solo se è l'ultimo emesso per
+Dalla fase F4 della migrazione a NestJS tutte le route protette (User e prodotti) usano `AuthUserGuard`
+(`modules/auth/`, con `@nestjs/passport` e `passport-jwt`), con gli stessi messaggi del vecchio
+`authUserMiddleware`, rimosso. Il guard verifica il JWT **e** che coincida con la colonna `current_token`
+sul record `User` nel DB: un token è quindi valido solo se è l'ultimo emesso per
 quell'utente (permette l'invalidazione al logout). Risposte di errore possibili su qualunque route
 protetta:
 
@@ -111,7 +111,7 @@ protetta:
 | Utente decodificato non esiste più nel DB | 401 | `Utente non trovato` |
 | Token valido ma diverso da `current_token` (es. dopo logout) | 401 | `Token non più valido` |
 
-> **Cambio della fase F3, solo sulle route NestJS:** lo schema dell'header deve essere `Bearer`. Il
+> **Cambio della fase F3 (e dalla F4 su tutte le route):** lo schema dell'header deve essere `Bearer`. Il
 > middleware legacy prendeva la seconda parola dell'header qualunque fosse lo schema, quindi accettava anche
 > `Basic <token>`. Inoltre un errore interno durante la verifica (es. database irraggiungibile) risponde
 > 500 invece di mascherarsi da `401 Token scaduto o non valido`.
@@ -260,49 +260,101 @@ Aggiorna nome/email del proprio profilo.
 
 ## Product API (mounted at `/products`)
 
-Definite in `routes/productRoutes.js`, controller in `controllers/product/productController.js`. Tutte le
-route richiedono autenticazione **User** (`authUserMiddleware`); non sono accessibili ai `Customer`.
+**Servite da NestJS dalla fase F4 della migrazione**: controller `modules/product/product.controller.ts`,
+elenco in `modules/product/product.service.ts`, upload e validazione in `modules/product/upload/`. Tutte le
+route richiedono autenticazione **User** (`AuthUserGuard`); non sono accessibili ai `Customer`.
 
 ### `GET /products` 🔒
 
-- Se `req.user.level === 'superadmin'` → restituisce **tutti** i prodotti.
-- Se `req.user.level === 'admin'` → restituisce solo i prodotti con `createdBy === req.user.id`.
-- Qualsiasi altro valore di `level` (non raggiungibile oggi, dato che l'enum del modello è solo
-  `admin`/`superadmin`) → **403** `Non autorizzato`.
+Elenco **paginato** dei prodotti visibili all'utente:
 
-- **200** → `data`: array di prodotti (`id`, `name`, `description`, `price`, `quantity`, `available`,
-  `sku`, `createdBy`, `createdAt`, `updatedAt`)
-- **403** → `Errore server` in caso di eccezione (nota: usa 403 anche per errori generici, non 500 — vedi
-  [Problemi noti](#problemi-noti--comportamenti-da-tenere-a-mente))
+- `superadmin` → tutti i prodotti;
+- `admin` → solo i prodotti con `createdBy === id dell'utente` (il filtro vale anche per `total`).
+
+**Query string** (entrambi facoltativi):
+
+| Parametro | Default | Regola |
+|---|---|---|
+| `page` | `1` | intero ≥ 1 |
+| `limit` | `20` | intero fra 1 e 100 |
+
+Ordinamento: dal più recente (`createdAt` decrescente), a parità di data per `id` decrescente, così nessun
+prodotto compare in due pagine o in nessuna.
+
+- **200** → `data`:
+
+  ```json
+  {
+    "items": [ { "id": 57, "name": "...", "description": "...", "price": "9.99", "quantity": 5,
+                 "available": true, "sku": null, "createdBy": 2, "createdAt": "...", "updatedAt": "..." } ],
+    "page": 1,
+    "limit": 20,
+    "total": 5000,
+    "totalPages": 250
+  }
+  ```
+
+  `price` è una stringa: la colonna è `DECIMAL(10,2)` e il valore resta esatto.
+- **400** → parametri non validi (es. `limit non può superare 100`, `page deve essere almeno 1`)
+
+> **Cambi della fase F4:** fino ad allora `data` era l'array di **tutti** i prodotti, senza paginazione
+> (con i dati di sviluppo, 1,2 MB per richiesta; una pagina da 20 ne pesa circa 5 kB), e un errore inatteso
+> rispondeva `403 Errore server` invece di 500.
 
 ### `POST /products/new` 🔒 ⚠️ **STUB — non crea nulla**
 
-Route `multipart/form-data`. Pipeline completa di validazione già collegata (vedi
-`routes/productRoutes.js`):
+Route `multipart/form-data`. Validazione completa, eseguita in questo ordine:
 
-1. `uploadImage.array('image')` — Multer, accetta solo `image/jpeg`/`image/png`, hard limit 10 MB per file.
-2. `handleMulterErrorsMiddleware` — intercetta errori Multer (es. hard limit superato → errore "fatale").
-3. `checkNumberFilesMiddleware('image', 1, ...)` — **massimo 1 file** sul campo `image`.
-4. `validateProductImageMiddleware` — limite di dimensione "business" da `MAX_FILE_SIZE` (env, MB),
-   dimensioni massime `1920x1080` px (`config/imageConfig.js`), immagine **obbligatoria**.
-5. Validazione campi testuali via `express-validator`.
+1. **Autenticazione** (`AuthUserGuard`): senza token valido, 401 prima di ricevere qualunque file.
+2. **Ricezione** (`ProductImageUploadInterceptor`): i file del campo `image` vengono salvati in `uploads/`. Un
+   file oltre `MAX_FILE_HARD_SIZE` MB interrompe l'upload con **413** `Operazione non permessa.` (fino alla
+   fase F4: 400). Un file in un campo con un altro nome, o un multipart malformato: **400** `Richiesta di
+   caricamento dell'immagine non valida`.
+3. **Validazione di campi e immagine insieme** (`NewProductFormPipe`), con una sola risposta d'errore.
 
-**Campo file**: `image` (esattamente 1 file, jpeg o png).
+**Campo file**: `image` (esattamente 1 file, JPEG o PNG).
 
-**Body** (form-data):
+Regole sull'immagine, con il messaggio restituito:
 
-| Campo | Tipo | Obbligatorio | Note |
-|---|---|---|---|
-| `name` | string | sì | |
-| `description` | string | sì | |
-| `price` | numero | sì | validato con `isNumeric()` |
-| `quantity` | intero | sì | validato con `isInt({ gt: 0 })`, deve essere > 0 |
+| Regola | Messaggio |
+|---|---|
+| Almeno un file | `L'immagine del prodotto è richiesta` |
+| Al massimo un file | `Devi caricare una sola immagine del prodotto` |
+| Tipo dichiarato JPEG o PNG | `Il file <nome> non è un'immagine JPG o PNG` |
+| Peso entro `MAX_FILE_SIZE` MB | `Il file supera la dimensione massima di <N> MB` |
+| Contenuto davvero JPEG o PNG, leggibile | `Il file è corrotto o non è un formato di immagine valido` |
+| Dimensioni entro 1920x1080 px | `Le dimensioni non possono superare 1920x1080px` |
 
-- **400** → errori di validazione raggruppati (campi e/o immagine)
-- **200** → **anche se tutte le validazioni passano, il controller è uno stub**:
-  `exports.createProduct = async (req, res) => { return res.success({}); }` — non viene creata nessuna
-  riga in `products`, il file caricato resta nella cartella `uploads/` e non viene mai ripulito né
-  referenziato da nessuna parte.
+**Campi** (form-data, tutti obbligatori):
+
+| Campo | Regola | Messaggio se non valido |
+|---|---|---|
+| `name` | testo | `Nome del prodotto è richiesto` |
+| `description` | testo | `Descrizione del prodotto è richiesta` |
+| `price` | numero (`isNumeric`, decimali ammessi) | `Prezzo deve essere un numero` |
+| `quantity` | intero > 0 | `Quantità deve essere maggiore di zero` |
+
+- **400** → errori raggruppati: prima un elemento per ogni campo non valido, poi un elemento `image` con i
+  messaggi per file:
+
+  ```json
+  [
+    { "id": "price", "message": "Prezzo deve essere un numero" },
+    { "id": "image", "message": [ { "filename": "foto.png", "message": "Le dimensioni non possono superare 1920x1080px" } ] }
+  ]
+  ```
+
+  In caso di errore **i file temporanei vengono cancellati**, qualunque sia la causa (fino alla fase F4 solo
+  per errori sull'immagine: con un campo mancante il file restava in `uploads/`).
+- **413** → file oltre il limite hard
+- **200** → **anche se tutte le validazioni passano, il servizio è uno stub**: `data: {}`, non viene creata
+  nessuna riga in `products`, e il file caricato resta in `uploads/` senza essere referenziato. È la fase F6
+  della migrazione.
+
+> **Sicurezza (fase F4):** il tipo dell'immagine si verifica sui byte reali (magic bytes), non sul
+> Content-Type dichiarato dal client, prima di leggerne le dimensioni. La libreria usata, `image-size`, ha
+> vulnerabilità di denial of service senza correzione nei parser di altri formati (ICNS, HEIF, JXL): un file
+> di quei formati dichiarato come PNG viene rifiutato senza raggiungerli.
 
 ---
 
@@ -330,16 +382,16 @@ queste API (non sono bug "nascosti": sono osservabili leggendo il codice, ma fac
 - ~~**Il cambio password non invalida il token corrente**~~ — **CORRETTO** nella fase F3 della migrazione
   a NestJS (decisione C in `docs/MIGRAZIONE-NESTJS.md`): `PATCH /admin/user/password` ora azzera
   `current_token` insieme alla password, come il logout.
-- **`GET /products` restituisce 403 anche per errori inattesi**, non solo per autorizzazione mancante (il
-  blocco `catch` chiama `res.error(403, 'Errore server', err)` invece di 500).
+- ~~**`GET /products` restituisce 403 anche per errori inattesi**~~ — **CORRETTO** nella fase F4: un errore
+  inatteso risponde 500 con messaggio generico, tramite `AllExceptionsFilter`.
 - **Nessuna route di autenticazione protetta per `Customer`**: non esiste un `authCustomerMiddleware`, né
   endpoint di profilo/logout/cambio password lato storefront, nonostante il modello `Customer` abbia già
   la colonna `current_token` predisposta per lo stesso pattern usato da `User`.
 - **`PATCH /admin/user` richiede sempre sia `name` che `email`** anche se il controller supporterebbe
   l'aggiornamento parziale — la validazione a monte lo impedisce nella pratica.
-- **I file caricati per un prodotto non vengono mai ripuliti** in caso di successo della validazione, dato
-  che `createProduct` non li usa né li elimina: restano accumulati in `backend/uploads/` (già visibile nel
-  repo attuale con alcuni file di test manuali).
+- **Il file caricato per un prodotto non viene ripulito quando la validazione passa**, perché lo stub non lo
+  usa né lo elimina: resta in `backend/uploads/`. In caso di errore, invece, dalla fase F4 i file temporanei
+  vengono sempre cancellati.
 - ~~**`errorMiddleware.ts` non viene mai invocato da Express come gestore d'errore**~~ — **CORRETTO**
   nella fase F0 della migrazione a NestJS. Dichiarava solo 3 parametri (`err, req, res`) invece dei 4
   richiesti (`err, req, res, next`) perché Express lo riconoscesse come error-handler, quindi veniva

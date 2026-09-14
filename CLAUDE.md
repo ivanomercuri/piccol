@@ -52,8 +52,8 @@ soddisfa **almeno uno** di questi criteri:
 
 - **Input**: cosa succede con input vuoto, null, malformato, o un volume anomalo di dati?
 - **Confini del dominio**: questo codice rispetta pattern già esistenti nel progetto (es. i due
-  modelli di identità paralleli, il pattern res.success/res.error, l'accumulo di
-  validationErrors) o introduce un'incoerenza?
+  modelli di identità paralleli, il formato unico delle risposte, gli errori di validazione raggruppati
+  per campo) o introduce un'incoerenza?
 - **Fallimento**: se questa parte lancia un'eccezione, chi la intercetta? È coerente con
   `common/filters/all-exceptions.filter.ts`?
 - **Sicurezza**: se tocca dati utente/DB, sto validando l'input o fidandomi ciecamente?
@@ -172,15 +172,13 @@ Variabili d'ambiente richieste (vedi `.env.example` alla radice del repo — `.e
 non in `backend/`, apposta per essere un unico file letto sia da Docker Compose per interpolare
 `docker-compose.yml` sia dall'app Node, vedi sotto): `PORT` (porta di ascolto del server, letta in
 `main.ts`), `JWT_SECRET`, `JWT_EXPIRES_IN` (durata dei token, formato `jsonwebtoken` es. `1h`/`7d`),
-`SHOW_ROUTES`, `MAX_FILE_SIZE` (MB, limite di business per le immagini caricate), `MAX_FILE_HARD_SIZE` (MB,
-limite hard di multer — attualmente hardcoded a 10 in
-`uploadMiddleware.ts`/`handleMulterErrorsMiddleware.ts` invece di essere letto realmente da questa
-variabile), `DB_ROOT_PASSWORD`, `DB_NAME`, e le porte pubblicate sull'host (`BACKEND_HOST_PORT`,
+`SHOW_ROUTES`, `MAX_FILE_SIZE` (MB, intero, limite di business per le immagini caricate), `MAX_FILE_HARD_SIZE`
+(MB, intero, limite hard di multer, letto davvero dalla fase F4; deve essere ≥ `MAX_FILE_SIZE`), `DB_ROOT_PASSWORD`, `DB_NAME`, e le porte pubblicate sull'host (`BACKEND_HOST_PORT`,
 `BACKEND_DEBUG_PORT`, `DB_HOST_PORT`, `ADMINER_HOST_PORT`, `FRONTEND_HOST_PORT`).
 
 **Nessuna di queste ha un fallback**: sia `docker-compose.yml` (via la sintassi `${VAR:?messaggio}`, che
 fa fallire `docker compose` prima ancora di creare un container se una variabile manca) sia il codice Node
-(`config/env.validation.ts`, `services/tokenService.ts` finché esiste, `config/databaseUrl.ts`) si rifiutano esplicitamente di partire
+(`config/env.validation.ts`, `config/databaseUrl.ts`) si rifiutano esplicitamente di partire
 con un errore leggibile se una di queste manca da `.env`, invece di far partire l'app con un valore
 indovinato in silenzio. L'unica eccezione deliberata è `NODE_ENV`, letto in `config/databaseUrl.ts` e
 `prisma/client.ts` senza obbligo: non fa parte del contratto di `.env` di questo progetto, è una
@@ -208,8 +206,7 @@ gerarchia condivisa di tipo "User":
 - **User** (modello `User` in `prisma/schema.prisma`) — account interni/admin, `level` enum
   `admin`/`superadmin`, montato su `/admin/user`. **Migrato a NestJS in F3**: `modules/user/`. Le rotte
   protette usano `@UseGuards(AuthUserGuard)` (passport + passport-jwt, in `modules/auth/`) e ricevono
-  l'utente con `@CurrentUser()`. Il middleware legacy `authUserMiddleware` resta solo per le rotte dei
-  prodotti, fino a F4.
+  l'utente con `@CurrentUser()`. Lo stesso guard protegge le rotte dei prodotti (dalla fase F4).
 - **Customer** (modello `Customer` in `prisma/schema.prisma`) — clienti dello storefront, montato su `/`.
   **Migrato a NestJS in F2**: `modules/customer/` (controller, `CustomerAuthService`, DTO).
 
@@ -227,8 +224,8 @@ sua query e riusa `CredentialsService`. Segreto, algoritmo (HS256) e scadenza de
 una sola volta in `modules/auth/auth.module.ts`.
 
 **Pattern di invalidazione del token**: i JWT sono stateful. Al login/registrazione, il token firmato viene
-scritto anche nella colonna `current_token` dell'entità. `JwtUserStrategy` (e, per le rotte legacy dei
-prodotti, `authUserMiddleware`) verifica il JWT *e* che corrisponda a `current_token` nel DB. La strategia
+scritto anche nella colonna `current_token` dell'entità. `JwtUserStrategy` verifica il JWT *e* che
+corrisponda a `current_token` nel DB. La strategia
 ha `passReqToCallback: true` proprio per poter rileggere il token grezzo: senza, il confronto non sarebbe
 possibile e un token revocato verrebbe accettato. È questo che rende possibile invalidare i vecchi
 token al logout / cambio password (il logout imposta `current_token = null`; i flussi di
@@ -270,21 +267,33 @@ generico e **non fa mai trapelare** il messaggio interno, che finisce solo nei l
 Il JSON malformato è tradotto in "errore json: ..." da `middlewares/jsonSyntaxErrorMiddleware.ts`, montato
 subito dopo il parser, perché NestJS perderebbe l'errore originale prima che arrivi al filter.
 
-### Pattern di accumulo degli errori di validazione
+### Validazione e upload (dalla fase F4)
 
-La validazione dell'upload file basata su Multer non si adatta al modello di express-validator, quindi
-questo codebase accumula errori su `req.validationErrors` (un array di `{ msg, path, filename?, isFatal? }`)
-attraverso più middleware, per poi unirli agli errori di express-validator in
-`middlewares/validationHandlerMiddleware.ts`, che li raggruppa per campo (gli errori sulle immagini sono
-raggruppati per filename) prima di chiamare `res.error(400, ...)`. La catena per l'upload immagine prodotto
-(`routes/productRoutes.ts`) è: `uploadMiddleware` (filtro mimetype, limite hard di dimensione) →
-`handleMulterErrorsMiddleware` (intercetta MulterError, es. superamento del limite hard, lo marca
-`isFatal`) → `validateProductImageMiddleware` (limite di dimensione di business da `MAX_FILE_SIZE`,
-controllo dimensioni contro `config/imageConfig.ts` maxWidth/maxHeight tramite il pacchetto `image-size`,
-pulisce i file temporanei in caso di fallimento) → controlli sui campi di express-validator →
-`validationHandlerMiddleware`. Quando aggiungi nuova validazione legata all'upload, accoda su
-`req.validationErrors` invece di lanciare un'eccezione, così si unisce alla stessa risposta di errore
-raggruppata.
+Gli errori di validazione hanno una sola forma: un array di `{ id, message }`, un messaggio per campo, con
+"è richiesto" che vince sugli altri vincoli (`common/validation/validation-exception.factory.ts`). Per il
+body JSON lo produce la `ValidationPipe` globale; i DTO dichiarano i vincoli con class-validator.
+
+L'upload dell'immagine di un nuovo prodotto (`POST /products/new`) passa da questi pezzi, nell'ordine in cui
+NestJS li esegue:
+
+1. `AuthUserGuard`: 401 prima che un solo byte venga salvato.
+2. `ProductImageUploadInterceptor` (`modules/product/upload/`): multer salva i file in `uploads/` con il limite
+   hard `MAX_FILE_HARD_SIZE` (oltre: **413** `Operazione non permessa.`). **Cancella i file temporanei a
+   qualunque errore successivo** (pipe, service), perché le pipe girano dentro il flusso che osserva.
+3. `NewProductFormPipe`: valida **insieme** i campi (`CreateProductDto`) e le immagini
+   (`ProductImageValidator`) e risponde con un'unica lista, prima i campi e poi un elemento `image` con i
+   messaggi raggruppati per file. Due parametri separati (`@Body` + `@UploadedFiles`) avrebbero restituito
+   gli errori in due richieste successive.
+4. `ProductImageValidator`: tipo dichiarato, `MAX_FILE_SIZE`, contenuto reale e dimensioni massime
+   (`config/imageConfig.ts`).
+
+**Regola di sicurezza**: le dimensioni si leggono solo con `readImageDimensions`
+(`modules/product/upload/image-inspection.ts`), mai chiamando `image-size` direttamente. Quel modulo verifica
+i magic bytes JPEG/PNG prima di interpellare la libreria e disattiva nella libreria ogni altro formato: i parser
+ICNS/HEIF/JXL di image-size hanno vulnerabilità di denial of service senza correzione, e il Content-Type lo
+sceglie chi carica.
+
+Il vecchio accumulatore `req.validationErrors` e la catena di middleware che lo scriveva non esistono più.
 
 ### Modello dati
 
@@ -327,18 +336,19 @@ volume Docker del database e **non sono versionati**: se il volume viene ricreat
 
 ### Parte nota come incompleta
 
-`controllers/product/productController.ts#createProduct` è uno stub (`return res.success({})`) anche se la
-sua route completa (`POST /products/new`) collega già auth, upload/validazione immagine e validazione
-campi — la logica vera e propria di creazione prodotto (e la gestione di categorie/product_images) non è
-ancora stata implementata.
+`ProductService.create` (`modules/product/product.service.ts`) è uno stub che restituisce `{}`, anche se la
+sua route completa (`POST /products/new`) collega già auth, upload e validazione di campi e immagine — la
+logica vera e propria di creazione prodotto (e la gestione di categorie/product_images) non è ancora stata
+implementata. È la fase F6 della migrazione, con una transazione. Il file caricato con successo resta in
+`uploads/`.
 
 ### Struttura della suite di test
 
 `backend/__tests__/` contiene due categorie di test, distinguibili dal nome file:
 
-- **Unità con mock, nessun DB reale** (`*.test.ts`, es. `authUserMiddleware.test.ts`,
-  `productController.test.ts`): mockano modelli/services/dipendenze esterne con `jest.mock`, non aprono
-  connessioni. È lo stile usato dai test già presenti prima di questa sessione — preferiscilo per logica
+- **Unità con mock, nessun DB reale** (`*.test.ts`, es. `credentialsService.test.ts`,
+  `productService.test.ts`): sostituiscono le dipendenze passando oggetti finti al costruttore o al
+  TestingModule, non aprono connessioni. È lo stile usato dai test già presenti prima di questa sessione — preferiscilo per logica
   applicativa pura (controller, middleware, services).
 - **Modelli contro un DB reale** (`*.model.test.ts`, es. `product.model.test.ts`): usano il client Prisma
   vero (nessun mock), verificano vincoli che vivono nel DB (unique, FK, NOT NULL, relazioni) contro

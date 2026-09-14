@@ -708,9 +708,8 @@ da cui recuperare col cherry-pick solo ciò che merita.
 
 **Branch corrente: `feature/migrazione-nestjs`** (NON ancora pushato, oltre
 `feature/seed-dati-sviluppo`, che a sua volta è 1 commit oltre `main`). `main` contiene tutte e tre le
-migrazioni completate. Suite (aggiornata al 2026-09-14, dopo F3 e le sue decisioni): **36 suite / 203 test verdi**,
-type-check pulito, lint con 1 solo warning pre-esistente (`hardLimitMB` in
-`handleMulterErrorsMiddleware.ts`). **Runtime: Node 24** — i test vanno lanciati con `npm test` (che
+migrazioni completate. Suite (aggiornata al 2026-09-14, dopo F4): **32 suite / 204 test verdi**,
+type-check pulito, lint senza nessun problema. **Runtime: Node 24** — i test vanno lanciati con `npm test` (che
 imposta `--experimental-vm-modules`), mai con `npx jest` nudo.
 
 Attenzione alla catena dei branch: `feature/migrazione-nestjs` è stato creato da
@@ -740,7 +739,7 @@ complesse e N+1.
   perché le statistiche erano ferme a "tabella vuota". Risolto con `ANALYZE products`. È la causa
   classica del "dopo l'import dei dati è diventato lento".
 
-### Migrazione a NestJS: assessment FATTO, fasi F0–F3 FATTE
+### Migrazione a NestJS: assessment FATTO, fasi F0–F4 FATTE
 
 **Documento di riferimento: `backend/docs/MIGRAZIONE-NESTJS.md`.** Contiene inventario, mappatura
 Express → NestJS pezzo per pezzo, le dieci decisioni con il loro esito, il piano in sette fasi e il
@@ -832,11 +831,23 @@ A) email duplicata → 409 "Email già registrata", anche in aggiornamento profi
 "Credenziali non valide", con bcrypt eseguito anche per gli account inesistenti; C) il cambio password azzera
 il token, il client deve rifare login; D) `@IsEmail` per gli User.
 
-**Il prossimo passo è F4**: ProductModule, `GET /products` con paginazione, e l'intera catena di upload e
-validazione delle immagini — la fase con le incognite vere (FileValidator custom, `image-size`,
-`MAX_FILE_SIZE`). Con F4 spariscono anche `authUserMiddleware` e `tokenService.ts`.
+**Fatto in F4** (2026-09-14, registro completo in §12 del documento):
 
-Stima residua: 4-7 sessioni serali (F4→F6).
+- **Dominio Product migrato**: `modules/product/`. `GET /products` è **paginata** (metadati in `data`, scelta
+  dell'utente): con i dati di sviluppo la risposta passa da 1,2 MB a circa 5 kB.
+- Catena di upload riscritta: interceptor che riceve i file e li cancella a qualunque errore, pipe che valida
+  campi e immagine in un'unica risposta, validatore delle immagini. Via l'accumulatore `req.validationErrors`.
+- **Chiuso il debito di sicurezza su `image-size`**: magic bytes prima della libreria e `disableTypes` su ogni
+  formato tranne JPG e PNG.
+- `MAX_FILE_SIZE` e `MAX_FILE_HARD_SIZE` validate all'avvio; il limite hard è letto davvero.
+- Rimossi il router e il controller dei prodotti, sette middleware, `tokenService.ts`, `classes/` e la
+  dipendenza `express-validator`.
+
+**Il prossimo passo è F5**: pulizia dell'ultimo legacy (`GET /routes`, `responseFormatter`,
+`mountLegacyRouters`, `SHOW_ROUTES`), valutazione del ritorno al body parser di NestJS, aggiornamento finale
+della documentazione. Dopo F5 la migrazione è finita; **F6** è `createProduct` con la transazione.
+
+Stima residua: 2-3 sessioni serali (F5→F6).
 
 ### Cose in sospeso, non urgenti
 
@@ -845,24 +856,13 @@ Stima residua: 4-7 sessioni serali (F4→F6).
 - `createProduct` resta uno stub. Era il candidato naturale per imparare le transazioni; nascerà
   direttamente in NestJS in **F6**, ed è lì che il protocollo di trade-off sui dati di AGENTS.md si
   attiva davvero (Concurrency, Duplication).
-- La **paginazione di `GET /products`**, sospesa dal percorso PostgreSQL, rientra in **F4**: quell'handler
-  viene riscritto comunque, quindi non vale farlo due volte.
+- Percorso PostgreSQL, prossimo tema: **indici**. La paginazione di `GET /products` è fatta (F4); il passo
+  successivo è guardare con `EXPLAIN` l'elenco di un admin (`WHERE createdBy ORDER BY createdAt, id`) e
+  decidere un indice a partire dal piano, non in anticipo.
 - Il branch `feature/seed-dati-sviluppo` va mergiato in `main` quando si ritiene concluso (vedi la nota
   sulla catena dei branch sopra).
-- **Debito di sicurezza da affrontare in F4**: `image-size` ha 2 advisory high senza correzione
-  disponibile, e non è transitiva — è la libreria con cui `validateProductImageMiddleware` misura file
-  **caricati dagli utenti**. Il mimetype su cui si basa il controllo arriva dall'header `Content-Type`,
-  quindi è sotto controllo di chi carica: un file ICNS dichiarato `image/png` raggiunge il parser
-  vulnerabile. Strade: validare i magic bytes, o cambiare libreria.
 - Le 3 advisory high residue (`deepmerge-ts`, `mysql2` via `@prisma/config`) sono transitive della CLI
   di Prisma, che è una devDependency. **`npm audit fix --force` NON va eseguito**: retrocederebbe prisma
   a 6.19.3, disfacendo la migrazione a Prisma 7.
-- **Da fare a mano sul `.env` locale** (fuori dal repository, non toccato): scrivere `MAX_FILE_SIZE=3` e
-  `MAX_FILE_HARD_SIZE=10` con il commento su una riga propria. Oggi il container riceve `3# in MB`, che
-  funziona solo grazie a `parseInt` e produce al client il messaggio "dimensione massima di 3# in MB MB".
-  `.env.example` è già corretto. Va fatto prima di F4, dove la variabile entra nella validazione.
-- Codice morto già deciso (D9) ma non ancora rimosso, pianificato in **F5**:
-  `controllers/customer/profileCustomerController.ts` (file vuoto) e
-  `middlewares/skipIfValidationErrorsMiddleware.ts` (no-op mai montato).
 - Nel servizio `db` di `docker-compose.yml` restano due commenti che citano `config/config.js` e
   Sequelize come se esistessero ancora.

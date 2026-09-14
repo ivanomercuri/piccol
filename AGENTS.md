@@ -21,7 +21,7 @@ All backend code is located in `/backend`.
     - **Responsibility:** Validate inputs, call Services, handle HTTP responses. NO core business logic here.
 - `/backend/services`: **Business Logic Layer.**
     - **Rule:** All complex logic (calculations, database transactions) goes here.
-    - **Naming:** `[Entity]Service.ts` for legacy code. Migrated domains keep their services inside `modules/<domain>/` (`*.service.ts`). What remains here after F3: `emailNormalizer.ts` (pure function, used by NestJS services too) and a reduced `tokenService.ts` (only `JWT_SECRET` for the legacy product middleware, removed in F4).
+    - **Naming:** migrated domains keep their services inside `modules/<domain>/` (`*.service.ts`). What remains here after F4: `emailNormalizer.ts` (pure function, used by the NestJS services).
 - `/backend/prisma`: **Data Layer.**
     - `schema.prisma` is the single source of truth for the data model; the typed
       client is generated from it. There is no `models/` directory anymore, and no
@@ -31,12 +31,9 @@ All backend code is located in `/backend`.
       a second `PrismaClient`.
 
 ### Support Structures
-- `/backend/classes`: Use this for Custom Errors (e.g., `InvalidImageTypeError`) or Utility Classes.
-- `/backend/middlewares`: Reusable middleware.
-    - **IMPORTANT:** Always check this folder before writing new validation logic.
-    - Use `responseFormatter.js` for consistent JSON responses.
-    - Global error handling is `common/filters/all-exceptions.filter.ts` (NestJS). `errorMiddleware` and `noPathMiddleware` no longer exist.
-- `/backend/modules/<domain>`: NestJS domain modules (module, controller, service, `dto/`). Migrated so far: `customer`, `user`; `auth` holds the security logic shared by both identities (`CredentialsService`, `JwtUserStrategy`, `AuthUserGuard`, `@CurrentUser()`). A domain's legacy router, controllers and service functions are removed in the same commit its module is born.
+- `/backend/middlewares`: Express-level middleware still needed by the NestJS app: `jsonSyntaxErrorMiddleware.ts` (translates body-parser JSON errors) and `responseFormatter.ts` (only for the last legacy router, `/routes`, removed in F5).
+    - Global error handling is `common/filters/all-exceptions.filter.ts` (NestJS). The `classes/` folder no longer exists: HTTP errors are NestJS `HttpException`s.
+- `/backend/modules/<domain>`: NestJS domain modules (module, controller, service, `dto/`). Migrated so far: `customer`, `user`, `product` (with `upload/` for the image upload pipeline); `auth` holds the security logic shared by both identities (`CredentialsService`, `JwtUserStrategy`, `AuthUserGuard`, `@CurrentUser()`). A domain's legacy router, controllers and service functions are removed in the same commit its module is born.
 - `/backend/common`: NestJS cross-cutting infrastructure — `filters/`, `interceptors/`, `logger/`, `validation/`. New NestJS files follow the Nest naming convention (`*.module.ts`, `*.filter.ts`, `*.interceptor.ts`); the camelCase legacy files disappear as their domains migrate.
 - `/backend/routes`: Express routers. Grouped by domain.
 - `/backend/__tests__`: All Jest test files reside here.
@@ -62,9 +59,10 @@ All backend code is located in `/backend`.
 
 ## 5. Existing Utilities (Reuse these!)
 Do not reinvent the wheel. The project already contains:
-- `responseFormatter.js` -> Use this to wrap successful responses.
-- `uploadMiddleware.js` / `handleMulterErrorsMiddleware.js` -> For file uploads.
-- `validateProductImageMiddleware.js` -> For image validation.
+- Response format: return the data from a controller (`ResponseEnvelopeInterceptor` wraps it) and throw `HttpException`s (`AllExceptionsFilter` formats them). Success messages: `@ResponseMessage()`.
+- Validation: DTOs with class-validator; error shape from `common/validation/validation-exception.factory.ts`.
+- Authentication: `@UseGuards(AuthUserGuard)` + `@CurrentUser()` from `modules/auth/`.
+- Image uploads: `ProductImageUploadInterceptor`, `ProductImageValidator` and `NewProductFormPipe` in `modules/product/upload/`. Read image dimensions ONLY through `readImageDimensions` (`image-inspection.ts`), never by calling `image-size` directly: it has unpatched DoS vulnerabilities in parsers the magic-byte check keeps out.
 
 ## 6. Frontend Context (Status: ON HOLD)
 The frontend is located in `/frontend` but is currently **NOT the focus**.
@@ -184,3 +182,15 @@ keep entries short, one line each)
 - User email format (F3): `@IsEmail` on User registration and profile update,
   as already on Customer registration. Login DTOs still do not validate the
   format, so a malformed email keeps producing the uniform 401.
+- `GET /products` pagination (NestJS migration F4, user's choice): offset pagination with metadata inside
+  `data` (`{ items, page, limit, total, totalPages }`), default 20, max 100, ordered by `createdAt` then `id`
+  descending so rows created in the same instant keep a deterministic order. Rejected: keeping `data` as an
+  array with metadata in response headers (body contract unchanged, but metadata less discoverable and to be
+  exposed through CORS). Page and total are two parallel queries, not a transaction: `total` may be off by one
+  under concurrent writes, accepted for an admin list.
+- Image dimensions are read only through `readImageDimensions` (F4): magic-byte check for JPEG/PNG before
+  calling `image-size`, plus `disableTypes` for every other format in the library. `image-size` has unpatched
+  DoS vulnerabilities in its ICNS/HEIF/JXL parsers and, when the first byte does not confirm a format, its
+  detector tries all 20 formats; the client-provided Content-Type cannot be trusted to keep files out of them.
+  The two defences are independent on purpose. Rejected: replacing the library (larger change, and the
+  mitigation fully covers the only two formats accepted).

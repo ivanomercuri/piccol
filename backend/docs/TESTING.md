@@ -197,6 +197,10 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
   test: algoritmo e forma della scadenza restano quelli di produzione, e il test non dipende dal
   `JWT_SECRET` reale di `.env`. Il collegamento con la configurazione reale è verificato una volta sola,
   end-to-end, in `userRoutes.test.ts`.
+- **Immagini per i test di upload** → `helpers/imageFixtures.ts`: PNG e JPEG con dimensioni scelte, costruiti
+  byte per byte (bastano poche decine di byte d'intestazione), un'intestazione ICNS per i test di sicurezza,
+  e buffer di N MB per i limiti di peso. Nei test end-to-end di upload, verificare anche che una richiesta
+  fallita non lasci file in `backend/uploads/`.
 - **Eseguire Jest sempre tramite `npm test`**, mai con `npx jest` nudo: lo script imposta
   `NODE_OPTIONS=--experimental-vm-modules`, senza il quale ogni suite che importa NestJS fallisce con
   "Must use import to load ES Module".

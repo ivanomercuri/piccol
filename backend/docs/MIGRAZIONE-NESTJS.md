@@ -1,6 +1,6 @@
 # Assessment: migrazione da Express a NestJS
 
-Stato: **F0–F3 completate** (registri in §8–§11), comprese le quattro decisioni di F3; prossima fase **F4**. Segue il metodo già usato per la migrazione a Prisma:
+Stato: **F0–F4 completate** (registri in §8–§12); prossima fase **F5** (pulizia del legacy rimasto). Segue il metodo già usato per la migrazione a Prisma:
 prima questo report (inventario, punti critici, decisioni da prendere), poi il via libera, poi
 l'implementazione a commit incrementali.
 
@@ -376,7 +376,7 @@ sessione serale.
 | **F1** ✅ | `main.ts`, `AppModule`, `PrismaService`, `ConfigModule` con validazione (**spostata qui da F0**: `ConfigModule.forRoot({ validate })` richiede un grafo dei moduli, che in F0 non esiste ancora), interceptor + exception filter + logger. NestJS fa da host e **monta tutti i router legacy** via `app.use()`. I 4 test e2e ripuntati sul TestingModule. **Checkpoint: 145 verdi** — è qui che la strategia si dimostra | 1-2 |
 | **F2** ✅ | CustomerModule (3 endpoint, nessun guard, nessun upload): il dominio più semplice, stabilisce l'idioma controller/service/DTO e applica D1+D2 | 1 |
 | **F3** ✅ | AuthUserGuard, `@CurrentUser()`, UserModule (6 endpoint). Muoiono `authUserMiddleware` e i quattro controlli ridondanti di `profileUserController` | 2 |
-| **F4** | ProductModule: `GET /products` e tutta la catena di upload/validazione (la parte difficile). Qui rientra la **paginazione** sospesa dal percorso PostgreSQL, dato che l'handler viene riscritto comunque | 2-3 |
+| **F4** ✅ | ProductModule: `GET /products` e tutta la catena di upload/validazione (la parte difficile). Qui rientra la **paginazione** sospesa dal percorso PostgreSQL, dato che l'handler viene riscritto comunque | 2-3 |
 | **F5** | Rimozione dello scaffolding legacy e del codice morto (D8, D9), uscita di `express-validator`, aggiornamento di `AGENTS.md`, `CLAUDE.md`, `API.md`, `TESTING.md`, `CHECKPOINT.md` e del Design Decisions Log | 1 |
 | **F6** | `createProduct` implementato nativamente in NestJS, con transazione. È l'obiettivo di apprendimento rinviato, e **qui il protocollo di trade-off sui dati si attiva davvero** (Concurrency, Duplication) | 1-2 |
 
@@ -845,7 +845,95 @@ la prima, senza ancora un gestore, e Jest fa fallire il test per rifiuto non ges
 
 ---
 
-## 12. Cosa questo assessment non copre
+## 12. Registro di esecuzione — F4 (completata il 2026-09-14)
+
+Stato finale: **32 suite / 204 test verdi**, type-check pulito, **lint senza nessun problema** (il warning
+pre-esistente su `hardLimitMB` è sparito con il middleware che lo conteneva). Verificato sull'app in
+esecuzione con i 5.000 prodotti del seed di sviluppo: `GET /products` passa da **1,2 MB a 5.209 byte**
+(18 ms), e un file ICNS travestito da PNG viene rifiutato senza conseguenze per il processo.
+
+Conteggio: 203 − 35 test legacy + 36 nuovi = 204. Rimossi `productController`, `authUserMiddleware`,
+`validateProductImageMiddleware`, `checkNumberFilesMiddleware`, `handleMulterErrorsMiddleware`,
+`validationHandlerMiddleware`, `tokenService` e `InvalidImageTypeError`. Gli 8 test end-to-end dei prodotti
+esistenti sono rimasti, con un'unica modifica voluta (`data` → `data.items`).
+
+### Fatto
+
+- `modules/product/`: controller (guard sulla classe), `ProductService` con elenco paginato e `create` ancora
+  stub, DTO di query e di creazione, e `upload/` con `ProductImageUploadInterceptor`, `ProductImageValidator`,
+  `NewProductFormPipe` e `image-inspection.ts`.
+- `MAX_FILE_SIZE` e `MAX_FILE_HARD_SIZE` nel contratto di `env.validation.ts`, con il vincolo che il limite di
+  business non superi quello hard. Il limite hard è letto davvero dalla variabile.
+- Rimossi nello stesso commit `routes/productRoutes.ts` (e il suo mount), `controllers/product/`, sette
+  middleware (compreso `skipIfValidationErrorsMiddleware` del D9, anticipato da F5 perché apparteneva alla
+  catena rimossa), `services/tokenService.ts`, la cartella `classes/` e la dipendenza `express-validator`, che
+  non aveva più importatori. `req.validationErrors` è sparito dai tipi.
+
+### Scelte fatte implementando, e perché
+
+1. **Paginazione con i metadati in `data`** (`{ items, page, limit, total, totalPages }`), scelta dall'utente
+   fra questa e l'array con metadati negli header. Default 20, massimo 100, ordinamento `createdAt` e poi
+   `id` decrescenti: il secondo criterio serve perché righe create nello stesso istante (il seed ne crea
+   migliaia in pochi secondi) non hanno un ordine garantito, e senza un criterio univoco una riga potrebbe
+   comparire in due pagine o in nessuna. Pagina e totale sono due query parallele, **non** in transazione:
+   il totale può differire di uno in presenza di scritture concorrenti, accettabile per un elenco.
+2. **L'autorizzazione per livello usa un controllo di esaustività con `never`**: se lo schema aggiungesse un
+   livello utente, la compilazione fallirebbe in `visibleProductsFor` invece di lasciarlo senza regola. Il
+   legacy rispondeva 403 a un livello sconosciuto, ma solo a runtime.
+3. **Interceptor di upload scritto nel progetto invece di `FilesInterceptor`.** Quello di NestJS fissa le
+   opzioni di multer nel decoratore (quindi nel sorgente, come il limite scritto a mano del legacy) e
+   restituisce i messaggi inglesi di multer. Il nostro ricalca il suo funzionamento in circa venti righe,
+   legge il limite da `ConfigService` e classifica gli errori con lo stesso elenco di NestJS.
+4. **L'interceptor che crea i file temporanei li cancella a qualunque errore successivo**, grazie al fatto,
+   verificato nel sorgente, che le pipe girano dentro il flusso osservato dagli interceptor. Il legacy li
+   cancellava solo per errori sull'immagine.
+5. **Campi e immagine validati insieme in una pipe su un parametro unico.** Con `@Body` e `@UploadedFiles`
+   separati, la `ValidationPipe` avrebbe lanciato sui campi prima di controllare l'immagine, e il client
+   avrebbe scoperto gli errori in due richieste successive. La forma di D2 li vuole in una sola risposta.
+6. **Niente `fileFilter` in multer**: ogni file entro il limite hard viene salvato, e il tipo lo verifica il
+   validatore guardando i byte reali. Tutti gli errori sulle immagini nascono così in un solo punto, senza
+   bisogno di uno stato appeso alla richiesta per passare i rifiuti dal filtro alla validazione. Il costo è
+   la scrittura temporanea su disco di un file non valido, cancellato subito dopo.
+7. **Il prezzo resta una stringa** nel DTO: in virgola mobile 0.1 + 0.2 non fa 0.3, e la colonna è
+   `DECIMAL(10,2)`. La conversione avverrà in F6, senza passare dai numeri a virgola mobile.
+
+### Il debito su `image-size`, chiuso
+
+Verificato nel sorgente della libreria: il rilevatore sceglie il formato dal primo byte e, se quel formato non
+si conferma, **prova in ordine tutti i 20 formati**, compresi i tre con i parser vulnerabili. Due difese
+indipendenti in `image-inspection.ts`:
+
+- i **magic bytes** di JPEG (FF D8 FF) e PNG (8 byte) vengono verificati prima di chiamare la libreria; con
+  quei byte i validatori di ICNS, HEIF e JXL non possono riconoscere il file;
+- **`disableTypes`** disattiva nella libreria ogni formato tranne JPG e PNG, così anche un cambiamento futuro
+  del rilevatore non porterebbe al parser di un formato vulnerabile. Un test lo verifica passando un GIF
+  valido direttamente a `imageSize`.
+
+Con l'occasione la lettura del file è diventata asincrona: il legacy usava `readFileSync`, che blocca tutte le
+richieste per la durata della lettura.
+
+### Comportamenti cambiati di proposito (fissati in test)
+
+- `GET /products` paginata (vedi sopra); un errore inatteso risponde 500 invece di `403 Errore server`.
+- Limite hard superato: **413** invece di 400, stesso messaggio.
+- File in un campo diverso da `image` o multipart malformato: 400 con messaggio italiano (il legacy
+  aggiungeva un errore inglese raggruppato sotto una chiave `undefined`).
+- File temporanei sempre cancellati in caso di errore.
+- Il messaggio sul peso usa il numero validato: niente più "3# in MB MB".
+
+### Da ricordare in F5
+
+- Resta legacy solo `GET /routes`: con lei spariscono `listRoutes.ts`, `listRoutesController.ts`,
+  `responseFormatter.ts`, i metodi `res.success/res.error` in `types/express.d.ts`, `mountLegacyRouters` e il
+  test "vince il router legacy" di `nestHosting.test.ts`. `SHOW_ROUTES` esce dal contratto di `.env` (D8).
+- Valutare il ritorno al body parser di NestJS (§9, punto 2) senza perdere "errore json: ...".
+- Pagina e totale non sono in transazione; `createProduct` deve salvare prodotto e immagine insieme: entrambi
+  temi per F6. Un indice per l'elenco degli admin (`createdBy`, `createdAt`, `id`) è il prossimo passo naturale
+  del percorso PostgreSQL, da affrontare con `EXPLAIN` e non in anticipo.
+
+---
+
+## 13. Cosa questo assessment non copre
 
 - **Il frontend**, fermo allo scaffold Vite, non è toccato. Il backend continua a servire solo JSON e
   a permettere CORS da `localhost:3000`.
