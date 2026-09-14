@@ -1,6 +1,6 @@
 # Assessment: migrazione da Express a NestJS
 
-Stato: **F0, F1 e F2 completate** (registri in §8, §9 e §10); prossima fase **F3**. Segue il metodo già usato per la migrazione a Prisma:
+Stato: **F0–F3 completate** (registri in §8–§11); prossima fase **F4**. **Quattro decisioni aperte** in §11. Segue il metodo già usato per la migrazione a Prisma:
 prima questo report (inventario, punti critici, decisioni da prendere), poi il via libera, poi
 l'implementazione a commit incrementali.
 
@@ -375,7 +375,7 @@ sessione serale.
 | **F0** ✅ | Dipendenze, flag dei decoratori in `tsconfig`, fix di `test_backend`, D7 (fix arità + test). Nessun cambio di comportamento voluto, tranne D7. **Fatta**, vedi §8 | 1 |
 | **F1** ✅ | `main.ts`, `AppModule`, `PrismaService`, `ConfigModule` con validazione (**spostata qui da F0**: `ConfigModule.forRoot({ validate })` richiede un grafo dei moduli, che in F0 non esiste ancora), interceptor + exception filter + logger. NestJS fa da host e **monta tutti i router legacy** via `app.use()`. I 4 test e2e ripuntati sul TestingModule. **Checkpoint: 145 verdi** — è qui che la strategia si dimostra | 1-2 |
 | **F2** ✅ | CustomerModule (3 endpoint, nessun guard, nessun upload): il dominio più semplice, stabilisce l'idioma controller/service/DTO e applica D1+D2 | 1 |
-| **F3** | AuthUserGuard, `@CurrentUser()`, UserModule (6 endpoint). Muoiono `authUserMiddleware` e i quattro controlli ridondanti di `profileUserController` | 2 |
+| **F3** ✅ | AuthUserGuard, `@CurrentUser()`, UserModule (6 endpoint). Muoiono `authUserMiddleware` e i quattro controlli ridondanti di `profileUserController` | 2 |
 | **F4** | ProductModule: `GET /products` e tutta la catena di upload/validazione (la parte difficile). Qui rientra la **paginazione** sospesa dal percorso PostgreSQL, dato che l'handler viene riscritto comunque | 2-3 |
 | **F5** | Rimozione dello scaffolding legacy e del codice morto (D8, D9), uscita di `express-validator`, aggiornamento di `AGENTS.md`, `CLAUDE.md`, `API.md`, `TESTING.md`, `CHECKPOINT.md` e del Design Decisions Log | 1 |
 | **F6** | `createProduct` implementato nativamente in NestJS, con transazione. È l'obiettivo di apprendimento rinviato, e **qui il protocollo di trade-off sui dati si attiva davvero** (Concurrency, Duplication) | 1-2 |
@@ -712,7 +712,109 @@ Da decidere prima di F3, perché la stessa scelta varrà per la registrazione de
 
 ---
 
-## 11. Cosa questo assessment non copre
+## 11. Registro di esecuzione — F3 (completata il 2026-09-14)
+
+Stato finale: **35 suite / 197 test verdi**, type-check pulito, lint con il solo warning pre-esistente.
+Verificato anche sull'app in esecuzione: registrazione, profilo, rifiuto dello schema `Basic`, logout, e
+soprattutto la **compatibilità incrociata**: un token firmato da NestJS è accettato dal middleware legacy dei
+prodotti, e dopo il logout lo rifiutano entrambi con "Token non più valido".
+
+Conteggio: 181 − 27 test legacy + 43 nuovi = 197. Rimossi `authUserController` (5), `profileUserController`
+(9), `authService` (5), `registerService` (4) e 4 dei 5 test di `tokenService`. I loro casi sono in
+`credentialsService`, `userAuthService`, `userProfileService`, `jwtUserStrategy`, `authUserGuard` e in 11
+casi nuovi di `userRoutes`.
+
+**Le 11 asserzioni end-to-end che esistevano per lo User sono passate invariate al primo avvio riuscito
+dell'app**, compresa l'invalidazione del token al logout: il guard con passport riproduce i cinque messaggi
+del middleware legacy.
+
+### Fatto
+
+- `modules/auth/`: `CredentialsService` (hash, confronto password, firma e salvataggio dei token),
+  `JwtUserStrategy` (con `passReqToCallback: true`), `AuthUserGuard`, `@CurrentUser()`, `AuthModule` con
+  `JwtModule.registerAsync` su `ConfigService`, e il DTO di login condiviso dalle due identità.
+- `modules/user/`: controller con le 6 rotte, `UserAuthService`, `UserProfileService`, 3 DTO.
+- `@ResponseMessage()` in `common/decorators/`, letto dall'interceptor con il `Reflector`: è il meccanismo
+  del messaggio di successo, rinviato da F1 finché non c'era un chiamante.
+- Aggiunta **`@nestjs/jwt`** 12.0.1: non era nell'assessment. È il compagno standard di `@nestjs/passport`,
+  scelto con lo stesso criterio di riconoscibilità della decisione D3. Audit invariato.
+- Rimossi `routes/adminRoutes.ts`, `routes/userRoutes.ts` (e il mount `/admin`, nello stesso commit),
+  `controllers/user/`, `services/authService.ts`, `services/registerService.ts`. `services/tokenService.ts`
+  ridotto al solo `JWT_SECRET`, che serve ancora al middleware legacy dei prodotti fino a F4.
+
+### Cose emerse solo implementando
+
+1. **L'app non partiva: "Nest can't resolve dependencies of the AuthUserGuard".** Due cause, trovate nel
+   sorgente installato dopo che la prima ipotesi (ri-esportare `PassportModule`) si era rivelata sbagliata.
+   Primo: `PassportModule` importato senza `register()` non fornisce **nessun** provider, quindi
+   `AuthModuleOptions` non esisteva. Secondo: in `AuthGuard` quella dipendenza è `@Optional`, ma
+   l'injector di NestJS 12 legge il flag con `Reflect.getOwnMetadata`, cioè solo sulla classe stessa. Una
+   sottoclasse come `AuthUserGuard` eredita il tipo del parametro, **non** il fatto che sia opzionale.
+   Soluzione: `PassportModule.register({})`, esportato da AuthModule.
+2. **Importare passport ha rotto il type-check di un file legacy mai toccato.** `@types/passport`
+   dichiara `Express.User`, e dentro `namespace Express` il nome `User` del file dei tipi del progetto ha
+   smesso di indicare il tipo di Prisma: `req.user` è diventato un'interfaccia vuota, e `productController`
+   non poteva più leggere `level`. È uno *shadowing* di un nome. La soluzione prevista da passport è
+   estendere `Express.User` con il tipo di Prisma, invece di dichiarare `user` due volte.
+3. **L'unione discriminata `AuthResult` di F2 è sparita**, e va detto perché: esisteva per il codice
+   legacy di User, che doveva tradurre un esito in `res.error`. In F3 nessun chiamante ha più bisogno di un
+   codice di ritorno, quindi `CredentialsService.authenticate` lancia direttamente. È servita per una fase,
+   ed è stata una scelta giusta per quella fase.
+4. **`CredentialsService.authenticate` accetta anche l'entità `null`.** Il "non trovato" fa parte
+   dell'esito del login: gestirlo lì evita che i due service di identità ripetano lo stesso controllo con lo
+   stesso messaggio. Così **i messaggi del 401 di login stanno in un solo punto**, che è dove si applicherà
+   la decisione B qui sotto.
+5. **Il costo di bcrypt era scritto a mano in tre punti** (registrazione User, registrazione Customer,
+   cambio password): ora è una costante sola.
+6. **Una precisazione onesta su `@CurrentUser()`.** TypeScript non verifica che ciò che un decoratore di
+   parametro restituisce corrisponda al tipo scritto accanto al parametro. A rendere vero `user: User` è il
+   controllo a runtime nel decoratore, che lancia se l'utente manca. Il guadagno rispetto a `req.user!` è
+   che l'assenza non passa più in silenzio: `nestHosting.test.ts` lo verifica con una rotta senza guard.
+
+### Comportamenti cambiati di proposito (tutti fissati in test)
+
+- **Schema `Bearer` obbligatorio.** Il middleware legacy prendeva la seconda parola dell'header
+  qualunque fosse lo schema, e accettava un token valido anche come `Basic <token>`.
+- **Un errore interno durante l'autenticazione risponde 500**, non più `401 Token scaduto o non valido`.
+  Nel legacy un database irraggiungibile sembrava un token sbagliato, e il client avrebbe fatto logout
+  invece di riprovare.
+- **Algoritmo dei token fissato a HS256** in firma e in verifica, e un payload senza `id` intero è
+  rifiutato con un 401 prima di arrivare a Prisma. Difese in più, invisibili per un client corretto.
+- **I 500 di profilo, cambio password e logout hanno il messaggio generico** del filter invece dei messaggi
+  dedicati dei controller legacy.
+- Campi non stringa → 400; campi non previsti (compreso `level` in registrazione) scartati.
+
+### Decisioni aperte
+
+Tutte conservano oggi il comportamento legacy, e ognuna si applica in **un solo punto** del codice. Le prime
+tre toccano la sicurezza e il contratto, quindi secondo il protocollo di AGENTS.md servono scelte esplicite.
+
+| | Domanda | Opzioni | Dove si applica |
+|---|---|---|---|
+| **A** | Email già registrata (User e Customer) | (a) 500 generico, come oggi; (b) 409 "Email già registrata" | `register` dei due service di identità: intercettare solo l'errore Prisma P2002 |
+| **B** | Messaggio del 401 di login | (a) due messaggi, come oggi: rivelano quali email sono registrate; (b) un unico "Credenziali non valide" | `CredentialsService.authenticate` |
+| **C** | Il cambio password invalida il token? | (a) no, come oggi: un token rubato sopravvive al cambio password; (b) sì, azzerando `current_token`: il client deve rifare login; (c) sì, emettendo e restituendo un nuovo token: `data` diventa il token invece di `{}` | `UserAuthService.changePassword` |
+| **D** | Formato dell'email per gli User | (a) nessun controllo, come oggi (i Customer invece lo hanno); (b) `@IsEmail` in registrazione e aggiornamento profilo, come per i Customer | `RegisterUserDto`, `UpdateProfileDto` |
+
+Pro e contro in sintesi. **A**: vedi §10. **B**: (b) toglie a un attaccante un modo di scoprire gli
+account, al prezzo di un messaggio meno preciso per chi ha sbagliato email; A(b) rivelerebbe comunque
+l'esistenza di un'email in registrazione, quindi A e B vanno decise insieme. **C**: (a) contraddice il
+pattern di invalidazione che CLAUDE.md descrive come intenzionale; (b) è la più semplice e sicura; (c) evita
+di disconnettere l'utente ma cambia la forma della risposta. **D**: (b) rende coerenti le due identità e
+impedisce di salvare email inservibili, ma rifiuta con un 400 richieste che oggi vengono accettate.
+
+### Da ricordare in F4
+
+- `ProductModule` userà `AuthUserGuard` e `@CurrentUser()`: con la migrazione dei prodotti spariscono
+  `authUserMiddleware`, `services/tokenService.ts` e l'estensione di `Express.Request` per `validationErrors`.
+- Il test "vince il router legacy" in `nestHosting.test.ts` va spostato su una rotta ancora legacy
+  (`GET /routes`, fino a F5) o rimosso.
+- Restano da F1–F2: `MAX_FILE_SIZE` nel contratto dell'ambiente (dopo la correzione del `.env` locale), il
+  debito su `image-size`, la paginazione di `GET /products`.
+
+---
+
+## 12. Cosa questo assessment non copre
 
 - **Il frontend**, fermo allo scaffold Vite, non è toccato. Il backend continua a servire solo JSON e
   a permettere CORS da `localhost:3000`.

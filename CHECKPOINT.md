@@ -708,7 +708,7 @@ da cui recuperare col cherry-pick solo ciò che merita.
 
 **Branch corrente: `feature/migrazione-nestjs`** (NON ancora pushato, oltre
 `feature/seed-dati-sviluppo`, che a sua volta è 1 commit oltre `main`). `main` contiene tutte e tre le
-migrazioni completate. Suite (aggiornata al 2026-09-14, dopo F2): **34 suite / 181 test verdi**,
+migrazioni completate. Suite (aggiornata al 2026-09-14, dopo F3): **35 suite / 197 test verdi**,
 type-check pulito, lint con 1 solo warning pre-esistente (`hardLimitMB` in
 `handleMulterErrorsMiddleware.ts`). **Runtime: Node 24** — i test vanno lanciati con `npm test` (che
 imposta `--experimental-vm-modules`), mai con `npx jest` nudo.
@@ -740,7 +740,7 @@ complesse e N+1.
   perché le statistiche erano ferme a "tabella vuota". Risolto con `ANALYZE products`. È la causa
   classica del "dopo l'import dei dati è diventato lento".
 
-### Migrazione a NestJS: assessment FATTO, fasi F0, F1 e F2 FATTE
+### Migrazione a NestJS: assessment FATTO, fasi F0–F3 FATTE
 
 **Documento di riferimento: `backend/docs/MIGRAZIONE-NESTJS.md`.** Contiene inventario, mappatura
 Express → NestJS pezzo per pezzo, le dieci decisioni con il loro esito, il piano in sette fasi e il
@@ -816,16 +816,26 @@ adattati **per primi** (F1), non per ultimi.
 - Primo test di un service con Prisma finto passato dal container (`customerAuthService.test.ts`), senza
   `jest.mock`.
 
-**Decisione aperta da prendere prima di F3** (protocollo AGENTS.md, categoria Duplication): l'email già
-registrata deve restare un 500 generico o diventare un 409 "Email già registrata"? Opzioni con pro e contro
-in §10 del documento. Nella stessa occasione: messaggio unico del 401 per non rivelare quali email esistono?
+**Fatto in F3** (2026-09-14, registro completo in §11 del documento):
 
-**Il prossimo passo è F3**: UserModule (6 endpoint), guard con `@nestjs/passport` + `passport-jwt` (D3), il
-decoratore `@CurrentUser()`, e le funzioni di sicurezza condivise trasformate in provider. Punto delicato già
-noto (§4.2): per confrontare il token con `current_token` serve `passReqToCallback: true`, altrimenti un token
-revocato al logout verrebbe accettato.
+- **Dominio User migrato**: `modules/user/` (6 rotte). Autenticazione con `@nestjs/passport` +
+  `passport-jwt` in `modules/auth/`: `JwtUserStrategy` (con `passReqToCallback: true`, verificato),
+  `AuthUserGuard` con i cinque messaggi del legacy, `@CurrentUser()`.
+- La logica di sicurezza condivisa è ora un provider, `CredentialsService`; firma dei token con
+  `@nestjs/jwt` configurato da `ConfigService`. Rimossi `authService.ts`, `registerService.ts`, i controller
+  e le rotte degli User; `tokenService.ts` ridotto al solo segreto per il middleware legacy dei prodotti.
+- Due trappole trovate nel sorgente di NestJS e passport, documentate: `PassportModule` va registrato con
+  `register()`, e i tipi di passport oscurano il nome `User` nel namespace di Express.
 
-Stima residua: 6-9 sessioni serali (F3→F6).
+**Quattro decisioni aperte** (§11 del documento, tabella con opzioni e pro/contro): A) email duplicata 500
+o 409; B) messaggio unico per il 401 di login; C) il cambio password deve invalidare il token?; D) formato
+dell'email per gli User. Tutte conservano oggi il comportamento legacy, e ognuna si applica in un punto solo.
+
+**Il prossimo passo è F4**: ProductModule, `GET /products` con paginazione, e l'intera catena di upload e
+validazione delle immagini — la fase con le incognite vere (FileValidator custom, `image-size`,
+`MAX_FILE_SIZE`). Con F4 spariscono anche `authUserMiddleware` e `tokenService.ts`.
+
+Stima residua: 4-7 sessioni serali (F4→F6).
 
 ### Cose in sospeso, non urgenti
 

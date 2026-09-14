@@ -21,7 +21,7 @@ All backend code is located in `/backend`.
     - **Responsibility:** Validate inputs, call Services, handle HTTP responses. NO core business logic here.
 - `/backend/services`: **Business Logic Layer.**
     - **Rule:** All complex logic (calculations, database transactions) goes here.
-    - **Naming:** `[Entity]Service.ts` (e.g., `authService.ts`).
+    - **Naming:** `[Entity]Service.ts` for legacy code. Migrated domains keep their services inside `modules/<domain>/` (`*.service.ts`). What remains here after F3: `emailNormalizer.ts` (pure function, used by NestJS services too) and a reduced `tokenService.ts` (only `JWT_SECRET` for the legacy product middleware, removed in F4).
 - `/backend/prisma`: **Data Layer.**
     - `schema.prisma` is the single source of truth for the data model; the typed
       client is generated from it. There is no `models/` directory anymore, and no
@@ -36,7 +36,7 @@ All backend code is located in `/backend`.
     - **IMPORTANT:** Always check this folder before writing new validation logic.
     - Use `responseFormatter.js` for consistent JSON responses.
     - Global error handling is `common/filters/all-exceptions.filter.ts` (NestJS). `errorMiddleware` and `noPathMiddleware` no longer exist.
-- `/backend/modules/<domain>`: NestJS domain modules (module, controller, service, `dto/`). Migrated so far: `customer`. A domain's legacy router, controllers and service functions are removed in the same commit its module is born.
+- `/backend/modules/<domain>`: NestJS domain modules (module, controller, service, `dto/`). Migrated so far: `customer`, `user`; `auth` holds the security logic shared by both identities (`CredentialsService`, `JwtUserStrategy`, `AuthUserGuard`, `@CurrentUser()`). A domain's legacy router, controllers and service functions are removed in the same commit its module is born.
 - `/backend/common`: NestJS cross-cutting infrastructure — `filters/`, `interceptors/`, `logger/`, `validation/`. New NestJS files follow the Nest naming convention (`*.module.ts`, `*.filter.ts`, `*.interceptor.ts`); the camelCase legacy files disappear as their domains migrate.
 - `/backend/routes`: Express routers. Grouped by domain.
 - `/backend/__tests__`: All Jest test files reside here.

@@ -92,21 +92,29 @@ Entrambe usano JWT firmati con `JWT_SECRET` (env var). Il token va passato nell'
 Authorization: Bearer <token>
 ```
 
-Solo le route **User** sono attualmente protette da un middleware di autenticazione
-(`authUserMiddleware`): non esiste un middleware equivalente per `Customer`, quindi al momento non ci sono
-route customer protette da login (vedi [Problemi noti](#problemi-noti--comportamenti-da-tenere-a-mente)).
+Solo le route **User** sono protette da autenticazione: non esiste un meccanismo equivalente per
+`Customer`, quindi al momento non ci sono route customer protette da login (vedi
+[Problemi noti](#problemi-noti--comportamenti-da-tenere-a-mente)).
 
-`authUserMiddleware` verifica il JWT **e** che coincida con la colonna `current_token` sul record `User`
-nel DB — un token è quindi valido solo se è l'ultimo emesso per quell'utente (permette l'invalidazione al
-logout). Risposte di errore possibili su qualunque route protetta:
+Dalla fase F3 della migrazione a NestJS le route User sono protette da `AuthUserGuard`
+(`modules/auth/`, con `@nestjs/passport` e `passport-jwt`); le route legacy dei prodotti usano ancora
+`authUserMiddleware`, con gli stessi messaggi. Entrambi verificano il JWT **e** che coincida con la colonna
+`current_token` sul record `User` nel DB: un token è quindi valido solo se è l'ultimo emesso per
+quell'utente (permette l'invalidazione al logout). Risposte di errore possibili su qualunque route
+protetta:
 
 | Condizione | Status | `error` |
 |---|---|---|
 | Header `Authorization` assente | 401 | `Token mancante` |
-| Header presente ma senza token dopo lo split su spazio | 401 | `Formato token non valido` |
+| Header presente ma non nella forma `Bearer <token>` | 401 | `Formato token non valido` |
 | JWT scaduto o firma non valida | 401 | `Token scaduto o non valido` |
 | Utente decodificato non esiste più nel DB | 401 | `Utente non trovato` |
 | Token valido ma diverso da `current_token` (es. dopo logout) | 401 | `Token non più valido` |
+
+> **Cambio della fase F3, solo sulle route NestJS:** lo schema dell'header deve essere `Bearer`. Il
+> middleware legacy prendeva la seconda parola dell'header qualunque fosse lo schema, quindi accettava anche
+> `Basic <token>`. Inoltre un errore interno durante la verifica (es. database irraggiungibile) risponde
+> 500 invece di mascherarsi da `401 Token scaduto o non valido`.
 
 ---
 
@@ -167,8 +175,10 @@ Registra un nuovo cliente storefront.
 
 ## Admin / User API (mounted at `/admin/user`)
 
-Definite in `routes/userRoutes.js` (montate da `routes/adminRoutes.js` sotto `/admin/user`), controller in
-`controllers/user/authUserController.js` e `controllers/user/profileUserController.js`.
+**Servite da NestJS dalla fase F3 della migrazione**: controller `modules/user/user.controller.ts`, logica
+in `modules/user/user-auth.service.ts` e `modules/user/user-profile.service.ts`, sicurezza condivisa in
+`modules/auth/`. In tutte le rotte con body, i campi non elencati vengono **ignorati**; un campo testuale
+che non è una stringa produce un 400 (fino alla fase F3 poteva produrre un 500).
 
 ### `POST /admin/user/register`
 
@@ -177,19 +187,20 @@ Definite in `routes/userRoutes.js` (montate da `routes/adminRoutes.js` sotto `/a
 | Campo | Tipo | Obbligatorio |
 |---|---|---|
 | `name` | string | sì |
-| `email` | string | sì |
+| `email` | string (il formato **non** è verificato) | sì |
 | `password` | string | sì |
 
 - **200** → `data`: token JWT, payload `{ id, email }`, **scade dopo 1 ora**
-- **400** → errori di validazione
-- **500** → errore generico (es. email duplicata)
+- **400** → errori di validazione raggruppati per campo, un messaggio per campo
+- **500** → errore generico `"Qualcosa è andato storto!"` (es. email duplicata; decisione aperta su un 409)
 
 Nota: `level` non è impostabile in registrazione — viene sempre creato come `admin` (default del modello
-`User`); non esiste un endpoint per creare un `superadmin`, va fatto manualmente sul DB.
+`User`), e un `level` inviato nel body viene scartato. Non esiste un endpoint per creare un `superadmin`,
+va fatto manualmente sul DB.
 
 ### `POST /admin/user/login`
 
-**Body** (JSON): `email`, `password` (entrambi obbligatori).
+**Body** (JSON): `email`, `password` (entrambi obbligatori, stringhe).
 
 - **200** → `data`: token JWT, payload `{ id, email }`, **scade dopo 1 ora**
 - **400** → errori di validazione
@@ -200,7 +211,7 @@ Nota: `level` non è impostabile in registrazione — viene sempre creato come `
 
 Richiede `Authorization: Bearer <token>`.
 
-- **200** → `data`: `{ id, name, email, level }`
+- **200** → `data`: `{ id, name, email, level }` (mai password né token)
 
 ### `PATCH /admin/user` 🔒
 
@@ -210,35 +221,39 @@ Aggiorna nome/email del proprio profilo.
 
 | Campo | Tipo | Obbligatorio |
 |---|---|---|
-| `name` | string | sì (per il validator) |
-| `email` | string | sì (per il validator) |
+| `name` | string | sì |
+| `email` | string | sì |
 
 - **200** → `data`: `{ id, name, email }`
 - **400** → errori di validazione
-- **500** → `Errore durante l'aggiornamento del profilo`
+- **500** → errore generico `"Qualcosa è andato storto!"` (fino alla fase F3:
+  `Errore durante l'aggiornamento del profilo`)
 
-> Il validator richiede **entrambi** i campi non vuoti, anche se il controller supporta di fatto
-> l'aggiornamento parziale (`if (name) user.name = name`). In pratica oggi non è possibile aggiornare solo
-> `name` o solo `email` in una singola richiesta, perché la validazione blocca prima la richiesta.
+> Entrambi i campi sono obbligatori: oggi non è possibile aggiornare solo `name` o solo `email` in una
+> singola richiesta. Renderli opzionali cambierebbe il contratto, quindi non è stato fatto durante la
+> migrazione.
 
 ### `PATCH /admin/user/password` 🔒
 
-**Body** (JSON): `oldPassword`, `newPassword` (entrambi obbligatori).
+**Body** (JSON): `oldPassword`, `newPassword` (entrambi obbligatori, stringhe).
 
 - **200** → `data: {}`, `message: "Password aggiornata con successo"`
 - **400** → `La vecchia password non corrisponde` (oltre ai normali errori di validazione sui campi mancanti)
-- **500** → `Errore durante il cambio della password`
+- **500** → errore generico `"Qualcosa è andato storto!"` (fino alla fase F3:
+  `Errore durante il cambio della password`)
 
 > ⚠️ Questo endpoint **non invalida `current_token`**: il vecchio JWT continua a funzionare anche dopo il
 > cambio password. Questo contraddice il pattern di invalidazione descritto in `CLAUDE.md`
-> ("i flussi di password/2FA dovrebbero fare lo stesso" del logout, cioè azzerare `current_token`) — vedi
+> ("i flussi di password/2FA dovrebbero fare lo stesso" del logout, cioè azzerare `current_token`). È
+> conservato dalla migrazione e fissato in un test, come decisione aperta — vedi
 > [Problemi noti](#problemi-noti--comportamenti-da-tenere-a-mente).
 
 ### `POST /admin/user/logout` 🔒
 
 - **200** → `data: {}`, `message: "Logout effettuato con successo"`. Imposta `current_token = null`: da
-  questo momento il vecchio token restituisce `401 Token non più valido` su qualsiasi route protetta.
-- **500** → `Errore durante il logout`
+  questo momento il vecchio token restituisce `401 Token non più valido` su qualsiasi route protetta,
+  comprese quelle legacy dei prodotti.
+- **500** → errore generico `"Qualcosa è andato storto!"` (fino alla fase F3: `Errore durante il logout`)
 
 ---
 

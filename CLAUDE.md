@@ -101,7 +101,7 @@ npm run dev     # nest start --watch, debugger su 0.0.0.0:9229; compila in dist/
 npm run build   # nest build: compila in dist/ (con tsconfig.build.json)
 npm start       # node dist/main, senza watch né debugger
 npm test        # jest (i file di test sono in backend/__tests__/*.test.ts)
-npm test -- authService.test.ts   # esegue un singolo file di test
+npm test -- credentialsService.test.ts   # esegue un singolo file di test
 npm run lint    # eslint . --fix
 npm run type-check   # tsc --noEmit
 ```
@@ -180,7 +180,7 @@ variabile), `DB_ROOT_PASSWORD`, `DB_NAME`, e le porte pubblicate sull'host (`BAC
 
 **Nessuna di queste ha un fallback**: sia `docker-compose.yml` (via la sintassi `${VAR:?messaggio}`, che
 fa fallire `docker compose` prima ancora di creare un container se una variabile manca) sia il codice Node
-(`config/env.validation.ts`, `services/tokenService.ts`, `config/databaseUrl.ts`) si rifiutano esplicitamente di partire
+(`config/env.validation.ts`, `services/tokenService.ts` finché esiste, `config/databaseUrl.ts`) si rifiutano esplicitamente di partire
 con un errore leggibile se una di queste manca da `.env`, invece di far partire l'app con un valore
 indovinato in silenzio. L'unica eccezione deliberata è `NODE_ENV`, letto in `config/databaseUrl.ts` e
 `prisma/client.ts` senza obbligo: non fa parte del contratto di `.env` di questo progetto, è una
@@ -206,27 +206,32 @@ Ci sono due entità autenticate separate, con tabelle, route e controller indipe
 gerarchia condivisa di tipo "User":
 
 - **User** (modello `User` in `prisma/schema.prisma`) — account interni/admin, `level` enum
-  `admin`/`superadmin`, montato su `/admin/user` (vedi `routes/adminRoutes.ts` → `routes/userRoutes.ts`).
-  `authUserMiddleware` protegge queste route e valorizza `req.user`.
+  `admin`/`superadmin`, montato su `/admin/user`. **Migrato a NestJS in F3**: `modules/user/`. Le rotte
+  protette usano `@UseGuards(AuthUserGuard)` (passport + passport-jwt, in `modules/auth/`) e ricevono
+  l'utente con `@CurrentUser()`. Il middleware legacy `authUserMiddleware` resta solo per le rotte dei
+  prodotti, fino a F4.
 - **Customer** (modello `Customer` in `prisma/schema.prisma`) — clienti dello storefront, montato su `/`.
   **Migrato a NestJS in F2**: `modules/customer/` (controller, `CustomerAuthService`, DTO).
 
 Entrambi condividono la stessa meccanica di autenticazione, ma **non** tramite una funzione generica sul
-modello. Per User: `authenticateUser` in `services/authService.ts` e `registerUser` in
-`services/registerService.ts` (legacy). Per Customer: i metodi `login` e `register` di
-`modules/customer/customer-auth.service.ts` (NestJS). A essere condivisa è la logica di
-sicurezza, non la query: `completeAuthentication` (confronto bcrypt, firma del token, persistenza di
-`current_token`) e `issueTokenFor` ricevono l'entità **già letta**, e l'unica cosa specifica per entità
-resta la chiamata a Prisma. Non duplicare la logica di login/registrazione: se serve una terza entità
-autenticata, aggiungi la sua query e riusa queste funzioni condivise — oggi esportate da `authService.ts`
-e `registerService.ts` proprio perché le usano sia il codice legacy di User sia il service NestJS di
-Customer. `AuthResult` è un'unione discriminata: dopo `if (result.success)` il `token` è garantito.
+modello. Ogni identità ha il proprio service, che legge la propria tabella: `UserAuthService`
+(`modules/user/`) e `CustomerAuthService` (`modules/customer/`). A essere condivisa è la logica di
+sicurezza, non la query: `CredentialsService` (`modules/auth/credentials.service.ts`) fa hash e confronto
+delle password, firma i token con `JwtService` e li salva tramite una funzione passata dal service
+dell'identità. `authenticate` e `issueTokenFor` ricevono l'entità **già letta**, e lanciano
+`UnauthorizedException` invece di restituire un esito. È anche l'unico punto con i messaggi del 401 di
+login. Non duplicare la logica di login/registrazione: se serve una terza entità autenticata, aggiungi la
+sua query e riusa `CredentialsService`. Segreto, algoritmo (HS256) e scadenza dei token sono configurati
+una sola volta in `modules/auth/auth.module.ts`.
 
 **Pattern di invalidazione del token**: i JWT sono stateful. Al login/registrazione, il token firmato viene
-scritto anche nella colonna `current_token` dell'entità. `authUserMiddleware` decodifica il JWT *e*
-verifica che corrisponda a `current_token` nel DB — questo è ciò che rende possibile invalidare i vecchi
+scritto anche nella colonna `current_token` dell'entità. `JwtUserStrategy` (e, per le rotte legacy dei
+prodotti, `authUserMiddleware`) verifica il JWT *e* che corrisponda a `current_token` nel DB. La strategia
+ha `passReqToCallback: true` proprio per poter rileggere il token grezzo: senza, il confronto non sarebbe
+possibile e un token revocato verrebbe accettato. È questo che rende possibile invalidare i vecchi
 token al logout / cambio password (il logout imposta `current_token = null`; i flussi di
-password/2FA dovrebbero fare lo stesso per qualsiasi entità le cui credenziali cambiano).
+password/2FA dovrebbero fare lo stesso per qualsiasi entità le cui credenziali cambiano — oggi il cambio
+password NON lo fa, comportamento legacy conservato e decisione aperta di F3).
 
 **Normalizzazione delle email (case-sensitivity)**: le email sono sempre salvate e cercate in minuscolo,
 tramite `services/emailNormalizer.ts`. Non è un vezzo: su MySQL la collation case-insensitive di default
@@ -234,10 +239,9 @@ rendeva `Mario@x.com` e `mario@x.com` lo stesso valore (il vincolo `UNIQUE` rifi
 login funzionava con qualunque casing), mentre PostgreSQL confronta le stringhe in modo case-sensitive —
 senza normalizzazione diventerebbero due account distinti per la stessa identità, ognuno col proprio
 `current_token`, vanificando il pattern di invalidazione descritto sopra. La regola va applicata
-esplicitamente in **ogni** punto che scrive o cerca un'email: oggi sono `authService.authenticateUser` e
-`CustomerAuthService.login` (login), `registerService.registerUser` e `CustomerAuthService.register`
-(registrazione) e `profileUserController.updateProfileUser` (che scrive
-fuori dai services condivisi). Scelta deliberata di una funzione esplicita invece di un meccanismo
+esplicitamente in **ogni** punto che scrive o cerca un'email: oggi sono `UserAuthService.login` e
+`CustomerAuthService.login` (login), `UserAuthService.register` e `CustomerAuthService.register`
+(registrazione) e `UserProfileService.updateProfile` (aggiornamento del profilo). Scelta deliberata di una funzione esplicita invece di un meccanismo
 automatico dell'ORM (un tempo un hook `beforeSave` di Sequelize, oggi una Prisma Client Extension): non
 coprirebbe la query di lettura del login e renderebbe la regola stato nascosto (vedi Design Decisions Log
 in AGENTS.md). `Category.name` e `Product.sku` restano invece **case-sensitive**: lì
@@ -362,9 +366,9 @@ fissi, (2) ripulisci sempre quello che crei.
 funzione usata dai test. Ordine effettivo della catena: `responseFormatter` → CORS → `express.json()` →
 `jsonSyntaxErrorMiddleware` → **router legacy** → rotte NestJS → 404 NestJS → gestore errori NestJS.
 
-Domini già su NestJS: Customer (`POST /register`, `POST /login`, in `modules/customer/`) e l'health-check
-`GET /` (`health.controller.ts`). I router legacy ancora montati (in `mountLegacyRouters`): `/admin` →
-route admin (al momento solo `/admin/user`), `/products` → route prodotto, più `listRoutes` (elenco route
-di debug, dietro `SHOW_ROUTES=true`). **Su uno stesso metodo e percorso vince sempre il router legacy**, perché viene
+Domini già su NestJS: Customer (`POST /register`, `POST /login`, in `modules/customer/`), User (le 6 rotte
+sotto `/admin/user`, in `modules/user/`) e l'health-check `GET /` (`health.controller.ts`). I router
+legacy ancora montati (in `mountLegacyRouters`): `/products` → route prodotto, più `listRoutes` (elenco
+route di debug, dietro `SHOW_ROUTES=true`). **Su uno stesso metodo e percorso vince sempre il router legacy**, perché viene
 registrato prima: quando un dominio migra a NestJS, il suo router va tolto da `mountLegacyRouters` nello
 stesso commit (verificato in `__tests__/nestHosting.test.ts`).

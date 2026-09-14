@@ -192,6 +192,11 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
   TestingModule verifica anche che NestJS sappia risolvere quel costruttore. Dare al Prisma finto solo i
   delegate che il service deve usare rende un accesso indebito (es. alla tabella `users` da un service del
   dominio Customer) un errore immediato.
+- **Service che firmano token** → importare `testJwtModule()` da `helpers/testJwtModule.ts` nel
+  TestingModule. Usa la stessa funzione di opzioni di AuthModule (`jwtModuleOptions`) con un segreto di
+  test: algoritmo e forma della scadenza restano quelli di produzione, e il test non dipende dal
+  `JWT_SECRET` reale di `.env`. Il collegamento con la configurazione reale è verificato una volta sola,
+  end-to-end, in `userRoutes.test.ts`.
 - **Eseguire Jest sempre tramite `npm test`**, mai con `npx jest` nudo: lo script imposta
   `NODE_OPTIONS=--experimental-vm-modules`, senza il quale ogni suite che importa NestJS fallisce con
   "Must use import to load ES Module".
