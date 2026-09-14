@@ -186,6 +186,12 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
   una richiesta HTTP vera, anche se non c'è nessuna route nuova da testare. Dalla fase F1 ne fa parte anche
   `nestHosting.test.ts`, che verifica la convivenza fra router legacy e rotte NestJS registrando
   controller di prova visibili solo nel test.
+- **Unità di un service NestJS** (es. `customerAuthService.test.ts`) → `Test.createTestingModule` con il
+  service reale e `{ provide: PrismaClient, useValue: prismaFinto }`, **non** `jest.mock('../prisma/client')`.
+  La sostituzione passa dalla dipendenza dichiarata nel costruttore invece che dal percorso di un file, e il
+  TestingModule verifica anche che NestJS sappia risolvere quel costruttore. Dare al Prisma finto solo i
+  delegate che il service deve usare rende un accesso indebito (es. alla tabella `users` da un service del
+  dominio Customer) un errore immediato.
 - **Eseguire Jest sempre tramite `npm test`**, mai con `npx jest` nudo: lo script imposta
   `NODE_OPTIONS=--experimental-vm-modules`, senza il quale ogni suite che importa NestJS fallisce con
   "Must use import to load ES Module".

@@ -112,7 +112,9 @@ logout). Risposte di errore possibili su qualunque route protetta:
 
 ## Customer API (mounted at `/`)
 
-Definite in `routes/customerRoutes.js`, controller in `controllers/customer/authCustomerController.js`.
+**Servite da NestJS dalla fase F2 della migrazione**: controller `modules/customer/customer.controller.ts`,
+logica in `modules/customer/customer-auth.service.ts`, validazione del body nei DTO di
+`modules/customer/dto/`. L'health-check è in `health.controller.ts`.
 
 ### `GET /`
 
@@ -124,21 +126,24 @@ Route di health-check, nessuna autenticazione.
 
 Registra un nuovo cliente storefront.
 
-**Body** (JSON):
+**Body** (JSON). I campi non elencati qui (es. `id`, `current_token`) vengono **ignorati**.
 
 | Campo | Tipo | Obbligatorio |
 |---|---|---|
-| `email` | string | sì |
+| `email` | string, formato email | sì |
 | `password` | string | sì |
 | `firstName` | string | sì |
 | `lastName` | string | sì |
 | `address` | string | sì |
 
 - **200** → `data`: token JWT (stringa), payload `{ id, email }`, **scade dopo 1 ora**
-  (`services/tokenService.js`, stessa policy usata da tutti gli endpoint di login/registrazione)
-- **400** → errori di validazione raggruppati per campo (uno per campo mancante)
-- **500** → errore generico (es. email già registrata → violazione `unique` a livello DB, il messaggio
-  Sequelize grezzo finisce in `error`, non un messaggio "amichevole" in italiano)
+  (`services/tokenService.ts`, stessa policy usata da tutti gli endpoint di login/registrazione)
+- **400** → errori di validazione raggruppati per campo, **un messaggio per campo**: per un campo mancante
+  `"... è richiesto/a"`, per un valore presente ma non valido il motivo (es. `"Email non valida"`,
+  `"Password deve essere un testo"`). Un body assente o un array JSON producono gli stessi errori per campo.
+- **500** → errore generico `"Qualcosa è andato storto!"`. Caso noto: **email già registrata** (violazione
+  del vincolo `unique`). Fino alla fase F2 il messaggio era il testo grezzo dell'errore del database; ora il
+  dettaglio resta solo nei log. Un 409 dedicato è una decisione aperta (`docs/MIGRAZIONE-NESTJS.md`, F2).
 
 ### `POST /login`
 
@@ -146,17 +151,17 @@ Registra un nuovo cliente storefront.
 
 | Campo | Tipo | Obbligatorio |
 |---|---|---|
-| `email` | string | sì |
+| `email` | string (il formato non è verificato) | sì |
 | `password` | string | sì |
 
 - **200** → `data`: token JWT (stringa), payload `{ id, email }`, **scade dopo 1 ora**
-  (`services/tokenService.js`)
-- **400** → errori di validazione (campi mancanti)
+  (`services/tokenService.ts`)
+- **400** → errori di validazione (campi mancanti o non stringa). Fino alla fase F2 un'email non stringa
+  produceva un 500.
 - **401** → `Utente non trovato` oppure `Password errata`
-- **500** → errore generico
+- **500** → errore generico `"Qualcosa è andato storto!"`
 
-> Non esistono ancora endpoint per profilo, cambio password o logout del Customer — il file
-> `controllers/customer/profileCustomerController.js` esiste ma è vuoto e non è collegato a nessuna route.
+> Non esistono ancora endpoint per profilo, cambio password o logout del Customer.
 
 ---
 

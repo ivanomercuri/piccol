@@ -708,7 +708,7 @@ da cui recuperare col cherry-pick solo ciò che merita.
 
 **Branch corrente: `feature/migrazione-nestjs`** (NON ancora pushato, oltre
 `feature/seed-dati-sviluppo`, che a sua volta è 1 commit oltre `main`). `main` contiene tutte e tre le
-migrazioni completate. Suite (aggiornata al 2026-09-13, dopo F1): **33 suite / 174 test verdi**,
+migrazioni completate. Suite (aggiornata al 2026-09-14, dopo F2): **34 suite / 181 test verdi**,
 type-check pulito, lint con 1 solo warning pre-esistente (`hardLimitMB` in
 `handleMulterErrorsMiddleware.ts`). **Runtime: Node 24** — i test vanno lanciati con `npm test` (che
 imposta `--experimental-vm-modules`), mai con `npx jest` nudo.
@@ -740,7 +740,7 @@ complesse e N+1.
   perché le statistiche erano ferme a "tabella vuota". Risolto con `ANALYZE products`. È la causa
   classica del "dopo l'import dei dati è diventato lento".
 
-### Migrazione a NestJS: assessment FATTO, fasi F0 e F1 FATTE
+### Migrazione a NestJS: assessment FATTO, fasi F0, F1 e F2 FATTE
 
 **Documento di riferimento: `backend/docs/MIGRAZIONE-NESTJS.md`.** Contiene inventario, mappatura
 Express → NestJS pezzo per pezzo, le dieci decisioni con il loro esito, il piano in sette fasi e il
@@ -806,12 +806,26 @@ adattati **per primi** (F1), non per ultimi.
 - **Corretto un difetto introdotto in F0**: `test_backend` girava su un'immagine di 9 mesi prima; ora i due
   servizi condividono `image: piccol-backend`.
 
-**Il prossimo passo è F2**: CustomerModule (`GET /`, `POST /register`, `POST /login`), il dominio più
-semplice, che stabilisce l'idioma controller/service/DTO e applica D1 e D2. Tre trappole già note, in §9:
-`@HttpCode(200)` sulle POST (NestJS risponde 201 di default), `customerRoutes` da smontare nello stesso
-commit, `exceptionFactory` della `ValidationPipe` per conservare la forma d'errore raggruppata.
+**Fatto in F2** (2026-09-14, registro completo in §10 del documento):
 
-Stima residua: 7-10 sessioni serali (F2→F6).
+- **Primo dominio migrato: Customer**, in `modules/customer/` (controller, service, DTO). `GET /` è in
+  `health.controller.ts`. Router, controller e funzioni legacy del Customer rimossi nello stesso commit.
+- `ValidationPipe` globale con la forma d'errore raggruppata per campo del progetto (D2).
+- La logica di sicurezza condivisa con User (`completeAuthentication`, `issueTokenFor`) resta in funzioni
+  esportate: diventa un provider in F3, quando migra anche User.
+- Primo test di un service con Prisma finto passato dal container (`customerAuthService.test.ts`), senza
+  `jest.mock`.
+
+**Decisione aperta da prendere prima di F3** (protocollo AGENTS.md, categoria Duplication): l'email già
+registrata deve restare un 500 generico o diventare un 409 "Email già registrata"? Opzioni con pro e contro
+in §10 del documento. Nella stessa occasione: messaggio unico del 401 per non rivelare quali email esistono?
+
+**Il prossimo passo è F3**: UserModule (6 endpoint), guard con `@nestjs/passport` + `passport-jwt` (D3), il
+decoratore `@CurrentUser()`, e le funzioni di sicurezza condivise trasformate in provider. Punto delicato già
+noto (§4.2): per confrontare il token con `current_token` serve `passReqToCallback: true`, altrimenti un token
+revocato al logout verrebbe accettato.
+
+Stima residua: 6-9 sessioni serali (F3→F6).
 
 ### Cose in sospeso, non urgenti
 

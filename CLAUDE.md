@@ -208,16 +208,19 @@ gerarchia condivisa di tipo "User":
 - **User** (modello `User` in `prisma/schema.prisma`) — account interni/admin, `level` enum
   `admin`/`superadmin`, montato su `/admin/user` (vedi `routes/adminRoutes.ts` → `routes/userRoutes.ts`).
   `authUserMiddleware` protegge queste route e valorizza `req.user`.
-- **Customer** (modello `Customer` in `prisma/schema.prisma`) — clienti dello storefront, montato su `/`
-  (`routes/customerRoutes.ts`).
+- **Customer** (modello `Customer` in `prisma/schema.prisma`) — clienti dello storefront, montato su `/`.
+  **Migrato a NestJS in F2**: `modules/customer/` (controller, `CustomerAuthService`, DTO).
 
 Entrambi condividono la stessa meccanica di autenticazione, ma **non** tramite una funzione generica sul
-modello: `services/authService.ts` espone `authenticateUser`/`authenticateCustomer` e
-`services/registerService.ts` espone `registerUser`/`registerCustomer`. A essere condivisa è la logica di
+modello. Per User: `authenticateUser` in `services/authService.ts` e `registerUser` in
+`services/registerService.ts` (legacy). Per Customer: i metodi `login` e `register` di
+`modules/customer/customer-auth.service.ts` (NestJS). A essere condivisa è la logica di
 sicurezza, non la query: `completeAuthentication` (confronto bcrypt, firma del token, persistenza di
 `current_token`) e `issueTokenFor` ricevono l'entità **già letta**, e l'unica cosa specifica per entità
 resta la chiamata a Prisma. Non duplicare la logica di login/registrazione: se serve una terza entità
-autenticata, aggiungi la sua query e riusa queste funzioni condivise.
+autenticata, aggiungi la sua query e riusa queste funzioni condivise — oggi esportate da `authService.ts`
+e `registerService.ts` proprio perché le usano sia il codice legacy di User sia il service NestJS di
+Customer. `AuthResult` è un'unione discriminata: dopo `if (result.success)` il `token` è garantito.
 
 **Pattern di invalidazione del token**: i JWT sono stateful. Al login/registrazione, il token firmato viene
 scritto anche nella colonna `current_token` dell'entità. `authUserMiddleware` decodifica il JWT *e*
@@ -231,9 +234,9 @@ rendeva `Mario@x.com` e `mario@x.com` lo stesso valore (il vincolo `UNIQUE` rifi
 login funzionava con qualunque casing), mentre PostgreSQL confronta le stringhe in modo case-sensitive —
 senza normalizzazione diventerebbero due account distinti per la stessa identità, ognuno col proprio
 `current_token`, vanificando il pattern di invalidazione descritto sopra. La regola va applicata
-esplicitamente in **ogni** punto che scrive o cerca un'email: oggi sono `authService.authenticateUser`/`authenticateCustomer` (login),
-`registerService.registerUser`/`registerCustomer` (registrazione) e
-`profileUserController.updateProfileUser` (che scrive
+esplicitamente in **ogni** punto che scrive o cerca un'email: oggi sono `authService.authenticateUser` e
+`CustomerAuthService.login` (login), `registerService.registerUser` e `CustomerAuthService.register`
+(registrazione) e `profileUserController.updateProfileUser` (che scrive
 fuori dai services condivisi). Scelta deliberata di una funzione esplicita invece di un meccanismo
 automatico dell'ORM (un tempo un hook `beforeSave` di Sequelize, oggi una Prisma Client Extension): non
 coprirebbe la query di lettura del login e renderebbe la regola stato nascosto (vedi Design Decisions Log
@@ -359,8 +362,9 @@ fissi, (2) ripulisci sempre quello che crei.
 funzione usata dai test. Ordine effettivo della catena: `responseFormatter` → CORS → `express.json()` →
 `jsonSyntaxErrorMiddleware` → **router legacy** → rotte NestJS → 404 NestJS → gestore errori NestJS.
 
-I router legacy (in `mountLegacyRouters`): `/` → route customer, `/admin` → route admin (al momento solo
-`/admin/user`), `/products` → route prodotto, più `listRoutes` (elenco route di debug, dietro
-`SHOW_ROUTES=true`). **Su uno stesso metodo e percorso vince sempre il router legacy**, perché viene
+Domini già su NestJS: Customer (`POST /register`, `POST /login`, in `modules/customer/`) e l'health-check
+`GET /` (`health.controller.ts`). I router legacy ancora montati (in `mountLegacyRouters`): `/admin` →
+route admin (al momento solo `/admin/user`), `/products` → route prodotto, più `listRoutes` (elenco route
+di debug, dietro `SHOW_ROUTES=true`). **Su uno stesso metodo e percorso vince sempre il router legacy**, perché viene
 registrato prima: quando un dominio migra a NestJS, il suo router va tolto da `mountLegacyRouters` nello
 stesso commit (verificato in `__tests__/nestHosting.test.ts`).

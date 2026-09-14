@@ -1,6 +1,6 @@
 # Assessment: migrazione da Express a NestJS
 
-Stato: **F0 e F1 completate** (registri in §8 e §9); prossima fase **F2**. Segue il metodo già usato per la migrazione a Prisma:
+Stato: **F0, F1 e F2 completate** (registri in §8, §9 e §10); prossima fase **F3**. Segue il metodo già usato per la migrazione a Prisma:
 prima questo report (inventario, punti critici, decisioni da prendere), poi il via libera, poi
 l'implementazione a commit incrementali.
 
@@ -360,7 +360,7 @@ descritte in §4.2.
 | **D6** ✓ | Toolchain | (a) `@nestjs/cli` (`nest start --watch`); (b) restare su nodemon + ts-node | **(a)**. Richiede di rifare il wiring del debugger: `--debug 0.0.0.0:9229` al posto del flag `--inspect` attuale, e `CMD` nel Dockerfile |
 | **D7** ✓ | Il bug di arità di `errorMiddleware` | (a) correggerlo **prima**, in Express, con un test e2e che prima falla; (b) lasciarlo assorbire dalla migrazione | **(a)**. Un exception filter non può riprodurre il bug, quindi con (b) la correzione avviene senza che nessun test l'abbia mai dimostrata. Con (a) si guadagna un test di regressione sul JSON malformato → 400 |
 | **D8** ✓ | `listRoutesController` + `GET /routes` | (a) cancellare (eventualmente `@nestjs/swagger` al suo posto); (b) portarlo | **(a)**. Restituisce già un array vuoto, 120 righe su 156 sono commentate, e dipende da un interno di Express. Swagger dà un vero OpenAPI in poche righe |
-| **D9** ✓ | Gli altri file morti | `profileCustomerController` (vuoto), `skipIfValidationErrorsMiddleware` (no-op), `exampleController` | cancellare tutti e tre. `exampleController` **già cancellato** (§8); gli altri due restano pianificati in F5 insieme al resto del codice morto |
+| **D9** ✓ | Gli altri file morti | `profileCustomerController` (vuoto), `skipIfValidationErrorsMiddleware` (no-op), `exampleController` | cancellare tutti e tre. `exampleController` cancellato in F0 (§8), `profileCustomerController` in F2 insieme al suo dominio (§10); `skipIfValidationErrorsMiddleware` resta pianificato in F5 |
 | **D10** ✓ | Logger | (a) adapter Winston come `LoggerService` di NestJS; (b) lasciare il singleton | **(a)**, basso costo. Con (b) i log del framework vanno su stdout e quelli applicativi in `logs/`: due sistemi separati |
 
 ---
@@ -374,7 +374,7 @@ sessione serale.
 |---|---|---|
 | **F0** ✅ | Dipendenze, flag dei decoratori in `tsconfig`, fix di `test_backend`, D7 (fix arità + test). Nessun cambio di comportamento voluto, tranne D7. **Fatta**, vedi §8 | 1 |
 | **F1** ✅ | `main.ts`, `AppModule`, `PrismaService`, `ConfigModule` con validazione (**spostata qui da F0**: `ConfigModule.forRoot({ validate })` richiede un grafo dei moduli, che in F0 non esiste ancora), interceptor + exception filter + logger. NestJS fa da host e **monta tutti i router legacy** via `app.use()`. I 4 test e2e ripuntati sul TestingModule. **Checkpoint: 145 verdi** — è qui che la strategia si dimostra | 1-2 |
-| **F2** | CustomerModule (3 endpoint, nessun guard, nessun upload): il dominio più semplice, stabilisce l'idioma controller/service/DTO e applica D1+D2 | 1 |
+| **F2** ✅ | CustomerModule (3 endpoint, nessun guard, nessun upload): il dominio più semplice, stabilisce l'idioma controller/service/DTO e applica D1+D2 | 1 |
 | **F3** | AuthUserGuard, `@CurrentUser()`, UserModule (6 endpoint). Muoiono `authUserMiddleware` e i quattro controlli ridondanti di `profileUserController` | 2 |
 | **F4** | ProductModule: `GET /products` e tutta la catena di upload/validazione (la parte difficile). Qui rientra la **paginazione** sospesa dal percorso PostgreSQL, dato che l'handler viene riscritto comunque | 2-3 |
 | **F5** | Rimozione dello scaffolding legacy e del codice morto (D8, D9), uscita di `express-validator`, aggiornamento di `AGENTS.md`, `CLAUDE.md`, `API.md`, `TESTING.md`, `CHECKPOINT.md` e del Design Decisions Log | 1 |
@@ -627,7 +627,92 @@ Suite invariata: 33 suite / 174 test, e processo Jest terminato pulito.
 
 ---
 
-## 10. Cosa questo assessment non copre
+## 10. Registro di esecuzione — F2 (completata il 2026-09-14)
+
+Stato finale: **34 suite / 181 test verdi** al primo giro, type-check pulito, lint con il solo warning
+pre-esistente. Verificati anche sull'app in esecuzione: `GET /` servito da NestJS, un body JSON array e
+un'email di soli spazi (stesso comportamento del legacy).
+
+Conteggio: 174 − 9 test Customer legacy + 16 nuovi = 181. I 9 rimossi sono i 5 di
+`authCustomerController.test.ts` e i 2+2 Customer di `authService.test.ts` e `registerService.test.ts`,
+portati in `customerAuthService.test.ts`. Uno solo non ha un corrispondente, di proposito: "un indirizzo
+mancante diventa null". Il DTO rende l'indirizzo obbligatorio, come già faceva la validazione legacy, quindi
+nessun chiamante può più ometterlo.
+
+### Fatto
+
+- `modules/customer/`: `CustomerModule`, `CustomerController`, `CustomerAuthService`, DTO di registrazione
+  e login. `health.controller.ts` per `GET /`, dichiarato in AppModule: stava nel router customer solo
+  perché quel router era montato alla radice.
+- `ValidationPipe` globale come `APP_PIPE` (whitelist, transform) con
+  `common/validation/validation-exception.factory.ts` come `exceptionFactory` (**D2 applicata**).
+- Rimossi `routes/customerRoutes.ts` (e il suo mount, nello stesso commit), `authCustomerController.ts`,
+  `profileCustomerController.ts` (il file vuoto del D9, cancellato ora insieme al suo dominio invece che in
+  F5), `authenticateCustomer` e `registerCustomer`.
+- Test: `customerAuthService` e `validationExceptionFactory` (unitari), 5 casi nuovi in `customerRoutes`.
+  `nestHosting.test.ts`: il controller "oscurato" passa da `GET /` (non più legacy) a `GET /products`.
+
+### Scelte fatte implementando, e perché
+
+1. **La logica di sicurezza resta in funzioni condivise, non duplicata.** `completeAuthentication` e
+   `issueTokenFor` sono state esportate da `authService.ts` e `registerService.ts` e le usano sia il codice
+   legacy di User sia `CustomerAuthService`. Spostarle in un provider NestJS ora avrebbe richiesto una copia
+   per il codice legacy di User, che CLAUDE.md vieta. **In F3**, quando migra anche User, diventano un
+   provider iniettabile, con `ConfigService` al posto della lettura di `JWT_SECRET` all'import.
+2. **Il service lancia `UnauthorizedException`**, il controller non traduce esiti in risposte (D1). Un
+   service che lancia eccezioni HTTP è legato al trasporto HTTP: è l'idioma di NestJS, accettabile finché
+   gli unici chiamanti sono controller. Se in futuro servissero chiamanti non HTTP (code, job), andrà
+   rivisto con eccezioni di dominio.
+3. **Il messaggio mostrato per un campo non dipende dall'ordine dei decoratori.** In `constraints` di
+   class-validator l'ordine delle chiavi segue l'ordine di *applicazione* dei decoratori, che in TypeScript
+   è dal basso verso l'alto. Invertire due righe in un DTO avrebbe cambiato il messaggio senza nessun
+   segnale. La factory dà priorità esplicita a `isNotEmpty`; un test prova entrambi gli ordini.
+4. **`@IsString` sui campi testuali: due 500 diventano 400.** Registrazione con `password: 123` (arrivava a
+   Prisma) e login con `email: 123` (il `toLowerCase` della normalizzazione esplodeva). Fissati in test.
+5. **`whitelist: true` come difesa dal mass assignment**: `id` e `current_token` inviati dal client vengono
+   scartati. Il service mappava già i campi uno per uno; un test e2e verifica che un `current_token` scelto
+   dal client non arrivi al database.
+6. **`AuthResult` è diventata un'unione discriminata** (`{ success: true; token } | { success: false;
+   message }`). Prima `token` e `message` erano entrambi opzionali. Il compilatore ha subito segnalato 3
+   punti nei test che leggevano `result.token` senza aver verificato l'esito.
+7. **Corretti due refusi nei messaggi**: "Nome è richiesta" e "Cognome è richiesta".
+8. **Email duplicata: 500 conservato, messaggio non più esposto.** Vedi la decisione aperta qui sotto.
+
+### Decisione aperta (protocollo di AGENTS.md, categoria *Duplication*)
+
+**Cosa succede se la stessa registrazione arriva due volte?** Oggi il vincolo `unique` sull'email fa
+lanciare a Prisma un errore P2002, che arriva al filter come errore imprevisto: **500**, "Qualcosa è andato
+storto!". È il comportamento legacy, conservato in F2 perché la migrazione non cambia i contratti senza una
+scelta esplicita.
+
+| | Opzione A — lasciare il 500 generico (attuale) | Opzione B — 409 "Email già registrata" |
+|---|---|---|
+| Come | Nessuna modifica | `CustomerAuthService.register` intercetta **solo** l'errore Prisma P2002 e lancia `ConflictException` |
+| Pro | Nessun cambio di contratto. Non rivela se un'email è registrata | Il client capisce che cosa è successo e può proporre il login. Un 500 per un input del client è semanticamente sbagliato, e finisce nei log come errore imprevisto a ogni tentativo |
+| Contro | Il client riceve "qualcosa è andato storto" per un caso del tutto previsto, e ogni duplicato sporca i log degli errori veri | Cambia il contratto (500 → 409). Rivela che un'email è registrata; però il login lo rivela già oggi, distinguendo "Utente non trovato" da "Password errata" |
+
+Da decidere prima di F3, perché la stessa scelta varrà per la registrazione degli User.
+
+### Da segnalare, non risolto in F2
+
+- **La registrazione non è atomica.** `create` del cliente e salvataggio del token sono due query separate:
+  se la seconda fallisce, il cliente esiste senza token, il client riceve un 500 e un nuovo tentativo
+  fallisce per email duplicata. Il comportamento è identico a quello legacy. È un caso concreto e piccolo per
+  la **transazione** del percorso PostgreSQL (candidato per F6, insieme a `createProduct`).
+- **Enumerazione degli account.** I due messaggi distinti del 401 ("Utente non trovato" / "Password errata")
+  permettono di scoprire se un'email è registrata. Sono condivisi con User tramite `completeAuthentication`:
+  la scelta di un messaggio unico va fatta in F3, per entrambe le identità insieme.
+
+### Da ricordare nelle fasi successive
+
+- **F3**: le funzioni condivise diventano un provider; decidere la risposta all'email duplicata e ai
+  messaggi del 401; il messaggio di successo per logout e cambio password.
+- **F4**: quando `productRoutes` migra, il test "vince il router legacy" in `nestHosting.test.ts` va
+  spostato su una rotta ancora legacy, o rimosso se non ne resta nessuna.
+
+---
+
+## 11. Cosa questo assessment non copre
 
 - **Il frontend**, fermo allo scaffold Vite, non è toccato. Il backend continua a servire solo JSON e
   a permettere CORS da `localhost:3000`.

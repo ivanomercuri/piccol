@@ -36,7 +36,8 @@ All backend code is located in `/backend`.
     - **IMPORTANT:** Always check this folder before writing new validation logic.
     - Use `responseFormatter.js` for consistent JSON responses.
     - Global error handling is `common/filters/all-exceptions.filter.ts` (NestJS). `errorMiddleware` and `noPathMiddleware` no longer exist.
-- `/backend/common`: NestJS cross-cutting infrastructure — `filters/`, `interceptors/`, `logger/`. New NestJS files follow the Nest naming convention (`*.module.ts`, `*.filter.ts`, `*.interceptor.ts`); the camelCase legacy files disappear as their domains migrate.
+- `/backend/modules/<domain>`: NestJS domain modules (module, controller, service, `dto/`). Migrated so far: `customer`. A domain's legacy router, controllers and service functions are removed in the same commit its module is born.
+- `/backend/common`: NestJS cross-cutting infrastructure — `filters/`, `interceptors/`, `logger/`, `validation/`. New NestJS files follow the Nest naming convention (`*.module.ts`, `*.filter.ts`, `*.interceptor.ts`); the camelCase legacy files disappear as their domains migrate.
 - `/backend/routes`: Express routers. Grouped by domain.
 - `/backend/__tests__`: All Jest test files reside here.
 
