@@ -3,7 +3,6 @@ import type { NestApplicationOptions } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import responseFormatter from './middlewares/responseFormatter';
 import { jsonSyntaxErrorMiddleware } from './middlewares/jsonSyntaxErrorMiddleware';
-import productRoutes from './routes/productRoutes';
 import listRoutes from './routes/listRoutes';
 
 /**
@@ -81,9 +80,8 @@ export function configureApp(app: NestExpressApplication): void {
  */
 function mountLegacyRouters(app: NestExpressApplication): void {
   // Rimossi `app.use('/', customerRoutes)` in F2 (modules/customer/ e
-  // health.controller.ts) e `app.use('/admin', adminRoutes)` in F3
-  // (modules/user/).
-  app.use('/products', productRoutes);
-
+  // health.controller.ts), `app.use('/admin', adminRoutes)` in F3
+  // (modules/user/) e `app.use('/products', productRoutes)` in F4
+  // (modules/product/).
   app.use(listRoutes);
 }

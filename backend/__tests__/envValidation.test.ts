@@ -14,6 +14,8 @@ describe('validateEnvironment', () => {
     DB_ROOT_PASSWORD: 'password',
     DB_HOST: 'db',
     DB_NAME: 'mydatabase',
+    MAX_FILE_SIZE: '3',
+    MAX_FILE_HARD_SIZE: '10',
   };
 
   // Caso base, e verifica della conversione: chi legge PORT dalla
@@ -60,6 +62,25 @@ describe('validateEnvironment', () => {
     expect(() => validateEnvironment({ ...validConfig, PORT: 'abc' })).toThrow(/PORT/);
 
     expect(() => validateEnvironment({ ...validConfig, PORT: '70000' })).toThrow(/PORT/);
+  });
+
+  // Regressione del bug trovato in F1: con `MAX_FILE_SIZE=3# in MB` in .env,
+  // Docker Compose passava al container la stringa "3# in MB", e il codice
+  // legacy funzionava solo perché parseInt si fermava al primo carattere non
+  // numerico. Ora un valore del genere ferma l'avvio invece di essere
+  // interpretato a metà.
+  it('rifiuta un limite di upload con un commento in linea, come "3# in MB"', () => {
+    expect(() => validateEnvironment({ ...validConfig, MAX_FILE_SIZE: '3# in MB' })).toThrow(
+      /MAX_FILE_SIZE/
+    );
+  });
+
+  // Un limite di business superiore a quello hard non potrebbe mai scattare:
+  // multer interromperebbe prima l'upload.
+  it('rifiuta MAX_FILE_SIZE maggiore di MAX_FILE_HARD_SIZE', () => {
+    expect(() =>
+      validateEnvironment({ ...validConfig, MAX_FILE_SIZE: '20', MAX_FILE_HARD_SIZE: '10' })
+    ).toThrow(/MAX_FILE_SIZE must not exceed MAX_FILE_HARD_SIZE/);
   });
 
   // La validazione riceve l'intero process.env, che contiene decine di

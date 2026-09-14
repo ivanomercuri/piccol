@@ -42,7 +42,7 @@ const FALLBACK_MESSAGE = 'Valore non valido';
  *   modello a middleware l'errore di multer doveva viaggiare insieme agli
  *   altri; in NestJS un'eccezione interrompe la richiesta da sola (§4.4);
  * - il raggruppamento delle immagini per nome di file: è specifico
- *   dell'upload dei prodotti e arriverà in F4, con il suo primo chiamante.
+ *   dell'upload dei prodotti, e vive in modules/product/upload/new-product-form.ts.
  *
  * Restituisce l'eccezione invece di lanciarla perché è il contratto di
  * exceptionFactory: è la ValidationPipe a lanciarla. Arriva poi ad
@@ -53,11 +53,17 @@ const FALLBACK_MESSAGE = 'Valore non valido';
 export function groupValidationErrors(
   errors: ValidationError[]
 ): BadRequestException {
-  return new BadRequestException(errors.map(toFieldError));
+  return new BadRequestException(toFieldErrors(errors));
 }
 
-function toFieldError(error: ValidationError): FieldValidationError {
-  return { id: error.property, message: messageOf(error) };
+/**
+ * Converte gli errori di class-validator nella forma del progetto, senza
+ * lanciare. Esportata dalla fase F4 per chi deve UNIRE questi errori ad altri
+ * prima di rispondere: la validazione di un nuovo prodotto li combina con
+ * quelli dell'immagine (modules/product/upload/new-product-form.ts).
+ */
+export function toFieldErrors(errors: ValidationError[]): FieldValidationError[] {
+  return errors.map((error) => ({ id: error.property, message: messageOf(error) }));
 }
 
 /**

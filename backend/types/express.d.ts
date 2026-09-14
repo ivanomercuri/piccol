@@ -1,8 +1,8 @@
-// Estensioni ambient di Express, usate da tutti i controller/middleware man
-// mano che vengono convertiti a TypeScript (Fase 2.5+). Due cose vengono
-// aggiunte a runtime da middleware ancora .js, non presenti nei tipi
-// pubblici di @types/express: qui le dichiariamo una sola volta invece di
-// ripetere cast in ogni file.
+// Estensioni ambient di Express. Dalla fase F4 della migrazione a NestJS
+// restano due cose: il tipo dell'utente autenticato (req.user) e i metodi
+// res.success/res.error, usati solo dall'ultimo router legacy (/routes) fino
+// a F5. `req.validationErrors`, l'accumulatore degli errori di upload, è
+// sparito con la catena di middleware che lo scriveva.
 import 'express';
 import type { User as PrismaUser } from '@prisma/client';
 
@@ -31,30 +31,13 @@ declare global {
     interface User extends PrismaUser {}
 
     interface Response {
-      // Aggiunti da middlewares/responseFormatter.js (monkey-patch su ogni
-      // risposta, primo middleware della catena in index.js). Firma presa
-      // 1:1 da quel file — se cambia lì, va aggiornata anche qui. `message`
-      // è `unknown`, non `string`: validationHandlerMiddleware.js ci passa
-      // un array di errori raggruppati (res.error(400, finalErrors)), non
-      // solo stringhe — res.error lo serializza così com'è nel JSON di
-      // risposta, senza mai assumerne la forma.
+      // Aggiunti da middlewares/responseFormatter.ts (monkey-patch su ogni
+      // risposta, montato da app.setup.ts). Firma presa 1:1 da quel file — se
+      // cambia lì, va aggiornata anche qui. `message` è `unknown`: res.error
+      // lo serializza così com'è, senza assumerne la forma. Spariscono in F5
+      // insieme all'ultimo router legacy che li usa.
       success(data: unknown, message?: string, code?: number): void;
       error(code?: number, message?: unknown, err?: Error | null): void;
-    }
-
-    interface Request {
-      // Accumulo errori di validazione file-upload (vedi CLAUDE.md → "Pattern
-      // di accumulo degli errori di validazione"): attraversa uploadMiddleware,
-      // handleMulterErrorsMiddleware, validateProductImageMiddleware,
-      // checkNumberFilesMiddleware, prima di essere unito agli errori di
-      // express-validator in validationHandlerMiddleware.
-      validationErrors?: Array<{
-        msg: string;
-        path?: string;
-        filename?: string;
-        isFatal?: boolean;
-      }>;
-
     }
   }
 }

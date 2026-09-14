@@ -33,16 +33,15 @@ import {
  * plainToInstance a runtime. Il `!` dice al compilatore "fidati, arriva da
  * fuori" — ed è precisamente per questo che subito dopo si valida.
  *
+ * MAX_FILE_SIZE e MAX_FILE_HARD_SIZE sono entrate nel contratto in F4. Fino a
+ * F3 il middleware legacy leggeva MAX_FILE_SIZE con parseInt, che dal valore
+ * "3# in MB" (un commento in linea che il parser env_file di Docker Compose
+ * non riconosce) estraeva 3 per caso; MAX_FILE_HARD_SIZE non la leggeva
+ * nessuno, perché il limite hard era scritto a mano. Ora sono numeri interi
+ * validati, e un valore come "3# in MB" impedisce all'app di partire con un
+ * messaggio chiaro.
+ *
  * COSA NON C'È, E PERCHÉ
- * - MAX_FILE_SIZE: dentro il container vale letteralmente "3# in MB", perché
- *   il parser env_file di Docker Compose non riconosce un commento in linea
- *   senza uno spazio prima del `#`. Il middleware legacy la legge con
- *   parseInt, che si ferma alla prima non-cifra e restituisce 3: funziona per
- *   caso. Validarla qui come numero impedirebbe all'app di partire. Entra in
- *   questo contratto in F4, quando la validazione degli upload passa a
- *   NestJS e il valore in .env sarà stato corretto.
- * - MAX_FILE_HARD_SIZE: nessun codice la legge (il limite hard è ancora
- *   scritto a mano in uploadMiddleware.ts).
  * - SHOW_ROUTES: la legge solo listRoutesController, destinato a sparire in
  *   F5 (decisione D8); in sua assenza la rotta resta disabilitata, che è il
  *   comportamento sicuro.
@@ -79,6 +78,21 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   DB_NAME!: string;
+
+  // Limite "di business" per le immagini dei prodotti, in MB: oltre, la
+  // risposta è un errore di validazione con messaggio per il client.
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  MAX_FILE_SIZE!: number;
+
+  // Limite "hard" di multer, in MB: oltre, l'upload viene interrotto mentre
+  // arriva, senza scrivere il file su disco. È una protezione del server, non
+  // una regola di dominio.
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  MAX_FILE_HARD_SIZE!: number;
 }
 
 /**
@@ -122,6 +136,17 @@ export function validateEnvironment(
 
     throw new Error(
       `Missing or invalid environment variables in .env: ${details}`
+    );
+  }
+
+  // Regola che coinvolge due variabili, quindi fuori dai decoratori, che
+  // guardano un campo alla volta. Se il limite di business superasse quello
+  // hard, multer interromperebbe l'upload prima che il limite di business
+  // possa mai scattare: il messaggio chiaro al client non comparirebbe mai, e
+  // la configurazione sembrerebbe funzionare mentre non fa ciò che dichiara.
+  if (validatedConfig.MAX_FILE_SIZE > validatedConfig.MAX_FILE_HARD_SIZE) {
+    throw new Error(
+      'Invalid environment variables in .env: MAX_FILE_SIZE must not exceed MAX_FILE_HARD_SIZE'
     );
   }
 

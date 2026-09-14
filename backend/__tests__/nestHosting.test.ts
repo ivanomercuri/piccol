@@ -65,16 +65,16 @@ class ProbeController {
   }
 }
 
-// Controller di prova che dichiara GET /products — lo stesso metodo e
-// percorso già serviti dal router legacy productRoutes. Serve a verificare
-// chi vince.
+// Controller di prova che dichiara GET /routes — lo stesso metodo e percorso
+// serviti dal router legacy listRoutes. Serve a verificare chi vince.
 //
-// Fino alla fase F1 usava GET /, servito dal router legacy customerRoutes,
-// che in F2 è migrato a NestJS. /products resta legacy fino a F4: quando
-// migrerà anche lui, questo test andrà spostato su una rotta ancora legacy,
-// o rimosso se non ne resterà nessuna.
-@Controller('products')
-class ShadowedProductsController {
+// La rotta usata si è spostata con la migrazione: GET / fino a F1 (poi
+// migrata in F2), GET /products fino a F3 (migrata in F4). /routes è l'ultima
+// rotta legacy e sparisce in F5: con lei, questo test non avrà più ragione di
+// esistere, perché non ci sarà più nulla con cui un controller NestJS possa
+// entrare in conflitto.
+@Controller('routes')
+class ShadowedRoutesController {
   @Get()
   list() {
     return 'risposta NestJS';
@@ -84,7 +84,7 @@ class ShadowedProductsController {
 // Avvio e chiusura gestiti dall'helper, alla radice del file (vedi
 // helpers/useTestApp.ts). I controller di prova esistono solo in quest'app.
 const testApp = useTestApp({
-  controllers: [ProbeController, ShadowedProductsController],
+  controllers: [ProbeController, ShadowedRoutesController],
 });
 
 describe('Convivenza router legacy e rotte NestJS', () => {
@@ -95,14 +95,22 @@ describe('Convivenza router legacy e rotte NestJS', () => {
     // F2–F4: quando un dominio migra, il suo router legacy va smontato nello
     // stesso commit, altrimenti la nuova rotta NestJS non è raggiungibile.
     it('su uno stesso metodo e percorso vince il router legacy, montato prima', async () => {
-      // Senza token, il router legacy risponde 401 "Token mancante" tramite
-      // authUserMiddleware. Se vincesse il controller NestJS di prova, la
+      // Con SHOW_ROUTES diverso da "true" il router legacy risponde 403
+      // "Accesso negato". Se vincesse il controller NestJS di prova, la
       // risposta sarebbe 200 con "risposta NestJS".
-      const res = await request(testApp.http).get('/products');
+      const original = process.env.SHOW_ROUTES;
 
-      expect(res.status).toBe(401);
+      process.env.SHOW_ROUTES = 'false';
 
-      expect(res.body.error).toBe('Token mancante');
+      try {
+        const res = await request(testApp.http).get('/routes');
+
+        expect(res.status).toBe(403);
+
+        expect(res.body.error).toBe('Accesso negato');
+      } finally {
+        process.env.SHOW_ROUTES = original;
+      }
     });
 
     // Controprova: i router legacy non inghiottono le richieste che non li
