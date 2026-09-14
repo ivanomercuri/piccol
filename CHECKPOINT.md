@@ -843,11 +843,23 @@ il token, il client deve rifare login; D) `@IsEmail` per gli User.
 - Rimossi il router e il controller dei prodotti, sette middleware, `tokenService.ts`, `classes/` e la
   dipendenza `express-validator`.
 
-**Il prossimo passo è F5**: pulizia dell'ultimo legacy (`GET /routes`, `responseFormatter`,
-`mountLegacyRouters`, `SHOW_ROUTES`), valutazione del ritorno al body parser di NestJS, aggiornamento finale
-della documentazione. Dopo F5 la migrazione è finita; **F6** è `createProduct` con la transazione.
+**Fatto in F5** (2026-09-14, registro completo in §13 del documento). **La migrazione a NestJS è finita.**
 
-Stima residua: 2-3 sessioni serali (F5→F6).
+- Cancellati `GET /routes` (D8), `responseFormatter` con `res.success` / `res.error` e `mountLegacyRouters`:
+  nessun router Express, spariscono le cartelle `routes/`, `controllers/` e `middlewares/`.
+- **Il parser JSON di NestJS resta disattivato**, valutato e scartato: NestJS lo registra dentro `init()`,
+  dopo il middleware che traduce gli errori JSON, e in più accetterebbe i body urlencoded. Un test lo
+  presidia, verificato rosso riattivando il parser.
+- `jsonSyntaxErrorMiddleware` spostato in `common/middleware/`; `nestHosting.test.ts` →
+  `appInfrastructure.test.ts`; via `SHOW_ROUTES` da `.env.example` e le dipendenze `cors` / `@types/cors`.
+- Stato: **29 suite / 191 test verdi**, type-check e lint puliti. Il `.env` locale può ancora contenere
+  `SHOW_ROUTES`: non la legge più nessuno, si può togliere a mano.
+
+**Il prossimo passo è F6**: `ProductService.create` con una transazione (prodotto e immagine salvati insieme,
+prezzo da stringa a `Decimal`). È lì che il protocollo di trade-off di AGENTS.md si attiva davvero: prima di
+scrivere codice vanno presentate le opzioni per le categorie che si applicano.
+
+Stima residua: 1-2 sessioni serali (F6).
 
 ### Cose in sospeso, non urgenti
 
@@ -859,6 +871,8 @@ Stima residua: 2-3 sessioni serali (F5→F6).
 - Percorso PostgreSQL, prossimo tema: **indici**. La paginazione di `GET /products` è fatta (F4); il passo
   successivo è guardare con `EXPLAIN` l'elenco di un admin (`WHERE createdBy ORDER BY createdAt, id`) e
   decidere un indice a partire dal piano, non in anticipo.
+- `@nestjs/swagger` (citato in D8 come possibile sostituto di `GET /routes`): non aggiunto in F5 perché è una
+  funzionalità nuova, non una pulizia. Da decidere.
 - Il branch `feature/seed-dati-sviluppo` va mergiato in `main` quando si ritiene concluso (vedi la nota
   sulla catena dei branch sopra).
 - Le 3 advisory high residue (`deepmerge-ts`, `mysql2` via `@prisma/config`) sono transitive della CLI

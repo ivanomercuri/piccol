@@ -183,9 +183,11 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
   nell'**aggancio** del middleware alla catena di Express, non nella sua logica, e i cinque test che
   chiamavano la funzione in isolamento non potevano vederlo per costruzione. La regola che se ne ricava:
   quando ciò che può rompersi è il *collegamento* fra i pezzi e non il comportamento di un pezzo, serve
-  una richiesta HTTP vera, anche se non c'è nessuna route nuova da testare. Dalla fase F1 ne fa parte anche
-  `nestHosting.test.ts`, che verifica la convivenza fra router legacy e rotte NestJS registrando
-  controller di prova visibili solo nel test.
+  una richiesta HTTP vera, anche se non c'è nessuna route nuova da testare. Ne fa parte anche
+  `appInfrastructure.test.ts` (fino alla fase F4 `nestHosting.test.ts`), che verifica dependency injection,
+  involucro delle risposte e filter registrando un controller di prova visibile solo nel test. Quando un
+  cambio di configurazione dell'app deve restare deliberato (es. il parser dei body in `app.setup.ts`),
+  fissalo qui con un test, e verifica che fallisca davvero invertendo la configurazione.
 - **Unità di un service NestJS** (es. `customerAuthService.test.ts`) → `Test.createTestingModule` con il
   service reale e `{ provide: PrismaClient, useValue: prismaFinto }`, **non** `jest.mock('../prisma/client')`.
   La sostituzione passa dalla dipendenza dichiarata nel costruttore invece che dal percorso di un file, e il

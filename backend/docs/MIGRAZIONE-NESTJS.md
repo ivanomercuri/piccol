@@ -1,6 +1,6 @@
 # Assessment: migrazione da Express a NestJS
 
-Stato: **F0–F4 completate** (registri in §8–§12); prossima fase **F5** (pulizia del legacy rimasto). Segue il metodo già usato per la migrazione a Prisma:
+Stato: **migrazione completata, F0–F5** (registri in §8–§13); resta **F6** (`createProduct` con una transazione). Segue il metodo già usato per la migrazione a Prisma:
 prima questo report (inventario, punti critici, decisioni da prendere), poi il via libera, poi
 l'implementazione a commit incrementali.
 
@@ -360,7 +360,7 @@ descritte in §4.2.
 | **D6** ✓ | Toolchain | (a) `@nestjs/cli` (`nest start --watch`); (b) restare su nodemon + ts-node | **(a)**. Richiede di rifare il wiring del debugger: `--debug 0.0.0.0:9229` al posto del flag `--inspect` attuale, e `CMD` nel Dockerfile |
 | **D7** ✓ | Il bug di arità di `errorMiddleware` | (a) correggerlo **prima**, in Express, con un test e2e che prima falla; (b) lasciarlo assorbire dalla migrazione | **(a)**. Un exception filter non può riprodurre il bug, quindi con (b) la correzione avviene senza che nessun test l'abbia mai dimostrata. Con (a) si guadagna un test di regressione sul JSON malformato → 400 |
 | **D8** ✓ | `listRoutesController` + `GET /routes` | (a) cancellare (eventualmente `@nestjs/swagger` al suo posto); (b) portarlo | **(a)**. Restituisce già un array vuoto, 120 righe su 156 sono commentate, e dipende da un interno di Express. Swagger dà un vero OpenAPI in poche righe |
-| **D9** ✓ | Gli altri file morti | `profileCustomerController` (vuoto), `skipIfValidationErrorsMiddleware` (no-op), `exampleController` | cancellare tutti e tre. `exampleController` cancellato in F0 (§8), `profileCustomerController` in F2 insieme al suo dominio (§10); `skipIfValidationErrorsMiddleware` resta pianificato in F5 |
+| **D9** ✓ | Gli altri file morti | `profileCustomerController` (vuoto), `skipIfValidationErrorsMiddleware` (no-op), `exampleController` | cancellare tutti e tre. `exampleController` cancellato in F0 (§8), `profileCustomerController` in F2 insieme al suo dominio (§10); `skipIfValidationErrorsMiddleware` in F4, insieme alla catena di upload (§12) |
 | **D10** ✓ | Logger | (a) adapter Winston come `LoggerService` di NestJS; (b) lasciare il singleton | **(a)**, basso costo. Con (b) i log del framework vanno su stdout e quelli applicativi in `logs/`: due sistemi separati |
 
 ---
@@ -933,7 +933,77 @@ richieste per la durata della lettura.
 
 ---
 
-## 13. Cosa questo assessment non copre
+## 13. Registro di esecuzione — F5 (completata il 2026-09-14)
+
+Stato finale: **29 suite / 191 test verdi**, type-check pulito, lint senza problemi. Verificato sull'app di
+sviluppo in esecuzione: `GET /` 200, `GET /routes` 404 `Non trovato`, JSON malformato 400 `errore json: ...`,
+body di form fermato dalla validazione.
+
+Conteggio: 204 − 15 + 2 = 191. Rimossi i 13 test di `listRoutes`, `listRoutesController` e
+`responseFormatter`, e i 2 test di convivenza con i router legacy di `nestHosting.test.ts`; aggiunti i 2 test
+descritti sotto.
+
+**Con F5 la migrazione è finita: nessun router Express, ogni rotta è un controller NestJS.**
+
+### Fatto
+
+- Cancellati `routes/listRoutes.ts`, `controllers/listRoutesController.ts` (D8) e
+  `middlewares/responseFormatter.ts`, con i loro test e i metodi `res.success` / `res.error` in
+  `types/express.d.ts`. Spariscono le cartelle `routes/`, `controllers/` e `middlewares/`.
+- `configureApp` monta solo CORS, `express.json()` e la traduzione degli errori JSON: `mountLegacyRouters` non
+  esiste più.
+- `jsonSyntaxErrorMiddleware.ts` passa in `common/middleware/json-syntax-error.middleware.ts`.
+- `nestHosting.test.ts` diventa `appInfrastructure.test.ts`: senza più router legacy, il test "vince il router
+  legacy" non ha più nulla da verificare.
+- `SHOW_ROUTES` esce da `.env.example` (non era mai stata nel contratto validato); la voce "List Routes" esce
+  dalla collection Postman.
+- Rimosse le dipendenze `cors` e `@types/cors`: nessun file le importa più dal passaggio ad
+  `app.enableCors()` in F1, e `@nestjs/platform-express` dichiara `cors` come propria dipendenza.
+- Aggiornati i commenti che descrivevano il legacy come ancora presente (filter, interceptor, logger,
+  strategia JWT, `app.module.ts`, `env.validation.ts`, `main.ts`), senza toccare quelli che lo citano come
+  storia.
+
+### Il ritorno al body parser di NestJS, valutato e scartato
+
+Era il punto aperto da §9 (punto 2). **Il parser esplicito resta**, per un motivo diverso da quello originale.
+
+- Dal sorgente (`nest-application.js`): NestJS registra il suo parser dentro `init()`, dopo tutti gli
+  `app.use()` di `configureApp`. Express fa avanzare un errore solo verso i middleware registrati dopo quello
+  che l'ha generato, quindi il traduttore degli errori JSON starebbe prima del parser e non ne vedrebbe mai
+  gli errori.
+- Registrarlo dopo `init()` non funziona: finirebbe dietro al gestore 404, che risponde a tutto.
+- Trasformarlo in un `NestMiddleware` non funziona: `middleware-module.js` lo avvolge in una funzione
+  `(req, res, next)`, e la firma a 4 parametri, l'unica che Express riconosce come gestore d'errore, andrebbe
+  persa.
+- Riconoscere il JSON malformato in `AllExceptionsFilter` vorrebbe dire leggere il testo del messaggio di
+  `JSON.parse`, perché `mapException` scarta l'errore originale (§9, punto 3). Troppo fragile.
+- In più il parser di NestJS attiva anche `express.urlencoded`: l'API accetterebbe in silenzio i body
+  `application/x-www-form-urlencoded`.
+
+**Trappola trovata verificando**: con `bodyParser: true` e `express.json()` ancora montato, il JSON malformato
+continua a funzionare, perché NestJS salta il proprio parser JSON se ne trova già uno con lo stesso nome di
+funzione (`isMiddlewareApplied`). Aggiunge però quello urlencoded. Un test che guardasse solo il JSON
+malformato non se ne accorgerebbe.
+
+### Test aggiunti (in `errorHandling.test.ts`)
+
+- **I body urlencoded non vengono letti**: un login inviato come form si ferma alla validazione (400 con i
+  campi richiesti). Verificato che il test **fallisce** riattivando il parser di NestJS: 401, cioè il body è
+  stato letto e il login è arrivato al service.
+- **`GET /routes` risponde 404 `Non trovato`**: il cambio di contratto della decisione D8, fissato come quelli
+  delle fasi precedenti.
+
+### Non fatto, di proposito
+
+- **`@nestjs/swagger`**, citato in D8 come possibile sostituto di `GET /routes`. È una funzionalità nuova e non
+  una pulizia: resta un'opzione da decidere. Richiederebbe di decorare DTO e controller, e la documentazione
+  delle API oggi è `docs/API.md`.
+- `services/emailNormalizer.ts` resta dov'è: è una funzione pura, usata da due moduli, e spostarla non
+  cambierebbe nulla del comportamento.
+
+---
+
+## 14. Cosa questo assessment non copre
 
 - **Il frontend**, fermo allo scaffold Vite, non è toccato. Il backend continua a servire solo JSON e
   a permettere CORS da `localhost:3000`.

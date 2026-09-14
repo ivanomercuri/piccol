@@ -5,7 +5,7 @@ The goal is to showcase Senior-Level Node.js skills using a strict Layered Archi
 
 ## 1. Tech Stack
 - **Runtime:** Node.js 24.9+ (required: NestJS 12 packages are ESM-only, and Jest can load them only on 24.9+ with `--experimental-vm-modules`)
-- **Framework:** NestJS 12, **migration from Express in progress** (see `backend/docs/MIGRAZIONE-NESTJS.md`). Until it ends, the NestJS app hosts the not-yet-migrated Express routers, mounted in `backend/app.setup.ts`.
+- **Framework:** NestJS 12 on Express (`@nestjs/platform-express`). Migrated from plain Express in phases F0–F5 (see `backend/docs/MIGRAZIONE-NESTJS.md`); no Express router is left, every route is a NestJS controller.
 - **Database:** PostgreSQL (v16 via Docker)
 - **ORM:** Prisma 7 (schema in `backend/prisma/schema.prisma`)
 - **Testing:** Jest
@@ -16,26 +16,32 @@ The goal is to showcase Senior-Level Node.js skills using a strict Layered Archi
 All backend code is located in `/backend`.
 
 ### Core Layers
-- `/backend/controllers/**`: **HTTP Layer only.**
-    - **Rule:** Controllers are grouped by domain (e.g., `/user`, `/customer`, `/product`). Respect this nesting.
-    - **Responsibility:** Validate inputs, call Services, handle HTTP responses. NO core business logic here.
-- `/backend/services`: **Business Logic Layer.**
-    - **Rule:** All complex logic (calculations, database transactions) goes here.
-    - **Naming:** migrated domains keep their services inside `modules/<domain>/` (`*.service.ts`). What remains here after F4: `emailNormalizer.ts` (pure function, used by the NestJS services).
+- `/backend/modules/<domain>`: **NestJS domain modules** — `*.module.ts`, `*.controller.ts`, `*.service.ts`, `dto/`.
+  Domains: `customer`, `user`, `product` (with `upload/` for the image upload pipeline); `auth` holds the security
+  logic shared by both identities (`CredentialsService`, `JwtUserStrategy`, `AuthUserGuard`, `@CurrentUser()`).
+    - **Controllers — HTTP layer only.** Declare route, guards, DTOs and status code; return the data and let
+      exceptions propagate. NO business logic, no try/catch to translate errors.
+    - **Services — business logic layer.** All complex logic (calculations, database transactions) goes here.
+      Database access through the injected `PrismaClient`.
 - `/backend/prisma`: **Data Layer.**
     - `schema.prisma` is the single source of truth for the data model; the typed
       client is generated from it. There is no `models/` directory anymore, and no
       hand-written model classes: add or change a model in the schema, then create a
       migration (`npx prisma migrate dev --name <name>`).
-    - `client.ts` exports the shared `prisma` instance. Import that, never instantiate
-      a second `PrismaClient`.
+    - `client.ts` exports the shared `prisma` instance; `prisma.module.ts` provides it under the `PrismaClient`
+      injection token. NestJS code injects `PrismaClient` in the constructor; only code outside the container
+      (seeds, `*.model.test.ts`) imports `client.ts`. Never instantiate a second `PrismaClient`.
 
 ### Support Structures
-- `/backend/middlewares`: Express-level middleware still needed by the NestJS app: `jsonSyntaxErrorMiddleware.ts` (translates body-parser JSON errors) and `responseFormatter.ts` (only for the last legacy router, `/routes`, removed in F5).
-    - Global error handling is `common/filters/all-exceptions.filter.ts` (NestJS). The `classes/` folder no longer exists: HTTP errors are NestJS `HttpException`s.
-- `/backend/modules/<domain>`: NestJS domain modules (module, controller, service, `dto/`). Migrated so far: `customer`, `user`, `product` (with `upload/` for the image upload pipeline); `auth` holds the security logic shared by both identities (`CredentialsService`, `JwtUserStrategy`, `AuthUserGuard`, `@CurrentUser()`). A domain's legacy router, controllers and service functions are removed in the same commit its module is born.
-- `/backend/common`: NestJS cross-cutting infrastructure — `filters/`, `interceptors/`, `logger/`, `validation/`. New NestJS files follow the Nest naming convention (`*.module.ts`, `*.filter.ts`, `*.interceptor.ts`); the camelCase legacy files disappear as their domains migrate.
-- `/backend/routes`: Express routers. Grouped by domain.
+- `/backend/common`: NestJS cross-cutting infrastructure — `filters/` (`AllExceptionsFilter`, the single error
+  handler), `interceptors/`, `decorators/`, `logger/`, `validation/`, and `middleware/` for the one Express-level
+  middleware (`json-syntax-error.middleware.ts`: a 4-argument Express error handler, which a NestJS middleware
+  cannot be). Files follow the Nest naming convention (`*.filter.ts`, `*.interceptor.ts`, `*.middleware.ts`).
+- `/backend/config`: environment validation (`env.validation.ts`), database URL, Winston logger, image limits.
+- `/backend/services`: only `emailNormalizer.ts`, a pure function shared by the identity services.
+- `/backend/types`: ambient type augmentation (`req.user`).
+- Root of `/backend`: `main.ts` (bootstrap), `app.module.ts`, `app.setup.ts` (Express middleware shared by
+  `main.ts` and the e2e tests), `health.controller.ts`.
 - `/backend/__tests__`: All Jest test files reside here.
 
 ## 3. Environment & Networking
@@ -50,8 +56,9 @@ All backend code is located in `/backend`.
 - **Service Pattern:** Never write business logic inside a Controller. Always create or extend a Service.
 - **Async/Await:** Mandatory. Avoid callback hell or raw Promise chains.
 - **Error Handling:**
-    - Throw custom errors from Services.
-    - Catch them in Controllers (or let `async-handler` do it) and pass to `next(err)`.
+    - Throw NestJS `HttpException`s (`BadRequestException`, `ConflictException`, ...) from services, guards
+      and pipes, with an Italian message; `AllExceptionsFilter` formats them.
+    - Let unexpected errors propagate: the filter answers 500 with a generic message and logs the details.
     - **NEVER** use `console.log` for errors in production code.
 - **Language:**
     - **Code/Comments:** English.
@@ -194,3 +201,11 @@ keep entries short, one line each)
   detector tries all 20 formats; the client-provided Content-Type cannot be trusted to keep files out of them.
   The two defences are independent on purpose. Rejected: replacing the library (larger change, and the
   mitigation fully covers the only two formats accepted).
+- JSON body parser kept explicit after the last Express router was removed (NestJS migration F5):
+  `bodyParser: false` plus `express.json()` and `json-syntax-error.middleware.ts` in `app.setup.ts`. NestJS
+  registers its own parser inside `init()`, after every `app.use()`, so the translation middleware would sit
+  before the parser and never see its errors, and NestJS's own handler turns the `SyntaxError` into a plain
+  400, losing the `errore json: ...` contract. The built-in parser would also start accepting
+  `application/x-www-form-urlencoded` bodies. Pinned by a test in `errorHandling.test.ts`, verified to fail
+  with the built-in parser on. Rejected: going back to the built-in parser and recognising malformed JSON in
+  `AllExceptionsFilter` by the text of the error message (fragile, it depends on `JSON.parse` wording).

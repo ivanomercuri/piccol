@@ -1,6 +1,6 @@
 # API Piccol
 
-Documentazione delle API REST esposte dal backend Express di Piccol. Base URL locale (fuori Docker):
+Documentazione delle API REST esposte dal backend NestJS di Piccol. Base URL locale (fuori Docker):
 `http://localhost:5000`; via Docker Compose il backend è esposto su `http://localhost:5001` (mappato sulla
 porta interna 5000, vedi `docker-compose.yml`).
 
@@ -18,10 +18,14 @@ Tutte le route restituiscono JSON. Non esiste ancora versionamento delle API (ne
 
 ## Formato delle risposte
 
-Ogni risposta passa da `middlewares/responseFormatter.js`, che imposta due helper (`res.success` /
-`res.error`) usati da tutti i controller. Il formato è quindi sempre uno di questi due:
+Il formato è sempre uno di questi due, per ogni rotta. Lo producono due pezzi dell'infrastruttura NestJS:
+`ResponseEnvelopeInterceptor` (`common/interceptors/`) avvolge ciò che un controller restituisce, e
+`AllExceptionsFilter` (`common/filters/`) formatta ogni eccezione. Fino alla migrazione a NestJS lo stesso
+formato lo producevano `res.success` / `res.error` di `middlewares/responseFormatter`, rimosso nella fase F5
+senza cambiare il contratto.
 
-**Successo** (`res.success(data, message, code)`, `code` di default 200):
+**Successo** (status 200 salvo diversa indicazione nella rotta; `message` vuoto se la rotta non ne dichiara
+uno con `@ResponseMessage`):
 
 ```json
 {
@@ -32,7 +36,9 @@ Ogni risposta passa da `middlewares/responseFormatter.js`, che imposta due helpe
 }
 ```
 
-**Errore** (`res.error(code, message, err)`, `code` di default 500):
+`data` è sempre presente: vale `null` quando la rotta non restituisce nulla.
+
+**Errore**:
 
 ```json
 {
@@ -45,10 +51,10 @@ Ogni risposta passa da `middlewares/responseFormatter.js`, che imposta due helpe
 
 Il campo `error` può essere:
 
-- una **stringa** semplice (es. errori 401/403/500 generati direttamente dai controller);
-- un **array di errori raggruppati per campo**, prodotto da `middlewares/validationHandlerMiddleware.js`
-  quando falliscono le validazioni di `express-validator` e/o quelle accumulate su
-  `req.validationErrors` (upload immagini). Esempio:
+- una **stringa** semplice (es. errori 401/403/404/409/413/500);
+- un **array di errori raggruppati per campo**, un messaggio per campo, prodotto dalla `ValidationPipe`
+  globale (`common/validation/validation-exception.factory.ts`) quando il body non rispetta il DTO della
+  rotta. Per `POST /products/new` l'array unisce campi e immagine. Esempio:
 
   ```json
   {
@@ -71,12 +77,19 @@ Il campo `error` può essere:
   con un elemento per file coinvolto (`filename` vale `'_generale_'` quando l'errore non riguarda un file
   specifico, es. "immagine mancante").
 
-Quando un errore "fatale" viene rilevato durante l'upload (es. superamento dell'hard limit Multer), la
-risposta salta il raggruppamento e restituisce direttamente `error` come stringa singola con codice 400.
+Quando un errore "fatale" viene rilevato durante l'upload, la risposta salta il raggruppamento e restituisce
+`error` come stringa singola: **413** `Operazione non permessa.` per un file oltre il limite hard, **400** per
+un multipart malformato o un file in un campo diverso da `image`.
 
-Quando viene passata un'istanza di `Error` a `res.error`, questa viene loggata via Winston
-(`backend/logs/error.log` e `combined.log`) — il messaggio dell'errore non finisce necessariamente nella
-risposta HTTP se il controller passa un messaggio custom.
+Casi trasversali a tutte le rotte:
+
+- **body JSON malformato** → **400** `errore json: <dettaglio del parser>`;
+- **rotta inesistente** → **404** `Non trovato`;
+- **errore imprevisto** → **500** `Qualcosa è andato storto!`. Il messaggio interno non arriva mai al
+  client: finisce solo nei log di Winston (`backend/logs/error.log` e `combined.log`), con stack, percorso e
+  metodo. Solo i 5xx vengono loggati.
+- I body `application/x-www-form-urlencoded` **non** vengono letti: le rotte con body accettano solo JSON
+  (o `multipart/form-data` per l'upload).
 
 ## Autenticazione
 
@@ -246,14 +259,14 @@ Aggiorna nome/email del proprio profilo.
 
 > **Il token usato per la richiesta non vale più** (dalla fase F3): nuova password e `current_token = null`
 > vengono scritti insieme, come al logout. Qualunque richiesta successiva con quel token riceve
-> `401 Token non più valido`, anche sulle rotte legacy dei prodotti: il client deve rifare login con la
+> `401 Token non più valido`, anche sulle rotte dei prodotti: il client deve rifare login con la
 > nuova password.
 
 ### `POST /admin/user/logout` 🔒
 
 - **200** → `data: {}`, `message: "Logout effettuato con successo"`. Imposta `current_token = null`: da
   questo momento il vecchio token restituisce `401 Token non più valido` su qualsiasi route protetta,
-  comprese quelle legacy dei prodotti.
+  comprese quelle dei prodotti.
 - **500** → errore generico `"Qualcosa è andato storto!"` (fino alla fase F3: `Errore durante il logout`)
 
 ---
@@ -360,15 +373,10 @@ Regole sull'immagine, con il messaggio restituito:
 
 ## Route di debug
 
-### `GET /routes`
-
-Non montata sotto nessun prefisso (`app.use(listRoutes)` in `mountLegacyRouters`, `app.setup.ts`), quindi raggiungibile a
-`GET /routes` sulla root del server.
-
-- Se `SHOW_ROUTES` (env) non è esattamente `"true"` → **403** `Accesso negato`.
-- Se abilitata → stampa l'elenco delle route registrate sulla **console del server** (`console.debug`) e
-  risponde comunque con `data: []` — il corpo della risposta HTTP **non contiene mai** l'elenco delle
-  route, va letto nei log del processo. Pensata solo per debug locale/fuori produzione.
+Non ce ne sono. `GET /routes`, che stampava l'elenco delle route sulla console del server dietro
+`SHOW_ROUTES=true` e rispondeva sempre `data: []`, è stata **rimossa nella fase F5** della migrazione a
+NestJS (decisione D8 in `docs/MIGRAZIONE-NESTJS.md`): ora risponde `404 Non trovato` come ogni rotta
+inesistente, e `SHOW_ROUTES` non fa più parte della configurazione.
 
 ---
 
