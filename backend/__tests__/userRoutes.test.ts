@@ -3,6 +3,7 @@
 // token (logout / cambio password): con un modello mockato non potremmo mai
 // verificare che un vecchio JWT smetta davvero di funzionare dopo queste
 // operazioni, perché "current_token" vive nel DB.
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import request from 'supertest';
 import { useTestApp } from './helpers/useTestApp';
 import { prisma } from '../prisma/client';
@@ -233,6 +234,194 @@ describe('Admin/User routes', () => {
       expect(afterLogoutRes.status).toBe(401);
 
       expect(afterLogoutRes.body.error).toBe('Token non più valido');
+    });
+  });
+
+  // --- Fase F3: il dominio User è servito da NestJS ---
+  //
+  // Tutte le asserzioni sopra sono rimaste invariate: sono la prova che il
+  // contratto non è cambiato passando dal middleware legacy ad AuthUserGuard
+  // con passport. I test che seguono fissano i casi del guard che prima non
+  // erano coperti end-to-end, e i comportamenti cambiati DI PROPOSITO.
+  describe('F3: autenticazione con AuthUserGuard e comportamenti fissati', () => {
+    // Il JWT_SECRET reale dell'ambiente di test: serve a costruire token
+    // integri ma scaduti, o di utenti inesistenti, per arrivare ai controlli
+    // successivi alla verifica della firma.
+    const realSecret = process.env.JWT_SECRET as string;
+
+    // Il collegamento fra la configurazione reale e JwtModule: la durata dei
+    // token viene da JWT_EXPIRES_IN in .env ("1h" per questo progetto). Il
+    // test che lo verificava stava in tokenService.test.ts, ridotto in F3.
+    it('emette token che scadono secondo JWT_EXPIRES_IN', async () => {
+      const { token } = await registerUser('Scadenza');
+
+      const payload = jwt.decode(token) as JwtPayload;
+
+      expect(process.env.JWT_EXPIRES_IN).toBe('1h');
+
+      expect(payload.exp! - payload.iat!).toBe(3600);
+    });
+
+    it('rifiuta un header senza token con "Formato token non valido"', async () => {
+      const res = await request(testApp.http).get('/admin/user').set('Authorization', 'Bearer');
+
+      expect(res.status).toBe(401);
+
+      expect(res.body.error).toBe('Formato token non valido');
+    });
+
+    // Cambio deliberato: il middleware legacy prendeva la seconda parola
+    // dell'header qualunque fosse lo schema, quindi accettava anche un token
+    // VALIDO inviato come "Basic <token>". Ora serve lo schema Bearer.
+    it('rifiuta un token valido inviato con uno schema diverso da Bearer', async () => {
+      const { token } = await registerUser('Schema Basic');
+
+      const res = await request(testApp.http)
+        .get('/admin/user')
+        .set('Authorization', `Basic ${token}`);
+
+      expect(res.status).toBe(401);
+
+      expect(res.body.error).toBe('Formato token non valido');
+    });
+
+    // Firma corretta ma scadenza passata: rifiutato da passport-jwt prima di
+    // arrivare al controllo su current_token.
+    it('rifiuta un token scaduto con "Token scaduto o non valido"', async () => {
+      const expired = jwt.sign(
+        { id: 1, email: 'x@example.com', exp: Math.floor(Date.now() / 1000) - 60 },
+        realSecret
+      );
+
+      const res = await request(testApp.http)
+        .get('/admin/user')
+        .set('Authorization', `Bearer ${expired}`);
+
+      expect(res.status).toBe(401);
+
+      expect(res.body.error).toBe('Token scaduto o non valido');
+    });
+
+    // Un token con la forma giusta ma firmato con un altro segreto: è il caso
+    // di un token contraffatto.
+    it('rifiuta un token firmato con un altro segreto', async () => {
+      const forged = jwt.sign({ id: 1, email: 'x@example.com' }, 'segreto-sbagliato');
+
+      const res = await request(testApp.http)
+        .get('/admin/user')
+        .set('Authorization', `Bearer ${forged}`);
+
+      expect(res.status).toBe(401);
+
+      expect(res.body.error).toBe('Token scaduto o non valido');
+    });
+
+    // Token integro e ancora valido, ma l'utente è stato cancellato.
+    it('rifiuta il token di un utente cancellato con "Utente non trovato"', async () => {
+      const { token, email } = await registerUser('Da Cancellare');
+
+      await prisma.user.delete({ where: { email } });
+
+      const res = await request(testApp.http)
+        .get('/admin/user')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(401);
+
+      expect(res.body.error).toBe('Utente non trovato');
+    });
+
+    // Sicurezza: profilo e aggiornamento non devono mai esporre l'hash della
+    // password né il token corrente. Confronto sull'insieme esatto delle
+    // chiavi, così un campo in più fa fallire il test.
+    it('non espone password né current_token in lettura e aggiornamento del profilo', async () => {
+      const { token } = await registerUser('Campi Pubblici');
+
+      const auth = { Authorization: `Bearer ${token}` };
+
+      const profile = await request(testApp.http).get('/admin/user').set(auth);
+
+      const newEmail = `user-route-test-public-${Date.now()}@example.com`;
+
+      emailsToClean.push(newEmail);
+
+      const updated = await request(testApp.http)
+        .patch('/admin/user')
+        .set(auth)
+        .send({ name: 'Campi Pubblici', email: newEmail });
+
+      expect(Object.keys(profile.body.data).sort()).toEqual(['email', 'id', 'level', 'name']);
+
+      expect(Object.keys(updated.body.data).sort()).toEqual(['email', 'id', 'name']);
+    });
+
+    // Sicurezza: un client non può registrarsi come superadmin. `level` non è
+    // nel DTO, e la ValidationPipe lo scarta prima del service.
+    it('ignora `level` in registrazione: ogni utente nasce admin', async () => {
+      const email = `user-route-test-escalation-${Date.now()}@example.com`;
+
+      emailsToClean.push(email);
+
+      const res = await request(testApp.http)
+        .post('/admin/user/register')
+        .send({ name: 'Furbo', email, password: 'password123', level: 'superadmin' });
+
+      expect(res.status).toBe(200);
+
+      const created = await prisma.user.findUniqueOrThrow({ where: { email } });
+
+      expect(created.level).toBe('admin');
+    });
+
+    // Contratto delle risposte senza dati: `data: {}` e il messaggio di
+    // successo, impostato ora con @ResponseMessage.
+    it('risponde con data {} e il messaggio di successo a cambio password e logout', async () => {
+      const { token } = await registerUser('Messaggi');
+
+      const auth = { Authorization: `Bearer ${token}` };
+
+      const change = await request(testApp.http)
+        .patch('/admin/user/password')
+        .set(auth)
+        .send({ oldPassword: 'password123', newPassword: 'nuovapassword1' });
+
+      const logout = await request(testApp.http).post('/admin/user/logout').set(auth);
+
+      expect(change.body).toEqual(
+        expect.objectContaining({ data: {}, message: 'Password aggiornata con successo' })
+      );
+
+      expect(logout.body).toEqual(
+        expect.objectContaining({ status: 200, data: {}, message: 'Logout effettuato con successo' })
+      );
+    });
+
+    // Comportamento legacy CONSERVATO, e fissato perché non cambi per sbaglio:
+    // dopo il cambio password il token già emesso resta valido. È una delle
+    // decisioni aperte di F3; se verrà corretto, questo test andrà invertito.
+    it('dopo il cambio password il token precedente resta valido (comportamento legacy)', async () => {
+      const { token } = await registerUser('Token Dopo Cambio');
+
+      const auth = { Authorization: `Bearer ${token}` };
+
+      await request(testApp.http)
+        .patch('/admin/user/password')
+        .set(auth)
+        .send({ oldPassword: 'password123', newPassword: 'nuovapassword1' });
+
+      const res = await request(testApp.http).get('/admin/user').set(auth);
+
+      expect(res.status).toBe(200);
+    });
+
+    // Bug corretto: un'email non stringa al login faceva esplodere la
+    // normalizzazione con un 500.
+    it('risponde 400, non 500, a un login con email non stringa', async () => {
+      const res = await request(testApp.http)
+        .post('/admin/user/login')
+        .send({ email: 123, password: 'password123' });
+
+      expect(res.status).toBe(400);
     });
   });
 });

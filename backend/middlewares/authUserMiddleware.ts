@@ -19,8 +19,12 @@ export = async (req: Request, res: Response, next: NextFunction) => {
     // Cast: jwt.verify() può restituire una stringa semplice (payload
     // stringa, non oggetto) oltre a JwtPayload — qui non è mai stato
     // controllato, si è sempre assunto un payload oggetto con `.id`
-    // (coerente con come signToken lo firma in services/tokenService.ts).
-    // JWT_SECRET arriva già validato da tokenService (nessun cast qui).
+    // (coerente con come CredentialsService lo firma, in
+    // modules/auth/credentials.service.ts). JWT_SECRET arriva già validato da
+    // tokenService (nessun cast qui).
+    //
+    // Dalla fase F3 questo middleware protegge solo le rotte legacy dei
+    // prodotti: le rotte NestJS usano AuthUserGuard. Sparisce in F4.
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
 
     const user = await prisma.user.findUnique({ where: { id: decoded.id } });

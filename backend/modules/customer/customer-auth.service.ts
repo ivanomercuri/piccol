@@ -1,9 +1,7 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
-import { completeAuthentication } from '../../services/authService';
 import { normalizeEmail } from '../../services/emailNormalizer';
-import { issueTokenFor } from '../../services/registerService';
+import { CredentialsService } from '../auth/credentials.service';
 import { RegisterCustomerDto } from './dto/register-customer.dto';
 
 /**
@@ -13,10 +11,10 @@ import { RegisterCustomerDto } from './dto/register-customer.dto';
  *
  * Customer e User restano due identità separate (CLAUDE.md, "due modelli di
  * identità paralleli"): questo service interroga solo la tabella customers.
- * La logica di sicurezza invece NON è duplicata: confronto della password,
- * firma e persistenza del token restano nelle funzioni condivise
- * completeAuthentication e issueTokenFor, che usa anche il codice degli
- * User ancora legacy.
+ * La logica di sicurezza invece NON è duplicata: hash e confronto della
+ * password, firma e salvataggio del token sono in CredentialsService,
+ * condiviso con gli User (dalla fase F3; in F2 erano funzioni esportate da
+ * services/).
  *
  * COSA CAMBIA RISPETTO ALLE FUNZIONI LEGACY
  * - Prisma arriva dal costruttore invece che da un import del singleton: la
@@ -33,12 +31,13 @@ import { RegisterCustomerDto } from './dto/register-customer.dto';
  */
 @Injectable()
 export class CustomerAuthService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly credentials: CredentialsService
+  ) {}
 
   /** Registra un cliente e restituisce il suo JWT. */
   async register(data: RegisterCustomerDto): Promise<string> {
-    const hashedPassword = await bcrypt.hash(data.password, 10);
-
     // I campi sono mappati uno per uno, mai con uno spread del DTO: anche se
     // la ValidationPipe scarta i campi non dichiarati, questo è il punto in
     // cui si decide che cosa arriva al database, e deve restare leggibile.
@@ -53,44 +52,32 @@ export class CustomerAuthService {
     const customer = await this.prisma.customer.create({
       data: {
         email: normalizeEmail(data.email),
-        password: hashedPassword,
+        password: await this.credentials.hashPassword(data.password),
         firstName: data.firstName,
         lastName: data.lastName,
         address: data.address,
       },
     });
 
-    return issueTokenFor(customer, (token) =>
-      this.saveCurrentToken(customer.id, token)
+    return this.credentials.issueTokenFor(customer, (id, token) =>
+      this.saveCurrentToken(id, token)
     );
   }
 
   /**
    * Autentica un cliente e restituisce il suo JWT.
    *
-   * @throws UnauthorizedException se l'email non corrisponde a nessun cliente
-   *   o la password è errata, con gli stessi messaggi della versione legacy.
+   * @throws UnauthorizedException "Utente non trovato" o "Password errata",
+   *   gli stessi messaggi della versione legacy (da CredentialsService).
    */
   async login(email: string, password: string): Promise<string> {
     const customer = await this.prisma.customer.findUnique({
       where: { email: normalizeEmail(email) },
     });
 
-    if (!customer) {
-      throw new UnauthorizedException('Utente non trovato');
-    }
-
-    const result = await completeAuthentication(customer, password, (token) =>
-      this.saveCurrentToken(customer.id, token)
+    return this.credentials.authenticate(customer, password, (id, token) =>
+      this.saveCurrentToken(id, token)
     );
-
-    // Grazie all'unione discriminata AuthResult, dopo questo controllo
-    // TypeScript sa che `result.token` è una stringa: nessun cast.
-    if (!result.success) {
-      throw new UnauthorizedException(result.message);
-    }
-
-    return result.token;
   }
 
   /**

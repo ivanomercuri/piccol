@@ -10,13 +10,14 @@ import { WinstonLoggerService } from './common/logger/winston-logger.service';
 import { groupValidationErrors } from './common/validation/validation-exception.factory';
 import { HealthController } from './health.controller';
 import { CustomerModule } from './modules/customer/customer.module';
+import { UserModule } from './modules/user/user.module';
 
 /**
  * Modulo radice dell'applicazione NestJS.
  *
- * Contiene l'infrastruttura trasversale e i domini già migrati: dalla fase F2
- * il dominio Customer e l'health-check. User e Product sono ancora serviti
- * dai router Express legacy, montati dentro l'app da app.setup.ts.
+ * Contiene l'infrastruttura trasversale e i domini già migrati: Customer e
+ * l'health-check (F2), User (F3). Product è ancora servito dal router Express
+ * legacy, montato dentro l'app da app.setup.ts.
  *
  * PER CHI VIENE DA SYMFONY
  * Un @Module è l'equivalente di un bundle con la sua configurazione dei
@@ -38,6 +39,7 @@ import { CustomerModule } from './modules/customer/customer.module';
     }),
     PrismaModule,
     CustomerModule,
+    UserModule,
   ],
   controllers: [HealthController],
   providers: [

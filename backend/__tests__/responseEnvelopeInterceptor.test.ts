@@ -1,16 +1,32 @@
 // ResponseEnvelopeInterceptor in isolamento: si simula il controller con un
 // Observable che emette un valore, senza avviare l'app.
 import { CallHandler, ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { lastValueFrom, of } from 'rxjs';
+import { ResponseMessage } from '../common/decorators/response-message.decorator';
 import { ResponseEnvelopeInterceptor } from '../common/interceptors/response-envelope.interceptor';
 
 describe('ResponseEnvelopeInterceptor', () => {
-  const interceptor = new ResponseEnvelopeInterceptor<unknown>();
+  // Reflector reale, non un finto: è la classe di NestJS che legge i
+  // metadati, e usarla vera verifica anche che @ResponseMessage li scriva
+  // dove l'interceptor li cerca.
+  const interceptor = new ResponseEnvelopeInterceptor<unknown>(new Reflector());
 
-  // Contesto minimo: l'interceptor legge solo lo statusCode della risposta.
-  function contextWithStatus(statusCode: number): ExecutionContext {
+  // Un metodo qualunque, senza metadati: rappresenta una rotta senza
+  // @ResponseMessage.
+  function plainHandler() {
+    return undefined;
+  }
+
+  // Contesto minimo: l'interceptor legge lo statusCode della risposta e il
+  // metodo del controller da cui leggere i metadati.
+  function contextWithStatus(
+    statusCode: number,
+    handler: () => unknown = plainHandler
+  ): ExecutionContext {
     return {
       switchToHttp: () => ({ getResponse: () => ({ statusCode }) }),
+      getHandler: () => handler,
     } as unknown as ExecutionContext;
   }
 
@@ -55,6 +71,26 @@ describe('ResponseEnvelopeInterceptor', () => {
     );
 
     expect(result.data).toBeNull();
+  });
+
+  // Il messaggio di successo dichiarato con @ResponseMessage sul metodo del
+  // controller finisce nel campo `message`, come il secondo argomento di
+  // res.success nelle rotte legacy (es. "Logout effettuato con successo").
+  it('usa il messaggio dichiarato con @ResponseMessage sul metodo', async () => {
+    class Controller {
+      @ResponseMessage('Logout effettuato con successo')
+      logout() {
+        return {};
+      }
+    }
+
+    const handler = Controller.prototype.logout;
+
+    const result = await lastValueFrom(
+      interceptor.intercept(contextWithStatus(200, handler), handlerReturning({}))
+    );
+
+    expect(result.message).toBe('Logout effettuato con successo');
   });
 
   // Valori "falsy" ma legittimi non vanno confusi con l'assenza di dati:

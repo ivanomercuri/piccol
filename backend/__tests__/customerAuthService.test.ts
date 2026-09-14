@@ -4,6 +4,12 @@
 // registerService.test.ts e authCustomerController.test.ts, rimossi in F2
 // insieme alle funzioni e al controller legacy.
 //
+// Dalla fase F3 hash, confronto delle password e firma dei token sono in
+// CredentialsService: qui è usato quello VERO (con un JwtModule di test),
+// perché questi test verificano il risultato visibile — password salvata come
+// hash, token salvato e firmato — e non solo che una dipendenza sia stata
+// chiamata. I dettagli di CredentialsService hanno comunque i propri test.
+//
 // È il primo test del progetto che sostituisce Prisma TRAMITE IL CONTAINER
 // invece che con jest.mock sul percorso di un file: il service chiede un
 // PrismaClient nel costruttore, e qui la stessa chiave consegna un oggetto
@@ -13,7 +19,9 @@ import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt, { JwtPayload } from 'jsonwebtoken';
+import { CredentialsService } from '../modules/auth/credentials.service';
 import { CustomerAuthService } from '../modules/customer/customer-auth.service';
+import { testJwtModule } from './helpers/testJwtModule';
 
 describe('CustomerAuthService', () => {
   // Il finto Prisma ha SOLO il delegate `customer`. Se il service toccasse la
@@ -38,8 +46,10 @@ describe('CustomerAuthService', () => {
     // costruttore del service tramite la chiave PrismaClient. Con `new` il
     // test passerebbe anche se quel collegamento fosse rotto.
     const moduleRef = await Test.createTestingModule({
+      imports: [testJwtModule()],
       providers: [
         CustomerAuthService,
+        CredentialsService,
         // Stessa chiave del provider reale (PrismaModule), valore diverso.
         // `useValue` perché l'oggetto finto esiste già: il container non
         // deve costruire nulla, solo consegnarlo.

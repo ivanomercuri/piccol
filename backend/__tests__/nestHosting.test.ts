@@ -15,6 +15,7 @@ import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { WinstonLoggerService } from '../common/logger/winston-logger.service';
 import { prisma as sharedPrismaClient } from '../prisma/client';
+import { CurrentUser } from '../modules/auth/current-user.decorator';
 import { useTestApp } from './helpers/useTestApp';
 
 // Controller di prova con un metodo per ciascun comportamento da verificare.
@@ -54,6 +55,13 @@ class ProbeController {
   @Get('crash')
   crash() {
     throw new Error('dettaglio interno che non deve uscire');
+  }
+
+  // Errore di programmazione voluto: @CurrentUser() su una rotta SENZA
+  // @UseGuards(AuthUserGuard). Nessuno ha popolato request.user.
+  @Get('current-user-without-guard')
+  currentUserWithoutGuard(@CurrentUser() user: unknown) {
+    return user;
   }
 }
 
@@ -198,6 +206,28 @@ describe('Convivenza router legacy e rotte NestJS', () => {
       expect(errorSpy).toHaveBeenCalledWith(
         'Errore:',
         expect.objectContaining({ message: 'dettaglio interno che non deve uscire' })
+      );
+
+      errorSpy.mockRestore();
+    });
+  });
+
+  describe('@CurrentUser()', () => {
+    // Usato su una rotta non protetta, il decoratore non deve restituire
+    // undefined facendo proseguire il controller con un utente inesistente:
+    // deve fallire. È un bug del codice, non del client, quindi 500 e non 401.
+    it('su una rotta senza AuthUserGuard fallisce con un 500 invece di proseguire', async () => {
+      const logger = testApp.nest.get(WinstonLoggerService);
+
+      const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined);
+
+      const res = await request(testApp.http).get('/__probe/current-user-without-guard');
+
+      expect(res.status).toBe(500);
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Errore:',
+        expect.objectContaining({ message: expect.stringContaining('AuthUserGuard') })
       );
 
       errorSpy.mockRestore();

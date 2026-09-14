@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { CustomerAuthService } from './customer-auth.service';
-import { LoginCustomerDto } from './dto/login-customer.dto';
+import { LoginDto } from '../auth/dto/login.dto';
 import { RegisterCustomerDto } from './dto/register-customer.dto';
 
 /**
@@ -33,7 +33,7 @@ export class CustomerController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() body: LoginCustomerDto): Promise<string> {
+  login(@Body() body: LoginDto): Promise<string> {
     return this.customerAuth.login(body.email, body.password);
   }
 }

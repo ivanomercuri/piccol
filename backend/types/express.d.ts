@@ -4,10 +4,32 @@
 // pubblici di @types/express: qui le dichiariamo una sola volta invece di
 // ripetere cast in ogni file.
 import 'express';
-import type { User } from '@prisma/client';
+import type { User as PrismaUser } from '@prisma/client';
 
 declare global {
   namespace Express {
+    // L'utente autenticato, in `req.user`.
+    //
+    // PERCHÉ UN'INTERFACCIA CHE ESTENDE QUELLA DI PRISMA, e non più
+    // `user?: User` dentro Request come fino alla fase F2.
+    // Dalla fase F3 il progetto usa passport, i cui tipi (@types/passport)
+    // dichiarano già `Request.user?: Express.User`, con Express.User vuota,
+    // pensata per essere estesa da ogni applicazione. Due effetti, entrambi
+    // verificati con il type-check:
+    // - una seconda dichiarazione di `user` in Request entrerebbe in conflitto
+    //   con quella di passport;
+    // - dentro `namespace Express`, il nome `User` indica Express.User e non
+    //   più il tipo importato da Prisma: il vecchio `user?: User` si era
+    //   ritrovato, senza cambiare una riga, a indicare un'interfaccia vuota, e
+    //   productController non poteva più leggere `level` e `id`.
+    // Estendere Express.User con la riga di Prisma è il modo previsto da
+    // passport: `req.user` è l'utente del database sia per il middleware
+    // legacy dei prodotti sia per JwtUserStrategy.
+    //
+    // L'import è rinominato PrismaUser proprio per non ricreare l'ambiguità.
+    // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+    interface User extends PrismaUser {}
+
     interface Response {
       // Aggiunti da middlewares/responseFormatter.js (monkey-patch su ogni
       // risposta, primo middleware della catena in index.js). Firma presa
@@ -33,17 +55,6 @@ declare global {
         isFatal?: boolean;
       }>;
 
-      // Valorizzato da middlewares/authUserMiddleware.ts con la riga
-      // dell'utente autenticato letta via Prisma.
-      //
-      // Ora è direttamente il tipo `User` generato da Prisma dallo schema,
-      // non più un'interfaccia "duck-typed" scritta a mano: con Sequelize
-      // esportare il tipo del modello avrebbe richiesto di riaprire scelte
-      // già chiuse, mentre il client generato lo espone gratis e resta
-      // allineato allo schema da solo. Nota che NON ha più `save()`: le
-      // istanze Prisma sono oggetti semplici, l'aggiornamento passa da
-      // prisma.user.update().
-      user?: User;
     }
   }
 }

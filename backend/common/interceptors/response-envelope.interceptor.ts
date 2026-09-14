@@ -4,8 +4,10 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Response } from 'express';
 import { Observable, map } from 'rxjs';
+import { RESPONSE_MESSAGE_KEY } from '../decorators/response-message.decorator';
 
 /**
  * Forma di ogni risposta di successo del progetto: identica a quella di
@@ -45,11 +47,25 @@ export interface SuccessEnvelope<T> {
 export class ResponseEnvelopeInterceptor<T>
   implements NestInterceptor<T, SuccessEnvelope<T>>
 {
+  // Reflector è il servizio di NestJS che legge i metadati attaccati a
+  // classi e metodi con SetMetadata: qui serve a leggere @ResponseMessage.
+  constructor(private readonly reflector: Reflector) {}
+
   intercept(
     context: ExecutionContext,
     next: CallHandler<T>
   ): Observable<SuccessEnvelope<T>> {
     const response = context.switchToHttp().getResponse<Response>();
+
+    // context.getHandler() è il metodo del controller che sta per essere
+    // eseguito: il messaggio si legge dai SUOI metadati. Le rotte senza
+    // @ResponseMessage restano con il messaggio vuoto, come res.success
+    // chiamato senza secondo argomento.
+    const message =
+      this.reflector.get<string | undefined>(
+        RESPONSE_MESSAGE_KEY,
+        context.getHandler()
+      ) ?? '';
 
     return next.handle().pipe(
       map((data) => ({
@@ -63,10 +79,7 @@ export class ResponseEnvelopeInterceptor<T>
         // senza la chiave `data`. `null` rende il contratto stabile: `data`
         // è sempre presente, come nelle risposte d'errore.
         data: data ?? null,
-        // Il messaggio di successo (es. "Logout effettuato con successo")
-        // oggi è usato solo da rotte che migreranno in F3: il meccanismo per
-        // impostarlo si progetta lì, quando esiste un chiamante vero.
-        message: '',
+        message,
       }))
     );
   }
