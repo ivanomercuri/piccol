@@ -1,15 +1,12 @@
-// Test end-to-end delle route prodotto. Poiché createProduct è ancora uno
-// stub (vedi CLAUDE.md), non possiamo usare POST /products/new per generare
-// dati di prova: i prodotti per i test su GET /products vengono creati
-// direttamente via modello.
+// Test end-to-end delle route prodotto. I prodotti per i test su GET /products
+// vengono creati direttamente via modello, con date e proprietari scelti dal
+// test; POST /products/new crea prodotti veri dalla fase F6 (sezione "F6" in
+// fondo).
 //
 // Dalla fase F4 il dominio è servito da NestJS. Le asserzioni che c'erano già
 // sono rimaste, con un'unica modifica voluta: `data` di GET /products è ora
 // una pagina (`data.items`). Le sezioni "F4" in fondo fissano paginazione,
-// limiti di upload, casi di sicurezza e comportamenti cambiati. POST /products/new viene comunque testata a
-// fondo, perché la sua pipeline di validazione (upload, conteggio file,
-// dimensioni, campi) è tutta reale e funzionante anche se il controller
-// finale non salva nulla.
+// limiti di upload, casi di sicurezza e comportamenti cambiati.
 import fs from 'fs';
 import path from 'path';
 import request from 'supertest';
@@ -30,7 +27,11 @@ const testApp = useTestApp();
 
 describe('Product routes', () => {
   const emailsToClean: string[] = [];
-  const productIds: number[] = [];
+
+  // File salvati in backend/uploads/ da richieste andate a buon fine: dalla
+  // fase F6 restano su disco, referenziati dal prodotto creato, e vanno tolti
+  // a mano a fine file.
+  const uploadedFilesToClean: string[] = [];
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   let adminA: any;
@@ -84,14 +85,29 @@ describe('Product routes', () => {
       },
     });
 
-    productIds.push(productOfA.id, productOfB.id);
   });
 
   afterAll(async () => {
-    await prisma.product.deleteMany({ where: { id: { in: productIds } } });
+    // Tutti i prodotti degli utenti di test, compresi quelli creati tramite
+    // POST /products/new, di cui il test non conosce l'id in anticipo. Vanno
+    // cancellati prima degli utenti: la FK products.createdBy non ha cascade.
+    // Le righe di product_images seguono il prodotto (ON DELETE CASCADE).
+    await prisma.product.deleteMany({ where: { creator: { email: { in: emailsToClean } } } });
 
     await prisma.user.deleteMany({ where: { email: { in: emailsToClean } } });
+
+    uploadedFilesToClean.forEach((file) => fs.rmSync(file, { force: true }));
   });
+
+  // Il percorso su disco di un'immagine a partire dal suo image_url
+  // (`/uploads/<nome>`), annotato per la pulizia di fine file.
+  function trackUploadedFile(imageUrl: string): string {
+    const file = path.join(uploadsDir, path.basename(imageUrl));
+
+    uploadedFilesToClean.push(file);
+
+    return file;
+  }
 
   describe('GET /products', () => {
     it('should return 401 without a token', async () => {
@@ -207,13 +223,15 @@ describe('Product routes', () => {
       expect(res.status).toBe(400);
     });
 
-    it('should let a fully valid request through the whole pipeline (still hits the createProduct stub)', async () => {
-      const filesBefore = fs.readdirSync(uploadsDir);
-
+    // Una richiesta valida attraversa tutta la catena (guard, upload,
+    // validazione) e arriva al service. Fino a F5 il service era uno stub e
+    // rispondeva `data: {}`; il comportamento reale è verificato nella sezione
+    // "F6" in fondo al file.
+    it('should let a fully valid request through the whole pipeline', async () => {
       const res = await request(testApp.http)
         .post('/products/new')
         .set('Authorization', `Bearer ${adminA.token}`)
-        .field('name', 'Prodotto valido')
+        .field('name', `Prodotto valido ${Date.now()}`)
         .field('description', 'Descrizione valida')
         .field('price', '9.99')
         .field('quantity', '5')
@@ -224,20 +242,7 @@ describe('Product routes', () => {
 
       expect(res.status).toBe(200);
 
-      // Fissa deliberatamente il comportamento noto e incompleto: la
-      // pipeline di validazione lascia passare la richiesta, ma lo stub
-      // createProduct non crea nessuna riga in products. Il giorno in cui
-      // verrà implementato, questo test andrà aggiornato di proposito.
-      expect(res.body.data).toEqual({});
-
-      // createProduct non ripulisce mai il file caricato in caso di
-      // successo (gap noto, vedi backend/docs/API.md): lo ripuliamo qui a
-      // mano per non lasciare file orfani in backend/uploads/ ad ogni run.
-      const filesAfter = fs.readdirSync(uploadsDir);
-
-      const newFiles = filesAfter.filter((f) => !filesBefore.includes(f));
-
-      newFiles.forEach((f) => fs.unlinkSync(path.join(uploadsDir, f)));
+      trackUploadedFile(res.body.data.images[0].image_url);
     });
   });
   // Nomi dei file presenti ora in backend/uploads/: serve a verificare che
@@ -284,8 +289,6 @@ describe('Product routes', () => {
             createdAt: new Date(base + offset * 1000),
           },
         });
-
-        productIds.push(product.id);
 
         paged.push(product);
       }
@@ -442,6 +445,256 @@ describe('Product routes', () => {
       expect(res.status).toBe(400);
 
       expect(res.body.error).toBe("Richiesta di caricamento dell'immagine non valida");
+    });
+  });
+
+  describe('F6: creazione del prodotto', () => {
+    // Un terzo admin, usato solo per verificare che la regola sui doppioni
+    // valga per utente.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let adminC: any;
+
+    beforeAll(async () => {
+      adminC = await registerAndLogin('Admin C');
+    });
+
+    interface ProductFields {
+      name: string;
+      description: string;
+      price: string;
+      quantity: string;
+    }
+
+    // Campi validi con un nome univoco: la regola sui doppioni confronta i
+    // campi, e due test con gli stessi campi a pochi secondi di distanza si
+    // disturberebbero a vicenda.
+    function uniqueFields(label: string, overrides: Partial<ProductFields> = {}): ProductFields {
+      return {
+        name: `F6 ${label} ${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        description: 'Descrizione F6',
+        price: '9.99',
+        quantity: '5',
+        ...overrides,
+      };
+    }
+
+    // Invia un nuovo prodotto con i campi indicati e un PNG valido.
+    function postNewProduct(token: string, fields: ProductFields) {
+      return request(testApp.http)
+        .post('/products/new')
+        .set('Authorization', `Bearer ${token}`)
+        .field('name', fields.name)
+        .field('description', fields.description)
+        .field('price', fields.price)
+        .field('quantity', fields.quantity)
+        .attach('image', VALID_PNG, { filename: 'prodotto.png', contentType: 'image/png' });
+    }
+
+    // Quanti prodotti con quel nome esistono nel database, di chiunque.
+    function countProductsNamed(name: string): Promise<number> {
+      return prisma.product.count({ where: { name } });
+    }
+
+    // Il caso base. La risposta è il prodotto creato con la sua immagine
+    // (scelta F6: prima era `data: {}`), il prezzo esce come stringa esatta
+    // ("9.99", non 9.99 in virgola mobile), il proprietario viene dal token, e
+    // il file referenziato esiste davvero su disco.
+    it('crea il prodotto con la sua immagine e lo restituisce', async () => {
+      const fields = uniqueFields('base');
+
+      const res = await postNewProduct(adminA.token, fields);
+
+      expect(res.status).toBe(200);
+
+      const product = res.body.data;
+
+      expect(product).toEqual(
+        expect.objectContaining({
+          id: expect.any(Number),
+          name: fields.name,
+          description: 'Descrizione F6',
+          price: '9.99',
+          quantity: 5,
+          available: true,
+          createdBy: adminA.user.id,
+        })
+      );
+
+      expect(product.images).toHaveLength(1);
+
+      expect(product.images[0].image_url).toMatch(/^\/uploads\/[0-9a-f]{32}$/);
+
+      expect(fs.existsSync(trackUploadedFile(product.images[0].image_url))).toBe(true);
+
+      const saved = await prisma.product.findUnique({
+        where: { id: product.id },
+        include: { images: true },
+      });
+
+      expect(saved?.images.map((image) => image.image_url)).toEqual([product.images[0].image_url]);
+    });
+
+    // Doppio click: lo stesso form inviato due volte di fila. La seconda
+    // richiesta riceve il prodotto della prima, senza crearne un altro, e il
+    // file che ha caricato viene cancellato perché nessuno lo referenzia.
+    it('un secondo invio identico restituisce lo stesso prodotto e non lascia il suo file', async () => {
+      const fields = uniqueFields('doppio click');
+
+      const before = uploadedFileNames();
+
+      const first = await postNewProduct(adminA.token, fields);
+
+      const second = await postNewProduct(adminA.token, fields);
+
+      trackUploadedFile(first.body.data.images[0].image_url);
+
+      expect(second.status).toBe(200);
+
+      expect(second.body.data.id).toBe(first.body.data.id);
+
+      expect(await countProductsNamed(fields.name)).toBe(1);
+
+      // Un solo file nuovo su disco: quello del prodotto creato.
+      expect(uploadedFileNames().filter((file) => !before.includes(file))).toEqual([
+        path.basename(first.body.data.images[0].image_url),
+      ]);
+    });
+
+    // Il caso per cui serve l'advisory lock: due richieste identiche nello
+    // STESSO istante. Senza lock entrambe cercherebbero un doppione prima che
+    // l'altra abbia scritto, non lo troverebbero, e creerebbero due prodotti.
+    const SIMULTANEOUS_REQUESTS = 10;
+
+    it('invii identici simultanei creano un solo prodotto', async () => {
+      const fields = uniqueFields('simultanei');
+
+      const before = uploadedFileNames();
+
+      const responses = await Promise.all(
+        Array.from({ length: SIMULTANEOUS_REQUESTS }, () => postNewProduct(adminA.token, fields))
+      );
+
+      trackUploadedFile(responses[0].body.data.images[0].image_url);
+
+      expect(responses.map((res) => res.status)).toEqual(responses.map(() => 200));
+
+      expect(new Set(responses.map((res) => res.body.data.id)).size).toBe(1);
+
+      expect(await countProductsNamed(fields.name)).toBe(1);
+
+      expect(uploadedFileNames().filter((file) => !before.includes(file))).toHaveLength(1);
+    });
+
+    // La regola vale per utente: due admin diversi possono avere prodotti
+    // identici, anche creati nello stesso istante.
+    it('lo stesso contenuto inviato da due utenti diversi crea due prodotti', async () => {
+      const fields = uniqueFields('due utenti');
+
+      const [ofA, ofC] = await Promise.all([
+        postNewProduct(adminA.token, fields),
+        postNewProduct(adminC.token, fields),
+      ]);
+
+      trackUploadedFile(ofA.body.data.images[0].image_url);
+
+      trackUploadedFile(ofC.body.data.images[0].image_url);
+
+      expect(ofA.body.data.id).not.toBe(ofC.body.data.id);
+
+      expect(await countProductsNamed(fields.name)).toBe(2);
+    });
+
+    // Basta un campo diverso perché sia un altro prodotto: qui il prezzo.
+    it('un invio con un campo diverso crea un nuovo prodotto', async () => {
+      const fields = uniqueFields('prezzo diverso');
+
+      const first = await postNewProduct(adminA.token, fields);
+
+      const second = await postNewProduct(adminA.token, { ...fields, price: '10.50' });
+
+      trackUploadedFile(first.body.data.images[0].image_url);
+
+      trackUploadedFile(second.body.data.images[0].image_url);
+
+      expect(second.body.data.id).not.toBe(first.body.data.id);
+    });
+
+    // Il prezzo si confronta come numero: 9.9 e 9.90 sono lo stesso prezzo, e
+    // quindi lo stesso doppione.
+    it('considera uguali due prezzi scritti in modo diverso', async () => {
+      const fields = uniqueFields('prezzo equivalente', { price: '9.9' });
+
+      const first = await postNewProduct(adminA.token, fields);
+
+      const second = await postNewProduct(adminA.token, { ...fields, price: '9.90' });
+
+      trackUploadedFile(first.body.data.images[0].image_url);
+
+      expect(second.body.data.id).toBe(first.body.data.id);
+    });
+
+    // Fuori dalla finestra lo stesso contenuto è un nuovo prodotto. Invece di
+    // aspettare 10 secondi, il test sposta indietro la data del primo.
+    it('passata la finestra, lo stesso contenuto crea un nuovo prodotto', async () => {
+      const fields = uniqueFields('finestra scaduta');
+
+      const first = await postNewProduct(adminA.token, fields);
+
+      trackUploadedFile(first.body.data.images[0].image_url);
+
+      await prisma.product.update({
+        where: { id: first.body.data.id },
+        data: { createdAt: new Date(Date.now() - 11_000) },
+      });
+
+      const second = await postNewProduct(adminA.token, fields);
+
+      trackUploadedFile(second.body.data.images[0].image_url);
+
+      expect(second.body.data.id).not.toBe(first.body.data.id);
+    });
+
+    // Prezzo zero ammesso di proposito (scelta dell'utente: omaggi, campioni).
+    it('accetta un prezzo zero', async () => {
+      const res = await postNewProduct(adminA.token, uniqueFields('gratis', { price: '0' }));
+
+      expect(res.status).toBe(200);
+
+      expect(res.body.data.price).toBe('0');
+
+      trackUploadedFile(res.body.data.images[0].image_url);
+    });
+
+    // Valori che fino a F5 arrivavano al database: i primi due venivano
+    // salvati male (negativo, arrotondato in silenzio a 12.35), gli ultimi tre
+    // producevano un 500 per overflow. Ora sono tutti un 400 con il messaggio
+    // del campo, e il file caricato viene cancellato.
+    it.each([
+      ['un prezzo negativo', { price: '-5' }, 'price', 'Prezzo non può essere negativo'],
+      ['un prezzo con tre decimali', { price: '12.345' }, 'price', 'Prezzo può avere al massimo 2 decimali'],
+      ['un prezzo oltre DECIMAL(10,2)', { price: '100000000' }, 'price', 'Prezzo non può superare 99999999.99'],
+      [
+        'una quantità oltre il massimo di un integer',
+        { quantity: '2147483648' },
+        'quantity',
+        'Quantità non può superare 2147483647',
+      ],
+      [
+        'un nome oltre 255 caratteri',
+        { name: 'a'.repeat(256) },
+        'name',
+        'Nome del prodotto non può superare 255 caratteri',
+      ],
+    ])('rifiuta %s con un 400 sul campo, senza lasciare file', async (_case, overrides, field, message) => {
+      const before = uploadedFileNames();
+
+      const res = await postNewProduct(adminA.token, uniqueFields('non valido', overrides));
+
+      expect(res.status).toBe(400);
+
+      expect(res.body.error).toEqual([{ id: field, message }]);
+
+      expect(uploadedFileNames()).toEqual(before);
     });
   });
 });

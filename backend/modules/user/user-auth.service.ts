@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { PrismaClient, User } from '@prisma/client';
+import { Prisma, PrismaClient, User } from '@prisma/client';
 import { normalizeEmail } from '../../services/emailNormalizer';
 import { CredentialsService } from '../auth/credentials.service';
 import { rejectDuplicateEmail } from '../auth/duplicate-email';
@@ -35,19 +35,25 @@ export class UserAuthService {
     const passwordHash = await this.credentials.hashPassword(data.password);
 
     // Email già registrata → 409 "Email già registrata" (decisione A).
-    const user = await rejectDuplicateEmail(
-      this.prisma.user.create({
-        data: {
-          name: data.name,
-          email: normalizeEmail(data.email),
-          password: passwordHash,
-        },
-      })
-    );
+    //
+    // Creazione e salvataggio del token nella stessa transazione interattiva
+    // (fase F6): il motivo, identico per le due identità, è spiegato in
+    // CustomerAuthService.register. Tutte le query passano da `tx`.
+    return this.prisma.$transaction(async (tx) => {
+      const user = await rejectDuplicateEmail(
+        tx.user.create({
+          data: {
+            name: data.name,
+            email: normalizeEmail(data.email),
+            password: passwordHash,
+          },
+        })
+      );
 
-    return this.credentials.issueTokenFor(user, (id, token) =>
-      this.saveCurrentToken(id, token)
-    );
+      return this.credentials.issueTokenFor(user, (id, token) =>
+        this.saveCurrentToken(id, token, tx)
+      );
+    });
   }
 
   /**
@@ -113,10 +119,15 @@ export class UserAuthService {
   /**
    * Scrive l'unico token valido dell'utente, o `null` per non averne nessuno.
    * Usato da registrazione, login e logout: un solo punto che tocca
-   * current_token.
+   * current_token. `db` è il client della transazione durante la registrazione,
+   * quello normale altrove.
    */
-  private saveCurrentToken(userId: number, token: string | null): Promise<unknown> {
-    return this.prisma.user.update({
+  private saveCurrentToken(
+    userId: number,
+    token: string | null,
+    db: Prisma.TransactionClient = this.prisma
+  ): Promise<unknown> {
+    return db.user.update({
       where: { id: userId },
       data: { current_token: token },
     });

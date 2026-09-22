@@ -11,6 +11,8 @@
 import request from 'supertest';
 import { useTestApp } from './helpers/useTestApp';
 import { prisma } from '../prisma/client';
+import { JwtService } from '@nestjs/jwt';
+import { WinstonLoggerService } from '../common/logger/winston-logger.service';
 
 // Avvio e chiusura dell'app NestJS, gestiti dall'helper. Chiamato qui, alla
 // radice del file e fuori dal describe, perché la chiusura (che disconnette
@@ -257,6 +259,62 @@ describe('Customer routes', () => {
       expect(res.body.error).toEqual([
         { id: 'email', message: 'Email deve essere un testo' },
       ]);
+    });
+  });
+
+  describe('F6: registrazione atomica', () => {
+    // Creazione del cliente e salvataggio del token sono due scritture: il
+    // token contiene l'id, che esiste solo dopo la create. Dalla fase F6 stanno
+    // nella stessa transazione. Qui la seconda metà viene fatta fallire per
+    // davvero (la firma del token lancia) e si guarda il database reale: il
+    // cliente NON deve esistere. Fino a F5 restava registrato senza token, e
+    // un nuovo tentativo con la stessa email riceveva 409.
+    //
+    // Gli spy sono sulle istanze che l'app usa davvero: JwtService è la stessa
+    // istanza iniettata in CredentialsService, e il logger quella del filter
+    // (silenziato per non sporcare backend/logs/ con un 500 voluto).
+    it('se il token non può essere emesso, il cliente non resta registrato', async () => {
+      const email = `customer-route-test-atomic-${Date.now()}@example.com`;
+
+      emailsToClean.push(email);
+
+      const signSpy = jest
+        .spyOn(testApp.nest.get(JwtService), 'signAsync')
+        .mockRejectedValueOnce(new Error('firma non disponibile'));
+
+      const loggerSpy = jest
+        .spyOn(testApp.nest.get(WinstonLoggerService), 'error')
+        .mockImplementation(() => undefined);
+
+      try {
+        const res = await request(testApp.http).post('/register').send({
+          email,
+          password: 'password123',
+          firstName: 'Mario',
+          lastName: 'Rossi',
+          address: 'Via Roma 1',
+        });
+
+        expect(res.status).toBe(500);
+
+        await expect(prisma.customer.findUnique({ where: { email } })).resolves.toBeNull();
+
+        // La controprova che conta per il client: lo stesso invio, riprovato,
+        // riesce invece di scontrarsi con un account "fantasma".
+        const retry = await request(testApp.http).post('/register').send({
+          email,
+          password: 'password123',
+          firstName: 'Mario',
+          lastName: 'Rossi',
+          address: 'Via Roma 1',
+        });
+
+        expect(retry.status).toBe(200);
+      } finally {
+        signSpy.mockRestore();
+
+        loggerSpy.mockRestore();
+      }
     });
   });
 });

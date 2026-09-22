@@ -13,8 +13,19 @@ import { testJwtModule } from './helpers/testJwtModule';
 describe('UserAuthService', () => {
   // Solo il delegate `user`: se il service toccasse la tabella customers,
   // il test esploderebbe (separazione delle identità, CLAUDE.md).
+  // $transaction (dalla fase F6 la registrazione è una transazione
+  // interattiva): esegue il callback passandogli lo stesso oggetto finto come
+  // client della transazione. Qui interessa che cosa il service scrive; che le
+  // scritture siano davvero atomiche lo verifica il database vero, in un test
+  // end-to-end di registrazione (customerRoutes.test.ts).
+  //
+  // Tipi scritti a mano, anche quello di ritorno: la funzione usa fakePrisma
+  // dentro l'inizializzatore di fakePrisma stesso, e senza un tipo dichiarato
+  // TypeScript dovrebbe dedurre il tipo dell'oggetto da sé stesso (errore
+  // TS7022, "referenced directly or indirectly in its own initializer").
   const fakePrisma = {
     user: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+    $transaction: jest.fn((work: (tx: unknown) => Promise<unknown>): Promise<unknown> => work(fakePrisma)),
   };
 
   let service: UserAuthService;

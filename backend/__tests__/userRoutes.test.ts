@@ -7,6 +7,8 @@ import jwt, { JwtPayload } from 'jsonwebtoken';
 import request from 'supertest';
 import { useTestApp } from './helpers/useTestApp';
 import { prisma } from '../prisma/client';
+import { JwtService } from '@nestjs/jwt';
+import { WinstonLoggerService } from '../common/logger/winston-logger.service';
 
 // Avvio e chiusura dell'app NestJS, gestiti dall'helper. Chiamato qui, alla
 // radice del file e fuori dal describe, perché la chiusura (che disconnette
@@ -485,6 +487,39 @@ describe('Admin/User routes', () => {
         .send({ email: 123, password: 'password123' });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('F6: registrazione atomica', () => {
+    // Stesso caso di customerRoutes.test.ts, per l'altra identità: se la firma
+    // del token fallisce dopo la create, la transazione viene annullata e
+    // l'utente non resta nel database.
+    it('se il token non può essere emesso, l\'utente non resta registrato', async () => {
+      const email = `user-route-test-atomic-${Date.now()}@example.com`;
+
+      emailsToClean.push(email);
+
+      const signSpy = jest
+        .spyOn(testApp.nest.get(JwtService), 'signAsync')
+        .mockRejectedValueOnce(new Error('firma non disponibile'));
+
+      const loggerSpy = jest
+        .spyOn(testApp.nest.get(WinstonLoggerService), 'error')
+        .mockImplementation(() => undefined);
+
+      try {
+        const res = await request(testApp.http)
+          .post('/admin/user/register')
+          .send({ name: 'Atomico', email, password: 'password123' });
+
+        expect(res.status).toBe(500);
+
+        await expect(prisma.user.findUnique({ where: { email } })).resolves.toBeNull();
+      } finally {
+        signSpy.mockRestore();
+
+        loggerSpy.mockRestore();
+      }
     });
   });
 });

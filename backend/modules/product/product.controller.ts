@@ -12,7 +12,7 @@ import type { User } from '@prisma/client';
 import { AuthUserGuard } from '../auth/auth-user.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
-import { ProductPage, ProductService } from './product.service';
+import { ProductPage, ProductService, ProductWithImages } from './product.service';
 import { NewProductForm, NewProductFormData, NewProductFormPipe } from './upload/new-product-form';
 import { ProductImageUploadInterceptor } from './upload/product-image-upload.interceptor';
 
@@ -45,7 +45,7 @@ export class ProductController {
   create(
     @CurrentUser() user: User,
     @NewProductFormData(NewProductFormPipe) form: NewProductForm
-  ): Promise<Record<string, never>> {
+  ): Promise<ProductWithImages> {
     return this.products.create(user, form);
   }
 }

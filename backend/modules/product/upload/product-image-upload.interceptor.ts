@@ -9,16 +9,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request, RequestHandler, Response } from 'express';
-import { unlink } from 'fs/promises';
 import multer from 'multer';
 import { Observable, catchError, from, mergeMap, throwError } from 'rxjs';
 import { megabytesToBytes } from './product-image.validator';
+import { discardUploadedFiles, UPLOADS_DIR } from './uploaded-files';
 
 /** Campo multipart da cui arrivano le immagini, come nella rotta legacy. */
 export const PRODUCT_IMAGE_FIELD = 'image';
-
-/** Cartella dei file temporanei, relativa alla cartella di lavoro (backend/). */
-const UPLOADS_DIR = 'uploads/';
 
 /**
  * Messaggi di busboy (il parser multipart usato da multer) per un body
@@ -58,7 +55,9 @@ const MALFORMED_MULTIPART_MESSAGES = [
  * restava in uploads/ per sempre.
  *
  * Se invece la richiesta va a buon fine, i file restano: sono il risultato
- * dell'upload, e sarà createProduct (fase F6) a doverli usare.
+ * dell'upload, e ProductService.create ne salva l'indirizzo nel database
+ * (fase F6). L'unico file che il service cancella da sé è quello di una
+ * richiesta riconosciuta come duplicata, che si conclude con un successo.
  */
 @Injectable()
 export class ProductImageUploadInterceptor implements NestInterceptor {
@@ -107,23 +106,13 @@ export class ProductImageUploadInterceptor implements NestInterceptor {
     });
   }
 
-  /**
-   * Cancella i file salvati da questa richiesta. Un file che non si riesce a
-   * cancellare non deve nascondere l'errore che il client deve ricevere:
-   * viene solo segnalato nei log.
-   */
-  private async removeUploadedFiles(request: Request): Promise<void> {
+  /** Cancella i file salvati da questa richiesta (vedi uploaded-files.ts). */
+  private removeUploadedFiles(request: Request): Promise<void> {
     // Cast: @types/multer tipizza req.files come array O dizionario per campo,
     // a seconda del metodo di multer usato. Con .array() è sempre un array.
     const files = (request.files as Express.Multer.File[] | undefined) ?? [];
 
-    await Promise.all(
-      files.map((file) =>
-        unlink(file.path).catch((error: unknown) =>
-          this.logger.warn(`File temporaneo non cancellato: ${file.path} (${String(error)})`)
-        )
-      )
-    );
+    return discardUploadedFiles(files, this.logger);
   }
 }
 
