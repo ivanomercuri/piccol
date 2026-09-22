@@ -855,22 +855,33 @@ il token, il client deve rifare login; D) `@IsEmail` per gli User.
 - Stato: **29 suite / 191 test verdi**, type-check e lint puliti. Il `.env` locale può ancora contenere
   `SHOW_ROUTES`: non la legge più nessuno, si può togliere a mano.
 
-**Il prossimo passo è F6**: `ProductService.create` con una transazione (prodotto e immagine salvati insieme,
-prezzo da stringa a `Decimal`). È lì che il protocollo di trade-off di AGENTS.md si attiva davvero: prima di
-scrivere codice vanno presentate le opzioni per le categorie che si applicano.
+**Fatto in F6** (2026-09-22, registro completo in §15 del documento). **Tutte le fasi sono concluse.**
 
-Stima residua: 1-2 sessioni serali (F6).
+- **`POST /products/new` crea davvero il prodotto**: prodotto e immagine in una transazione, risposta con il
+  prodotto creato. `image_url` = `/uploads/<nome>`, il file non viene spostato.
+- **Doppioni** (scelta dell'utente, a partire dalla sua idea di IP + user agent): stesso utente e stessi campi
+  entro 10 s → il prodotto già creato. Serializzato con un **advisory lock** per utente; funziona grazie a
+  **READ COMMITTED**. Il test con dieci invii simultanei è stato visto rosso senza lock.
+- **Prezzo e quantità validati**: ≥ 0 (zero ammesso), 2 decimali, entro `DECIMAL(10,2)` e `integer`. Prima
+  PostgreSQL arrotondava in silenzio e i valori fuori range davano 500.
+- **Registrazione atomica** per User e Customer, con transazione interattiva.
+- Stato: **30 suite / 238 test verdi**, type-check e lint puliti.
+
+**Prossimi passi possibili**, nessuno avviato (da scegliere con l'utente):
+
+- percorso PostgreSQL, **indici**: `createdBy` + `createdAt` ora serve a due query (elenco di un admin e
+  ricerca dei doppioni), da decidere guardando `EXPLAIN`;
+- una rotta che serva le immagini di `uploads/`;
+- categorie e `sku` nel form di creazione;
+- `@nestjs/swagger`.
 
 ### Cose in sospeso, non urgenti
 
 - La configurazione di `pg_stat_statements` vive solo nel volume Docker: se la si vuole permanente va
   messa nel `docker-compose.yml` del servizio `db`.
-- `createProduct` resta uno stub. Era il candidato naturale per imparare le transazioni; nascerà
-  direttamente in NestJS in **F6**, ed è lì che il protocollo di trade-off sui dati di AGENTS.md si
-  attiva davvero (Concurrency, Duplication).
-- Percorso PostgreSQL, prossimo tema: **indici**. La paginazione di `GET /products` è fatta (F4); il passo
-  successivo è guardare con `EXPLAIN` l'elenco di un admin (`WHERE createdBy ORDER BY createdAt, id`) e
-  decidere un indice a partire dal piano, non in anticipo.
+- Percorso PostgreSQL, prossimo tema: **indici**. Paginazione (F4) e transazioni (F6) sono fatte; il passo
+  successivo è guardare con `EXPLAIN` l'elenco di un admin (`WHERE createdBy ORDER BY createdAt, id`) e la
+  ricerca dei doppioni di F6, e decidere un indice a partire dal piano, non in anticipo.
 - `@nestjs/swagger` (citato in D8 come possibile sostituto di `GET /routes`): non aggiunto in F5 perché è una
   funzionalità nuova, non una pulizia. Da decidere.
 - Il branch `feature/seed-dati-sviluppo` va mergiato in `main` quando si ritiene concluso (vedi la nota

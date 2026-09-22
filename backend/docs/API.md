@@ -163,7 +163,9 @@ Registra un nuovo cliente storefront.
   `"... è richiesto/a"`, per un valore presente ma non valido il motivo (es. `"Email non valida"`,
   `"Password deve essere un testo"`). Un body assente o un array JSON producono gli stessi errori per campo.
 - **409** → `Email già registrata` (dalla fase F3; prima era un 500)
-- **500** → errore generico `"Qualcosa è andato storto!"`
+- **500** → errore generico `"Qualcosa è andato storto!"`. Dalla fase F6 un 500 significa che **l'account non è
+  stato creato**: creazione e salvataggio del token avvengono nella stessa transazione, e si può riprovare
+  con la stessa email. Prima l'account poteva restare creato senza token, e il nuovo tentativo riceveva 409.
 
 ### `POST /login`
 
@@ -206,7 +208,9 @@ che non è una stringa produce un 400 (fino alla fase F3 poteva produrre un 500)
 - **200** → `data`: token JWT, payload `{ id, email }`, **scade dopo 1 ora**
 - **400** → errori di validazione raggruppati per campo, un messaggio per campo (es. `Email non valida`)
 - **409** → `Email già registrata` (dalla fase F3; prima era un 500)
-- **500** → errore generico `"Qualcosa è andato storto!"`
+- **500** → errore generico `"Qualcosa è andato storto!"`. Dalla fase F6 un 500 significa che **l'account non è
+  stato creato**: creazione e salvataggio del token avvengono nella stessa transazione, e si può riprovare
+  con la stessa email. Prima l'account poteva restare creato senza token, e il nuovo tentativo riceveva 409.
 
 Nota: `level` non è impostabile in registrazione — viene sempre creato come `admin` (default del modello
 `User`), e un `level` inviato nel body viene scartato. Non esiste un endpoint per creare un `superadmin`,
@@ -314,7 +318,7 @@ prodotto compare in due pagine o in nessuna.
 > (con i dati di sviluppo, 1,2 MB per richiesta; una pagina da 20 ne pesa circa 5 kB), e un errore inatteso
 > rispondeva `403 Errore server` invece di 500.
 
-### `POST /products/new` 🔒 ⚠️ **STUB — non crea nulla**
+### `POST /products/new` 🔒
 
 Route `multipart/form-data`. Validazione completa, eseguita in questo ordine:
 
@@ -324,6 +328,8 @@ Route `multipart/form-data`. Validazione completa, eseguita in questo ordine:
    fase F4: 400). Un file in un campo con un altro nome, o un multipart malformato: **400** `Richiesta di
    caricamento dell'immagine non valida`.
 3. **Validazione di campi e immagine insieme** (`NewProductFormPipe`), con una sola risposta d'errore.
+4. **Creazione** (`ProductService.create`, dalla fase F6): prodotto e riga dell'immagine nella stessa
+   transazione, con il controllo dei doppioni descritto sotto.
 
 **Campo file**: `image` (esattamente 1 file, JPEG o PNG).
 
@@ -342,10 +348,18 @@ Regole sull'immagine, con il messaggio restituito:
 
 | Campo | Regola | Messaggio se non valido |
 |---|---|---|
-| `name` | testo | `Nome del prodotto è richiesto` |
+| `name` | testo, al massimo 255 caratteri | `Nome del prodotto è richiesto` / `Nome del prodotto non può superare 255 caratteri` |
 | `description` | testo | `Descrizione del prodotto è richiesta` |
-| `price` | numero (`isNumeric`, decimali ammessi) | `Prezzo deve essere un numero` |
+| `price` | numero decimale scritto per esteso, col punto (`9.99`; non `9,99`, `1e5`, `.5`) | `Prezzo deve essere un numero` |
+| | ≥ 0 (lo zero è ammesso) | `Prezzo non può essere negativo` |
+| | al massimo 2 decimali | `Prezzo può avere al massimo 2 decimali` |
+| | al massimo `99999999.99` | `Prezzo non può superare 99999999.99` |
 | `quantity` | intero > 0 | `Quantità deve essere maggiore di zero` |
+| | al massimo `2147483647` | `Quantità non può superare 2147483647` |
+
+Le regole di prezzo, quantità e lunghezza del nome sono della fase F6. Prima un prezzo negativo veniva salvato,
+un prezzo come `12.345` veniva **arrotondato in silenzio** a `12.35` dal database, e i valori oltre i massimi
+producevano un 500.
 
 - **400** → errori raggruppati: prima un elemento per ogni campo non valido, poi un elemento `image` con i
   messaggi per file:
@@ -360,9 +374,33 @@ Regole sull'immagine, con il messaggio restituito:
   In caso di errore **i file temporanei vengono cancellati**, qualunque sia la causa (fino alla fase F4 solo
   per errori sull'immagine: con un campo mancante il file restava in `uploads/`).
 - **413** → file oltre il limite hard
-- **200** → **anche se tutte le validazioni passano, il servizio è uno stub**: `data: {}`, non viene creata
-  nessuna riga in `products`, e il file caricato resta in `uploads/` senza essere referenziato. È la fase F6
-  della migrazione.
+- **200** → `data`: il prodotto creato, con le sue immagini (dalla fase F6; prima `data: {}`):
+
+  ```json
+  {
+    "id": 5001, "name": "Lampada", "description": "Da tavolo", "price": "19.9", "quantity": 3,
+    "available": true, "sku": null, "createdBy": 11,
+    "createdAt": "2026-09-22T14:57:43.970Z", "updatedAt": "2026-09-22T14:57:43.970Z",
+    "images": [
+      { "id": 7510, "product_id": 5001, "image_url": "/uploads/f98df90a562116b7f85156b7a2fe806c",
+        "sort_order": 0, "createdAt": "...", "updatedAt": "...", "deletedAt": null }
+    ]
+  }
+  ```
+
+  - `price` è una **stringa decimale esatta** nella forma minima: `"19.9"` per 19,90, `"0"` per zero. Non è
+    formattata a due decimali: la formattazione spetta al client. Stessa forma di `GET /products`.
+  - `createdBy` è l'utente del token, non un campo del form.
+  - `image_url` è `/uploads/<nome del file>`, con il nome casuale scelto al caricamento. **Oggi nessuna rotta
+    serve la cartella `uploads/`**: l'indirizzo è già nella forma che quella rotta userà.
+
+**Invii duplicati** (dalla fase F6). Se lo stesso utente invia di nuovo gli stessi `name`, `description`,
+`price` e `quantity` entro **10 secondi**, non nasce un secondo prodotto: la risposta è **200** con il
+prodotto già creato (stesso `id`), e il file caricato dalla richiesta duplicata viene cancellato. Protegge dal
+doppio click e dal retry di rete. Il prezzo si confronta come numero (`9.9` e `9.90` sono uguali); l'immagine
+non si confronta. Vale anche per invii simultanei, e solo per lo stesso utente: due admin diversi possono
+creare prodotti identici. Conseguenza da conoscere: due prodotti identici voluti dallo stesso admin vanno
+creati a più di 10 secondi di distanza.
 
 > **Sicurezza (fase F4):** il tipo dell'immagine si verifica sui byte reali (magic bytes), non sul
 > Content-Type dichiarato dal client, prima di leggerne le dimensioni. La libreria usata, `image-size`, ha
@@ -385,8 +423,8 @@ inesistente, e `SHOW_ROUTES` non fa più parte della configurazione.
 Elenco di comportamenti reali del codice attuale che vale la pena conoscere prima di integrare o estendere
 queste API (non sono bug "nascosti": sono osservabili leggendo il codice, ma facili da non notare):
 
-- **`POST /products/new` è uno stub**: risponde 200 senza creare nulla. Vedi anche
-  `CLAUDE.md` → "Parte nota come incompleta".
+- ~~**`POST /products/new` è uno stub**~~ — **IMPLEMENTATA** nella fase F6: crea il prodotto e la sua
+  immagine e li restituisce. Non gestisce ancora categorie né `sku`, che il form non prevede.
 - ~~**Il cambio password non invalida il token corrente**~~ — **CORRETTO** nella fase F3 della migrazione
   a NestJS (decisione C in `docs/MIGRAZIONE-NESTJS.md`): `PATCH /admin/user/password` ora azzera
   `current_token` insieme alla password, come il logout.
@@ -397,9 +435,9 @@ queste API (non sono bug "nascosti": sono osservabili leggendo il codice, ma fac
   la colonna `current_token` predisposta per lo stesso pattern usato da `User`.
 - **`PATCH /admin/user` richiede sempre sia `name` che `email`** anche se il controller supporterebbe
   l'aggiornamento parziale — la validazione a monte lo impedisce nella pratica.
-- **Il file caricato per un prodotto non viene ripulito quando la validazione passa**, perché lo stub non lo
-  usa né lo elimina: resta in `backend/uploads/`. In caso di errore, invece, dalla fase F4 i file temporanei
-  vengono sempre cancellati.
+- **Le immagini caricate non sono ancora raggiungibili via HTTP**: il file resta in `backend/uploads/` ed è
+  referenziato da `image_url`, ma nessuna rotta serve quella cartella. In caso di errore o di invio duplicato
+  il file viene cancellato.
 - ~~**`errorMiddleware.ts` non viene mai invocato da Express come gestore d'errore**~~ — **CORRETTO**
   nella fase F0 della migrazione a NestJS. Dichiarava solo 3 parametri (`err, req, res`) invece dei 4
   richiesti (`err, req, res, next`) perché Express lo riconoscesse come error-handler, quindi veniva

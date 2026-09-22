@@ -9,10 +9,10 @@ backend rigorosamente a livelli. Il backend è la parte attivamente sviluppata; 
 al momento solo lo scaffold di Vite e **non** è l'oggetto del lavoro — non aggiungere funzionalità frontend
 a meno che non venga esplicitamente richiesto.
 
-**Il backend è un'applicazione NestJS**, migrata da Express a fasi (F0–F5, concluse). Il documento di
-riferimento è `backend/docs/MIGRAZIONE-NESTJS.md` (decisioni prese, piano, registro di ogni fase); lo stato
-di ripresa è in fondo a `CHECKPOINT.md`. Resta la fase **F6**, `ProductService.create` con una transazione
-(vedi "Parte nota come incompleta"). Non esistono più router Express: ogni rotta è un controller NestJS.
+**Il backend è un'applicazione NestJS**, migrata da Express a fasi (F0–F5), più la fase F6 che ha implementato
+la creazione dei prodotti con le transazioni. Tutte concluse. Il documento di riferimento è
+`backend/docs/MIGRAZIONE-NESTJS.md` (decisioni prese, piano, registro di ogni fase); lo stato di ripresa è in
+fondo a `CHECKPOINT.md`. Non esistono più router Express: ogni rotta è un controller NestJS.
 
 Alla radice del repo c'è @./AGENTS.md, la fonte di verità unica per le regole architetturali di questo
 progetto. Il riepilogo qui sotto lo riflette, con dettagli aggiuntivi trovati nel codice reale.
@@ -233,6 +233,11 @@ token al logout / cambio password (il logout imposta `current_token = null`; i f
 password/2FA fanno lo stesso: dalla fase F3 `UserAuthService.changePassword` scrive la nuova password e
 `current_token = null` nella stessa query, e il client deve rifare login).
 
+**La registrazione è atomica** (dalla fase F6): creazione dell'entità e salvataggio del token stanno nella
+stessa transazione interattiva, in `UserAuthService.register` e `CustomerAuthService.register`. Serve una
+transazione interattiva e non una scrittura annidata perché il token contiene l'id, che esiste solo dopo
+l'INSERT. Se l'emissione del token fallisce, l'account non resta registrato.
+
 **Normalizzazione delle email (case-sensitivity)**: le email sono sempre salvate e cercate in minuscolo,
 tramite `services/emailNormalizer.ts`. Non è un vezzo: su MySQL la collation case-insensitive di default
 rendeva `Mario@x.com` e `mario@x.com` lo stesso valore (il vincolo `UNIQUE` rifiutava il duplicato, il
@@ -284,6 +289,16 @@ NestJS li esegue:
    gli errori in due richieste successive.
 4. `ProductImageValidator`: tipo dichiarato, `MAX_FILE_SIZE`, contenuto reale e dimensioni massime
    (`config/imageConfig.ts`).
+5. `ProductService.create`: prodotto e immagine nel database (vedi "Creazione dei prodotti e transazioni").
+
+Il file caricato resta dove multer l'ha scritto, e `image_url` vale `/uploads/<nome>`
+(`publicUrlOf` in `modules/product/upload/uploaded-files.ts`, dove sta tutto ciò che riguarda quella
+cartella). Non spostarlo né rinominarlo dopo il salvataggio: si aprirebbe una finestra in cui il database
+punta a un file che non esiste. Nessuna rotta serve ancora `uploads/`.
+
+Prezzo e quantità hanno regole proprie (`modules/product/dto/product-field-rules.ts`): prezzo ≥ 0 con al
+massimo 2 decimali ed entro `DECIMAL(10,2)`, quantità entro il massimo di un `integer`. Il prezzo resta una
+**stringa** fino a Prisma, mai un number in virgola mobile.
 
 **Regola di sicurezza**: le dimensioni si leggono solo con `readImageDimensions`
 (`modules/product/upload/image-inspection.ts`), mai chiamando `image-size` direttamente. Quel modulo verifica
@@ -332,13 +347,35 @@ volume Docker del database e **non sono versionati**: se il volume viene ricreat
 `pg_stat_statements` ha richiesto anche un riavvio del container, perché `shared_preload_libraries` ha
 `context = postmaster` in `pg_settings` (il reload non basta).
 
-### Parte nota come incompleta
+### Creazione dei prodotti e transazioni (fase F6)
 
-`ProductService.create` (`modules/product/product.service.ts`) è uno stub che restituisce `{}`, anche se la
-sua route completa (`POST /products/new`) collega già auth, upload e validazione di campi e immagine — la
-logica vera e propria di creazione prodotto (e la gestione di categorie/product_images) non è ancora stata
-implementata. È la fase F6 della migrazione, con una transazione. Il file caricato con successo resta in
-`uploads/`.
+`ProductService.create` (`modules/product/product.service.ts`) fa tre cose in **una sola transazione
+interattiva** (`prisma.$transaction(async (tx) => ...)`):
+
+1. prende un **advisory lock** per utente (`pg_advisory_xact_lock(1, userId)`), che si rilascia da solo al
+   commit o al rollback;
+2. cerca un **doppione**: stesso utente, stessi nome, descrizione, prezzo e quantità, creato negli ultimi
+   `DUPLICATE_WINDOW_MS` (10 secondi). Se c'è, la risposta è quel prodotto, e il service cancella il file
+   caricato dalla richiesta duplicata;
+3. altrimenti inserisce prodotto e immagine con **una create annidata** (`images: { create: ... }`).
+
+Tre regole da non violare modificando questo codice:
+
+- **Dentro una transazione interattiva ogni query passa da `tx`**, mai da `this.prisma`: una query fatta con
+  il client normale esce dalla transazione, senza nessun errore. È esattamente il guasto che i test di
+  atomicità della registrazione fanno emergere.
+- **Non alzare il livello di isolamento** di quella transazione. Il controllo dei doppioni funziona perché al
+  livello predefinito, READ COMMITTED, la richiesta che ha aspettato il lock vede il prodotto appena
+  confermato dall'altra. In REPEATABLE READ vedrebbe i dati com'erano prima, e creerebbe un doppione.
+- **Il lock è per utente, di proposito**: due admin diversi creano prodotti in parallelo. Il primo numero
+  della coppia (`PRODUCT_CREATION_LOCK`) distingue questo tipo di lock da quelli futuri: un nuovo tipo di
+  advisory lock deve usare un numero diverso.
+
+Una scrittura annidata da sola è già atomica: se serve solo creare righe collegate, non serve una transazione
+interattiva. Qui serve per il lock, che deve comprendere controllo e inserimento.
+
+Ancora da fare: il form non gestisce **categorie** (`product_categories`) né `sku`, e nessuna rotta serve le
+immagini caricate.
 
 ### Struttura della suite di test
 
@@ -360,8 +397,9 @@ implementata. È la fase F6 della migrazione, con una transazione. Il file caric
   `request(testApp.http)`; nessun file chiama più `close()` o `$disconnect()` a mano,
   attraversando l'intero stack fino al DB di test. Usano email/dati univoci per evitare collisioni tra
   test file eseguiti in parallelo, e ripuliscono le righe create in `afterAll`. `productRoutes.test.ts`
-  ripulisce anche i file caricati in `backend/uploads/` dal test che supera la validazione (dato che
-  `createProduct` è uno stub e non lo fa da solo, vedi sopra).
+  cancella i prodotti **per proprietario** (quelli creati con POST /products/new non hanno un id noto in
+  anticipo) e i file che le richieste riuscite lasciano in `backend/uploads/`; usa nomi di prodotto univoci,
+  altrimenti la regola sui doppioni unirebbe prodotti di test diversi.
 - **Comportamento trasversale all'app** (`errorHandling.test.ts`, `appInfrastructure.test.ts`): gestione
   degli errori, 404, parser dei body, dependency injection, involucro delle risposte. Stesso helper dei test
   di rotta; `appInfrastructure.test.ts` registra un controller di prova visibile solo nel test.

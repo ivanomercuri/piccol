@@ -1,6 +1,6 @@
 # Assessment: migrazione da Express a NestJS
 
-Stato: **migrazione completata, F0–F5** (registri in §8–§13); resta **F6** (`createProduct` con una transazione). Segue il metodo già usato per la migrazione a Prisma:
+Stato: **tutte le fasi completate, F0–F6** (registri in §8–§13 e §15). Segue il metodo già usato per la migrazione a Prisma:
 prima questo report (inventario, punti critici, decisioni da prendere), poi il via libera, poi
 l'implementazione a commit incrementali.
 
@@ -377,8 +377,8 @@ sessione serale.
 | **F2** ✅ | CustomerModule (3 endpoint, nessun guard, nessun upload): il dominio più semplice, stabilisce l'idioma controller/service/DTO e applica D1+D2 | 1 |
 | **F3** ✅ | AuthUserGuard, `@CurrentUser()`, UserModule (6 endpoint). Muoiono `authUserMiddleware` e i quattro controlli ridondanti di `profileUserController` | 2 |
 | **F4** ✅ | ProductModule: `GET /products` e tutta la catena di upload/validazione (la parte difficile). Qui rientra la **paginazione** sospesa dal percorso PostgreSQL, dato che l'handler viene riscritto comunque | 2-3 |
-| **F5** | Rimozione dello scaffolding legacy e del codice morto (D8, D9), uscita di `express-validator`, aggiornamento di `AGENTS.md`, `CLAUDE.md`, `API.md`, `TESTING.md`, `CHECKPOINT.md` e del Design Decisions Log | 1 |
-| **F6** | `createProduct` implementato nativamente in NestJS, con transazione. È l'obiettivo di apprendimento rinviato, e **qui il protocollo di trade-off sui dati si attiva davvero** (Concurrency, Duplication) | 1-2 |
+| **F5** ✅ | Rimozione dello scaffolding legacy e del codice morto (D8, D9), uscita di `express-validator`, aggiornamento di `AGENTS.md`, `CLAUDE.md`, `API.md`, `TESTING.md`, `CHECKPOINT.md` e del Design Decisions Log | 1 |
+| **F6** ✅ | `createProduct` implementato nativamente in NestJS, con transazione. È l'obiettivo di apprendimento rinviato, e **qui il protocollo di trade-off sui dati si attiva davvero** (Concurrency, Duplication). **Fatta**, vedi §15 | 1-2 |
 
 **Totale: 9-13 sessioni**, coerente con la stima 10-15 già data, ora ancorata all'inventario.
 
@@ -1014,3 +1014,78 @@ malformato non se ne accorgerebbe.
   generato), ma si applicherà a ogni fase: F3 e F4 toccano auth e input utente, quindi lì Input /
   Confini del dominio / Fallimento / Sicurezza / Leggibilità futura vanno percorsi in prosa, non
   saltati.
+
+---
+
+## 15. Registro di esecuzione — F6 (completata il 2026-09-22)
+
+Stato finale: **30 suite / 238 test verdi**, type-check e lint puliti. Verificato sull'app di sviluppo con un
+admin temporaneo (rimosso a fine verifica insieme ai suoi prodotti e ai file): creazione con risposta
+completa, doppio click riconosciuto anche con il prezzo scritto in modo diverso (`19.90` e `19.9`), cinque
+invii simultanei → un solo prodotto, prezzo con tre decimali → 400. Dei 9 file caricati durante la verifica ne
+sono rimasti 2, quelli dei due prodotti creati: gli altri li avevano cancellati il service (doppioni) e
+l'interceptor (il 400).
+
+Conteggio: 191 − 1 + 48 = 238. Il test che fissava lo stub (`data: {}`) è stato sostituito; nuovi 32 test
+unitari delle regole di prezzo e quantità (`productFieldRules.test.ts`), 14 end-to-end di creazione, 2 di
+registrazione atomica.
+
+### Decisioni (protocollo di AGENTS.md), prese dall'utente il 2026-09-22
+
+Registrate anche nel Design Decisions Log di AGENTS.md.
+
+| | Domanda | Scelta |
+|---|---|---|
+| **Duplication** | Stesso invio ripetuto (doppio click, retry) | **Finestra per utente e contenuto**: stessi nome, descrizione, prezzo e quantità entro 10 s → il prodotto già creato. Nata da una proposta dell'utente (riconoscere il mittente da IP e user agent), adattata: la rotta è autenticata, e `user.id` del token identifica il mittente con certezza, mentre IP e user agent cambiano, si condividono e li sceglie il client |
+| **Validazione** | Prezzo e quantità | **Regole strette con prezzo zero ammesso**: ≥ 0, massimo 2 decimali ed entro `DECIMAL(10,2)`; quantità entro un `integer` |
+| **Risposta** | Cosa restituisce la creazione | **Il prodotto creato**, con le immagini |
+| **Registrazione** | Includere in F6 l'atomicità segnalata in §10 | **Sì** |
+
+Le altre categorie del protocollo non si applicano: Time è già deciso (il prezzo negli ordini sarà una
+copia), Deletion non ha una cancellazione su cui agire, State non riguarda la creazione. Concurrency si è
+attivata come conseguenza della scelta sui doppioni.
+
+### Fatto
+
+- `ProductService.create`: transazione interattiva con advisory lock per utente, ricerca del doppione, create
+  annidata di prodotto e immagine. Il controller restituisce `ProductWithImages`.
+- `dto/product-field-rules.ts`: `priceProblem` e `quantityProblem`, esposte a class-validator con
+  `ValidateBy` (`@IsProductPrice`, `@IsProductQuantity`). `@MaxLength(255)` sul nome.
+- `upload/uploaded-files.ts`: cartella, indirizzo pubblico e cancellazione dei file, condivisi fra
+  interceptor e service.
+- `UserAuthService.register` e `CustomerAuthService.register`: creazione e token nella stessa transazione.
+
+### Cose emerse solo implementando
+
+1. **La scelta sui doppioni ha cambiato il tipo di transazione.** Per prodotto e immagine da soli bastava una
+   create annidata, che Prisma esegue già in una transazione. Il lock però vale solo finché la transazione è
+   aperta, e deve comprendere il controllo e l'inserimento: serve una transazione interattiva, con la create
+   annidata dentro.
+2. **Il controllo dei doppioni funziona grazie a READ COMMITTED.** La richiesta che aspetta il lock esegue la
+   ricerca dopo il commit dell'altra, e a quel livello ogni istruzione vede i dati confermati fino al proprio
+   inizio. In REPEATABLE READ la fotografia sarebbe presa alla prima istruzione, cioè alla richiesta del lock,
+   prima del commit: il doppione non verrebbe trovato. È scritto nel codice come avvertenza.
+3. **Per lo stesso motivo, `$transaction([...])` non avrebbe corretto la paginazione** (tema aperto da §12):
+   in READ COMMITTED le due query vedrebbero comunque due fotografie diverse. Resta come deciso in F4.
+4. **Il primo test di race non dimostrava niente.** Con due invii simultanei passava anche senza lock. Con
+   dieci, senza lock fallisce 5 volte su 5 (2-4 prodotti al posto di uno); col lock passa 10 volte su 10.
+   Anche i test di atomicità della registrazione sono stati visti rossi, facendo uscire la create dalla
+   transazione.
+5. **Un messaggio per campo, indipendente dall'ordine dei decoratori.** Con un decoratore per regola, un valore
+   che ne viola più d'una avrebbe mostrato il messaggio del vincolo elencato per primo (la trappola di §10,
+   punto 3). Prezzo e quantità hanno quindi un solo vincolo ciascuno, che sceglie il messaggio nel suo ordine
+   logico: numero, segno, decimali, massimo.
+6. **Il nome aveva lo stesso difetto del prezzo**: la colonna è `VARCHAR(255)` e un nome più lungo produceva
+   un 500. Corretto insieme.
+7. **Il prezzo esce nella forma minima del Decimal** (`"19.9"`, `"0"`), come già in `GET /products`: è esatto,
+   ma la formattazione a due decimali spetta al client. Documentato in `API.md`.
+8. **Un errore di tipo nei test**: un `$transaction` finto che passa `fakePrisma` a sé stesso, dentro
+   l'inizializzatore di `fakePrisma`, fa fallire l'inferenza (TS7022). Si risolve dichiarando il tipo di
+   ritorno della funzione.
+
+### Ancora aperto
+
+- **Categorie e `sku`** non sono nel form di creazione: `product_categories` resta popolata solo dal seed.
+- **Nessuna rotta serve `uploads/`**: le immagini sono salvate e referenziate, ma non raggiungibili via HTTP.
+- **Un indice per le query per utente** (`createdBy`, `createdAt`): ora lo usano sia l'elenco di un admin sia
+  la ricerca dei doppioni. Resta il prossimo tema del percorso PostgreSQL, da decidere guardando `EXPLAIN`.

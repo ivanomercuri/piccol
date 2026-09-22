@@ -69,7 +69,11 @@ Do not reinvent the wheel. The project already contains:
 - Response format: return the data from a controller (`ResponseEnvelopeInterceptor` wraps it) and throw `HttpException`s (`AllExceptionsFilter` formats them). Success messages: `@ResponseMessage()`.
 - Validation: DTOs with class-validator; error shape from `common/validation/validation-exception.factory.ts`.
 - Authentication: `@UseGuards(AuthUserGuard)` + `@CurrentUser()` from `modules/auth/`.
-- Image uploads: `ProductImageUploadInterceptor`, `ProductImageValidator` and `NewProductFormPipe` in `modules/product/upload/`. Read image dimensions ONLY through `readImageDimensions` (`image-inspection.ts`), never by calling `image-size` directly: it has unpatched DoS vulnerabilities in parsers the magic-byte check keeps out.
+- Transactions: a nested write (`create` with `images: { create: ... }`) is already atomic; use an interactive
+  `prisma.$transaction(async (tx) => ...)` only when application code or a lock sits between the writes, and
+  then run **every** query through `tx`. Examples: `ProductService.create` (advisory lock + duplicate check),
+  `UserAuthService.register` / `CustomerAuthService.register` (the token needs the new id).
+- Image uploads: `ProductImageUploadInterceptor`, `ProductImageValidator` and `NewProductFormPipe` in `modules/product/upload/`; everything about the `uploads/` folder (public URL, deleting files) is in `uploaded-files.ts`. Read image dimensions ONLY through `readImageDimensions` (`image-inspection.ts`), never by calling `image-size` directly: it has unpatched DoS vulnerabilities in parsers the magic-byte check keeps out.
 
 ## 6. Frontend Context (Status: ON HOLD)
 The frontend is located in `/frontend` but is currently **NOT the focus**.
@@ -209,3 +213,31 @@ keep entries short, one line each)
   `application/x-www-form-urlencoded` bodies. Pinned by a test in `errorHandling.test.ts`, verified to fail
   with the built-in parser on. Rejected: going back to the built-in parser and recognising malformed JSON in
   `AllExceptionsFilter` by the text of the error message (fragile, it depends on `JSON.parse` wording).
+- Duplicate product submissions (F6, protocol category *Duplication*; user's choice). A second
+  `POST /products/new` from the same user with the same name, description, price and quantity within 10 seconds
+  returns the product already created (200, same id) and the duplicate's uploaded file is deleted. The user
+  proposed identifying the sender by IP address and user agent; the route is authenticated, so `user.id` from
+  the token is used instead (IP changes between retries and is shared behind NAT, the user agent is identical
+  across users, both are client-controlled). Check and insert are serialized per user with
+  `pg_advisory_xact_lock(1, userId)` inside the transaction: without it, simultaneous requests all see "no
+  duplicate" (verified: 2-4 products out of 10 simultaneous requests). It relies on READ COMMITTED; under
+  REPEATABLE READ the waiting request would not see the committed product. Accepted trade-off: two identical
+  products wanted by the same admin must be created more than 10 seconds apart. Rejected: accepting duplicates
+  (no protection from double clicks), an `Idempotency-Key` header (exact, but needs a new table with expiry
+  and a cooperating client; better suited to orders), a unique constraint on `(createdBy, name)` (blocks
+  legitimate same-name products).
+- Product price and quantity rules (F6, user's choice): price ≥ 0 (zero allowed for free items), at most 2
+  decimals, at most 99999999.99; quantity an integer from 1 to 2147483647; name at most 255 characters. All
+  rejected with a per-field 400. Before, `DECIMAL(10,2)` silently rounded `12.345` to `12.35` and out-of-range
+  values made the INSERT fail with a 500. The price stays a string down to Prisma, never a float. Rejected:
+  only the anti-overflow limits (keeps silent rounding and negative prices), strictly positive price.
+- `POST /products/new` returns the created product with its images (F6, user's choice), instead of the stub's
+  `data: {}`: the client gets the id without a second request. Rejected: only the id, and `{}`.
+- Registration is atomic (F6, user's choice): entity creation and token storage run in one interactive
+  transaction, for both identities. Before, a failure after the INSERT left an account without a token, and
+  the retry got a 409 for an account the client believed it had not created.
+- Uploaded images are not moved or renamed after the product is saved (F6): `image_url` is
+  `/uploads/<multer name>`. A move after the commit could leave the database pointing to a missing file; a move
+  before it could leave an orphan file if the commit failed. Page and total of `GET /products` stay outside a
+  transaction (F4 entry above): a batched `$transaction([...])` would not help under READ COMMITTED, since each
+  statement takes its own snapshot.

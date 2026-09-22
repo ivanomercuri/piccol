@@ -203,6 +203,18 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
   byte per byte (bastano poche decine di byte d'intestazione), un'intestazione ICNS per i test di sicurezza,
   e buffer di N MB per i limiti di peso. Nei test end-to-end di upload, verificare anche che una richiesta
   fallita non lasci file in `backend/uploads/`.
+- **Transazioni e concorrenza** (dalla fase F6). Tre lezioni emerse scrivendo quei test:
+  - **l'atomicità si verifica sul database vero**, facendo fallire davvero la seconda metà
+    dell'operazione. In `customerRoutes.test.ts` / `userRoutes.test.ts` uno spy su
+    `testApp.nest.get(JwtService).signAsync` la fa rigettare, e il test controlla che la riga non esista.
+    Negli unit test il Prisma finto ha un `$transaction` che esegue il callback con sé stesso come `tx`:
+    serve a verificare che cosa si scrive, non l'atomicità;
+  - **un test di race con due sole richieste simultanee può non dimostrare nulla**: in
+    `productRoutes.test.ts` due invii identici passavano anche senza advisory lock, perché arrivavano al
+    database già sfalsati. Con dieci invii il test senza lock fallisce 5 volte su 5 (2-4 prodotti al posto di
+    uno), e col lock passa 10 volte su 10;
+  - **ogni test di questo tipo va visto rosso**: togli la protezione (la transazione, il lock), esegui il
+    test, rimetti la protezione. Se passa anche senza, non la sta verificando.
 - **Eseguire Jest sempre tramite `npm test`**, mai con `npx jest` nudo: lo script imposta
   `NODE_OPTIONS=--experimental-vm-modules`, senza il quale ogni suite che importa NestJS fallisce con
   "Must use import to load ES Module".
