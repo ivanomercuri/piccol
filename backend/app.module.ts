@@ -17,9 +17,10 @@ import { ProductModule } from './modules/product/product.module';
  * Modulo radice dell'applicazione NestJS.
  *
  * Contiene l'infrastruttura trasversale e i tre domini dell'applicazione:
- * Customer con l'health-check, User, Product. Dalla fase F5 della migrazione
- * a NestJS tutte le rotte passano da qui: app.setup.ts monta soltanto i
- * middleware Express che devono precedere le rotte (CORS e parser JSON).
+ * Customer con l'health-check, User, Product. Dalla fase F5 tutte le rotte
+ * passano da qui; dalla fase F7 app.setup.ts non monta più middleware, ma
+ * configura l'istanza Fastify (CORS, parser JSON, upload multipart).
+ * L'avvio completo è descritto in docs/AVVIO.md.
  *
  * PER CHI VIENE DA SYMFONY
  * Un @Module è l'equivalente di un bundle con la sua configurazione dei

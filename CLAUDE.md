@@ -441,6 +441,9 @@ fissi, (2) ripulisci sempre quello che crei.
 
 ### Avvio e catena delle richieste (`backend/main.ts`, `backend/app.setup.ts`)
 
+Riassunto qui sotto; la spiegazione riga per riga, con l'ordine esatto delle operazioni, i guasti tipici e
+lo spegnimento, è in `backend/docs/AVVIO.md`.
+
 `main.ts` crea l'app NestJS da `app.module.ts` con `FastifyAdapter` e chiama `configureApp` (in
 `app.setup.ts`), la stessa funzione usata dai test. Dalla fase F7 **non ci sono middleware**: `configureApp`
 configura l'istanza Fastify (CORS, parser JSON, plugin multipart) ed è `async`, perché i plugin Fastify si
