@@ -18,7 +18,7 @@ import path from 'path';
 // trovato, senza conseguenze: le variabili arrivano già da env_file, e dotenv
 // non sovrascrive mai quelle presenti. Serve come rete di sicurezza per
 // un'esecuzione diretta sull'host.
-dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
