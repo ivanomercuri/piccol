@@ -704,17 +704,23 @@ Da qui in avanti: un branch tematico per ogni lavoro, che finisce in `main`; per
 getta (EXPLAIN, indici di prova, test di funzionalità PostgreSQL) conviene un branch locale mai pushato,
 da cui recuperare col cherry-pick solo ciò che merita.
 
+**Secondo giro di pulizia, 2026-09-28.** La migrazione a NestJS è entrata in `main` con la
+[PR #1](https://github.com/ivanomercuri/piccol/pull/1), 30 commit e 134 file, con un **merge commit**
+(`--merge`, non squash: la cronologia fase per fase è parte di ciò che rende leggibile quel lavoro).
+`feature/seed-dati-sviluppo` è arrivato con lo stesso merge, perché il branch della migrazione era nato da
+lì: non è servito un merge separato. Entrambi i branch sono stati cancellati, in locale e su GitHub,
+essendo interamente contenuti in `main`, e i riferimenti remoti sono stati ripuliti con
+`git fetch --prune`. Nessun tag di archivio: nessun commit è rimasto fuori.
+
 ## Stato al 2026-09-12 — punto di ripresa per una nuova sessione
 
-**Branch corrente: `feature/migrazione-nestjs`** (NON ancora pushato, oltre
-`feature/seed-dati-sviluppo`, che a sua volta è 1 commit oltre `main`). `main` contiene tutte e tre le
-migrazioni completate. Suite (aggiornata al 2026-09-14, dopo F4): **32 suite / 204 test verdi**,
+**Branch corrente: `main`**, allineato con `origin/main`: dal 2026-09-28 non esistono altri branch. `main`
+contiene tutte le migrazioni completate, compresa quella a NestJS (vedi "Pulizia dei branch" sopra).
+Suite (aggiornata al 2026-09-28, dopo F7 e l'aggiornamento delle dipendenze): **28 suite / 230 test verdi**,
 type-check pulito, lint senza nessun problema. **Runtime: Node 24** — i test vanno lanciati con `npm test` (che
 imposta `--experimental-vm-modules`), mai con `npx jest` nudo.
 
-Attenzione alla catena dei branch: `feature/migrazione-nestjs` è stato creato da
-`feature/seed-dati-sviluppo` e non da `main`, per non perdere `seed-dev.ts` durante il lavoro. Quando
-`feature/seed-dati-sviluppo` verrà mergiato in `main`, il branch della migrazione va riallineato.
+Il prossimo lavoro va fatto su un branch tematico nuovo, creato da `main`.
 
 ### Percorso di apprendimento PostgreSQL (in corso)
 
@@ -901,8 +907,6 @@ Fastify.**
   ricerca dei doppioni di F6, e decidere un indice a partire dal piano, non in anticipo.
 - `@nestjs/swagger` (citato in D8 come possibile sostituto di `GET /routes`): non aggiunto in F5 perché è una
   funzionalità nuova, non una pulizia. Da decidere.
-- Il branch `feature/seed-dati-sviluppo` va mergiato in `main` quando si ritiene concluso (vedi la nota
-  sulla catena dei branch sopra).
 - Le 4 advisory high residue (`deepmerge-ts` e `mysql2` via `@prisma/config`, che le riporta due volte)
   sono transitive della CLI di Prisma, che è una devDependency e non gira in produzione; il progetto non
   usa MySQL. **`npm audit fix --force` NON va eseguito**: retrocederebbe prisma a 6.19.3, disfacendo la
