@@ -1,24 +1,35 @@
 // Test end-to-end con supertest: qui non mockiamo nulla, la richiesta HTTP
-// attraversa davvero index.ts (responseFormatter, express.json, il router
-// customer, express-validator, il controller, i services, il modello) fino
-// al DB di test reale. È l'unico modo per verificare che tutti questi pezzi,
-// testati singolarmente altrove, funzionino anche insieme.
+// attraversa davvero l'app (express.json, ValidationPipe, CustomerController,
+// CustomerAuthService, interceptor, filter) fino al DB di test reale. È
+// l'unico modo per verificare che tutti questi pezzi, testati singolarmente
+// altrove, funzionino anche insieme.
+//
+// Dalla fase F2 il dominio Customer è servito da NestJS invece che dal router
+// Express legacy. Le asserzioni che c'erano prima sono rimaste invariate: sono
+// la prova che il contratto visto dal client non è cambiato. I test aggiunti
+// in fondo alle sezioni fissano invece i comportamenti cambiati DI PROPOSITO.
 import request from 'supertest';
-import app from '../index';
+import { useTestApp } from './helpers/useTestApp';
 import { prisma } from '../prisma/client';
+import { JwtService } from '@nestjs/jwt';
+import { WinstonLoggerService } from '../common/logger/winston-logger.service';
+
+// Avvio e chiusura dell'app NestJS, gestiti dall'helper. Chiamato qui, alla
+// radice del file e fuori dal describe, perché la chiusura (che disconnette
+// Prisma) avvenga sempre DOPO gli afterAll di pulizia del describe: vedi il
+// commento in helpers/useTestApp.ts.
+const testApp = useTestApp();
 
 describe('Customer routes', () => {
   const emailsToClean: string[] = [];
 
   afterAll(async () => {
     await prisma.customer.deleteMany({ where: { email: { in: emailsToClean } } });
-
-    await prisma.$disconnect();
   });
 
   describe('GET /', () => {
     it('should respond with the health-check message', async () => {
-      const res = await request(app).get('/');
+      const res = await request(testApp.http).get('/');
 
       expect(res.status).toBe(200);
 
@@ -34,7 +45,7 @@ describe('Customer routes', () => {
 
       emailsToClean.push(email);
 
-      const res = await request(app).post('/register').send({
+      const res = await request(testApp.http).post('/register').send({
         email,
         password: 'password123',
         firstName: 'Mario',
@@ -62,7 +73,7 @@ describe('Customer routes', () => {
     });
 
     it('should return 400 with grouped validation errors when required fields are missing', async () => {
-      const res = await request(app).post('/register').send({});
+      const res = await request(testApp.http).post('/register').send({});
 
       expect(res.status).toBe(400);
 
@@ -81,11 +92,11 @@ describe('Customer routes', () => {
       );
     });
 
-    it('should return 500 when registering with an email that already exists', async () => {
-      // Comportamento attuale, non ovvio: il vincolo UNIQUE a livello DB
-      // arriva come eccezione generica al controller, che risponde 500 con
-      // il messaggio grezzo di Sequelize, non un 400 "amichevole" — vedi
-      // backend/docs/API.md.
+    it('should return 409 when registering with an email that already exists', async () => {
+      // DECISIONE A (fase F3): prima era un 500 — con il testo grezzo
+      // dell'errore del database fino a F1, con un messaggio generico in F2.
+      // Ora il vincolo UNIQUE viene tradotto in un 409 con un messaggio che
+      // dice al client che cosa è successo.
       const email = `customer-route-test-dup-${Date.now()}@example.com`;
 
       emailsToClean.push(email);
@@ -98,13 +109,91 @@ describe('Customer routes', () => {
         address: 'X',
       };
 
-      await request(app).post('/register').send(payload);
+      await request(testApp.http).post('/register').send(payload);
 
-      const res = await request(app).post('/register').send(payload);
+      const res = await request(testApp.http).post('/register').send(payload);
 
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(409);
 
       expect(res.body.success).toBe(false);
+
+      expect(res.body.error).toBe('Email già registrata');
+    });
+
+    // --- Comportamenti cambiati o fissati in F2 ---
+
+    // Un campo mancante viola sia "è richiesto" sia il formato: il client
+    // deve ricevere il messaggio utile, "è richiesta", e il formato solo
+    // quando il valore c'è ma è sbagliato.
+    it('distingue un\'email mancante da un\'email malformata', async () => {
+      const missing = await request(testApp.http).post('/register').send({});
+
+      const malformed = await request(testApp.http)
+        .post('/register')
+        .send({ email: 'non-una-email' });
+
+      const messageFor = (body: { error: { id: string; message: string }[] }) =>
+        body.error.find((e) => e.id === 'email')?.message;
+
+      expect(messageFor(missing.body)).toBe('Email è richiesta');
+
+      expect(messageFor(malformed.body)).toBe('Email non valida');
+    });
+
+    // Prima un valore non stringa superava la validazione legacy e faceva
+    // esplodere il codice più avanti con un 500. Ora è un errore del client.
+    it('risponde 400 a un campo testuale che non è una stringa', async () => {
+      const res = await request(testApp.http).post('/register').send({
+        email: `tipo-sbagliato-${Date.now()}@example.com`,
+        password: 12345678,
+        firstName: 'A',
+        lastName: 'B',
+        address: 'X',
+      });
+
+      expect(res.status).toBe(400);
+
+      expect(res.body.error).toEqual([
+        { id: 'password', message: 'Password deve essere un testo' },
+      ]);
+    });
+
+    // Anche senza nessun body (nemmeno `{}`) la risposta deve essere un 400
+    // con gli errori per campo, non un errore interno.
+    it('risponde 400 con gli errori per campo anche se il body manca del tutto', async () => {
+      const res = await request(testApp.http).post('/register');
+
+      expect(res.status).toBe(400);
+
+      expect(Array.isArray(res.body.error)).toBe(true);
+    });
+
+    // Difesa dal "mass assignment": campi non previsti dal DTO, come `id` o
+    // `current_token`, non devono arrivare al database. Se `current_token`
+    // passasse, un client potrebbe impostare un token a propria scelta sul
+    // proprio account.
+    it('ignora i campi non previsti, come id e current_token', async () => {
+      const email = `customer-route-test-extra-${Date.now()}@example.com`;
+
+      emailsToClean.push(email);
+
+      const res = await request(testApp.http).post('/register').send({
+        email,
+        password: 'password123',
+        firstName: 'A',
+        lastName: 'B',
+        address: 'X',
+        id: 999999,
+        current_token: 'scelto-dal-client',
+      });
+
+      expect(res.status).toBe(200);
+
+      const created = await prisma.customer.findUniqueOrThrow({ where: { email } });
+
+      expect(created.id).not.toBe(999999);
+
+      expect(created.current_token).toBe(res.body.data);
     });
   });
 
@@ -114,7 +203,7 @@ describe('Customer routes', () => {
     beforeAll(async () => {
       emailsToClean.push(email);
 
-      await request(app).post('/register').send({
+      await request(testApp.http).post('/register').send({
         email,
         password: 'password123',
         firstName: 'Login',
@@ -124,7 +213,7 @@ describe('Customer routes', () => {
     });
 
     it('should return a token for correct credentials', async () => {
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/login')
         .send({ email, password: 'password123' });
 
@@ -134,23 +223,98 @@ describe('Customer routes', () => {
     });
 
     it('should return 401 for a wrong password', async () => {
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/login')
         .send({ email, password: 'wrong-password' });
 
       expect(res.status).toBe(401);
 
-      expect(res.body.error).toBe('Password errata');
+      // Messaggio unico (decisione B, fase F3; prima "Password errata").
+      expect(res.body.error).toBe('Credenziali non valide');
     });
 
     it('should return 401 for a non-existent email', async () => {
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/login')
         .send({ email: `nobody-${Date.now()}@example.com`, password: 'x' });
 
       expect(res.status).toBe(401);
 
-      expect(res.body.error).toBe('Utente non trovato');
+      // Stesso messaggio della password errata: dalla risposta non si capisce
+      // se l'email esiste (decisione B, fase F3; prima "Utente non trovato").
+      expect(res.body.error).toBe('Credenziali non valide');
+    });
+
+    // --- Comportamento cambiato in F2 ---
+
+    // Bug corretto: con un'email non stringa il login legacy chiamava
+    // toLowerCase() su un numero, esplodeva e rispondeva 500.
+    it('risponde 400, non 500, a un\'email che non è una stringa', async () => {
+      const res = await request(testApp.http)
+        .post('/login')
+        .send({ email: 123, password: 'password123' });
+
+      expect(res.status).toBe(400);
+
+      expect(res.body.error).toEqual([
+        { id: 'email', message: 'Email deve essere un testo' },
+      ]);
+    });
+  });
+
+  describe('F6: registrazione atomica', () => {
+    // Creazione del cliente e salvataggio del token sono due scritture: il
+    // token contiene l'id, che esiste solo dopo la create. Dalla fase F6 stanno
+    // nella stessa transazione. Qui la seconda metà viene fatta fallire per
+    // davvero (la firma del token lancia) e si guarda il database reale: il
+    // cliente NON deve esistere. Fino a F5 restava registrato senza token, e
+    // un nuovo tentativo con la stessa email riceveva 409.
+    //
+    // Gli spy sono sulle istanze che l'app usa davvero: JwtService è la stessa
+    // istanza iniettata in CredentialsService, e il logger quella del filter
+    // (silenziato per non sporcare backend/logs/ con un 500 voluto).
+    it('se il token non può essere emesso, il cliente non resta registrato', async () => {
+      const email = `customer-route-test-atomic-${Date.now()}@example.com`;
+
+      emailsToClean.push(email);
+
+      const signSpy = jest
+        .spyOn(testApp.nest.get(JwtService), 'signAsync')
+        .mockRejectedValueOnce(new Error('firma non disponibile'));
+
+      const loggerSpy = jest
+        .spyOn(testApp.nest.get(WinstonLoggerService), 'error')
+        .mockImplementation(() => undefined);
+
+      try {
+        const res = await request(testApp.http).post('/register').send({
+          email,
+          password: 'password123',
+          firstName: 'Mario',
+          lastName: 'Rossi',
+          address: 'Via Roma 1',
+        });
+
+        expect(res.status).toBe(500);
+
+        await expect(prisma.customer.findUnique({ where: { email } })).resolves.toBeNull();
+
+        // La controprova che conta per il client: lo stesso invio, riprovato,
+        // riesce invece di scontrarsi con un account "fantasma".
+        const retry = await request(testApp.http).post('/register').send({
+          email,
+          password: 'password123',
+          firstName: 'Mario',
+          lastName: 'Rossi',
+          address: 'Via Roma 1',
+        });
+
+        expect(retry.status).toBe(200);
+      } finally {
+        signSpy.mockRestore();
+
+        loggerSpy.mockRestore();
+      }
     });
   });
 });

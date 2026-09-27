@@ -4,6 +4,11 @@ const globals = require('globals');
 const prettierConfig = require('eslint-config-prettier');
 
 module.exports = [
+  // dist/ è l'output compilato della CLI di NestJS (`nest build`/`nest start`):
+  // JavaScript generato, non codice da revisionare. Senza questa esclusione
+  // `eslint .` lo analizzerebbe con le regole dei file .js e segnalerebbe
+  // centinaia di errori su codice che nessuno scrive a mano.
+  { ignores: ['dist/'] },
   js.configs.recommended,
   // tseslint.configs.recommended, di per sé, non è vincolato a nessuna
   // estensione di file: applicato con lo spread andrebbe a colpire anche i

@@ -286,27 +286,6 @@
       "response": []
     },
     {
-      "name": "List Routes",
-      "request": {
-        "auth": {
-          "type": "noauth"
-        },
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "localhost:5001/routes",
-          "host": [
-            "localhost"
-          ],
-          "port": "5001",
-          "path": [
-            "routes"
-          ]
-        }
-      },
-      "response": []
-    },
-    {
       "name": "Get Products",
       "request": {
         "auth": {

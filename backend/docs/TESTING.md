@@ -169,5 +169,60 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
 - Nuovo modello o vincolo da verificare → `*.model.test.js`: niente mock su `../models`, traccia gli id
   creati, ripulisci in `afterEach`/`afterAll` (con `force: true, paranoid: false` se il modello è
   paranoid), chiudi la connessione con `sequelize.close()`.
-- Nuova route o flusso multi-step → `*Routes.test.js` con `supertest(require('../index'))`, dati univoci
-  per evitare collisioni in esecuzione parallela, cleanup di eventuali righe/file creati.
+- Nuova route o flusso multi-step → `*Routes.test.ts` con `const testApp = useTestApp()` **alla radice del
+  file, fuori dal describe**, e `request(testApp.http)` nei test; dati univoci per evitare collisioni in
+  esecuzione parallela, cleanup di eventuali righe/file creati in un `afterAll` **dentro** il describe.
+  La posizione non è estetica: Jest esegue gli `afterAll` di un describe prima di quelli alla radice, e
+  nello stesso blocco nell'ordine di scrittura. Così la chiusura dell'app, che disconnette Prisma, segue
+  sempre la pulizia. Al contrario, Prisma si riconnetterebbe in silenzio per eseguire la pulizia e
+  lascerebbe aperto un pool che fa restare Jest appeso, senza che nessun test fallisca. Fino alla fase F1
+  si usava `supertest(require('../index'))`: `index.ts` non esiste più.
+- **Comportamento trasversale all'app, non legato a un dominio** (gestione degli errori globale, 404,
+  wiring dei middleware) → `errorHandling.test.ts`, aggiunto nella fase F0 della migrazione a NestJS. È
+  una quarta categoria, nata da un caso concreto: il bug di arità di `errorMiddleware` viveva
+  nell'**aggancio** del middleware alla catena di Express, non nella sua logica, e i cinque test che
+  chiamavano la funzione in isolamento non potevano vederlo per costruzione. La regola che se ne ricava:
+  quando ciò che può rompersi è il *collegamento* fra i pezzi e non il comportamento di un pezzo, serve
+  una richiesta HTTP vera, anche se non c'è nessuna route nuova da testare. Ne fa parte anche
+  `appInfrastructure.test.ts` (fino alla fase F4 `nestHosting.test.ts`), che verifica dependency injection,
+  involucro delle risposte e filter registrando un controller di prova visibile solo nel test. Quando un
+  cambio di configurazione dell'app deve restare deliberato (es. il parser dei body in `app.setup.ts`),
+  fissalo qui con un test, e verifica che fallisca davvero invertendo la configurazione.
+- **Unità di un service NestJS** (es. `customerAuthService.test.ts`) → `Test.createTestingModule` con il
+  service reale e `{ provide: PrismaClient, useValue: prismaFinto }`, **non** `jest.mock('../prisma/client')`.
+  La sostituzione passa dalla dipendenza dichiarata nel costruttore invece che dal percorso di un file, e il
+  TestingModule verifica anche che NestJS sappia risolvere quel costruttore. Dare al Prisma finto solo i
+  delegate che il service deve usare rende un accesso indebito (es. alla tabella `users` da un service del
+  dominio Customer) un errore immediato.
+- **Service che firmano token** → importare `testJwtModule()` da `helpers/testJwtModule.ts` nel
+  TestingModule. Usa la stessa funzione di opzioni di AuthModule (`jwtModuleOptions`) con un segreto di
+  test: algoritmo e forma della scadenza restano quelli di produzione, e il test non dipende dal
+  `JWT_SECRET` reale di `.env`. Il collegamento con la configurazione reale è verificato una volta sola,
+  end-to-end, in `userRoutes.test.ts`.
+- **Immagini per i test di upload** → `helpers/imageFixtures.ts`: PNG e JPEG con dimensioni scelte, costruiti
+  byte per byte (bastano poche decine di byte d'intestazione), un'intestazione ICNS per i test di sicurezza,
+  e buffer di N MB per i limiti di peso. Nei test end-to-end di upload, verificare anche che una richiesta
+  fallita non lasci file in `backend/uploads/`.
+- **Transazioni e concorrenza** (dalla fase F6). Tre lezioni emerse scrivendo quei test:
+  - **l'atomicità si verifica sul database vero**, facendo fallire davvero la seconda metà
+    dell'operazione. In `customerRoutes.test.ts` / `userRoutes.test.ts` uno spy su
+    `testApp.nest.get(JwtService).signAsync` la fa rigettare, e il test controlla che la riga non esista.
+    Negli unit test il Prisma finto ha un `$transaction` che esegue il callback con sé stesso come `tx`:
+    serve a verificare che cosa si scrive, non l'atomicità;
+  - **un test di race con due sole richieste simultanee può non dimostrare nulla**: in
+    `productRoutes.test.ts` due invii identici passavano anche senza advisory lock, perché arrivavano al
+    database già sfalsati. Con dieci invii il test senza lock fallisce 5 volte su 5 (2-4 prodotti al posto di
+    uno), e col lock passa 10 volte su 10;
+  - **ogni test di questo tipo va visto rosso**: togli la protezione (la transazione, il lock), esegui il
+    test, rimetti la protezione. Se passa anche senza, non la sta verificando.
+- **App di test su Fastify** (dalla fase F7): `useTestApp()` crea l'app con `FastifyAdapter` e attende
+  `ready()` prima di restituirla, perché Fastify costruisce rotte e plugin in modo asincrono e prima di allora
+  il server non risponde (`init()` di NestJS non lo comprende). supertest continua a funzionare com'era, su
+  `app.getHttpServer()`.
+- **Verificare un cambio di piattaforma con uno spike, non con la fede.** Il passaggio a Fastify è iniziato
+  avviando l'AppModule vero sul nuovo adapter, senza modificare il codice, per vedere che cosa si rompeva
+  davvero: tre casi su nove, invece dei sospetti iniziali. Lo spike è codice usa e getta, da cancellare
+  (vedi §16 di docs/MIGRAZIONE-NESTJS.md).
+- **Eseguire Jest sempre tramite `npm test`**, mai con `npx jest` nudo: lo script imposta
+  `NODE_OPTIONS=--experimental-vm-modules`, senza il quale ogni suite che importa NestJS fallisce con
+  "Must use import to load ES Module".

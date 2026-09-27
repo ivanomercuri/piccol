@@ -4,8 +4,12 @@ This file is the **SINGLE SOURCE OF TRUTH** for AI Agents working on this projec
 The goal is to showcase Senior-Level Node.js skills using a strict Layered Architecture.
 
 ## 1. Tech Stack
-- **Runtime:** Node.js
-- **Framework:** Express.js
+- **Runtime:** Node.js 24.9+ (required: NestJS 12 packages are ESM-only, and Jest can load them only on 24.9+ with `--experimental-vm-modules`)
+- **Framework:** NestJS 12 on **Fastify** (`@nestjs/platform-fastify`). Migrated from plain Express in phases
+  F0–F5, then F7 replaced Express as the HTTP platform too (see `backend/docs/MIGRAZIONE-NESTJS.md`).
+  **express, multer and passport are not dependencies any more, and no file imports them — do not bring them
+  back.** For request/response types use NestJS's own abstraction (`HttpAdapterHost`) or a structural type of
+  the project, never the platform's.
 - **Database:** PostgreSQL (v16 via Docker)
 - **ORM:** Prisma 7 (schema in `backend/prisma/schema.prisma`)
 - **Testing:** Jest
@@ -16,27 +20,33 @@ The goal is to showcase Senior-Level Node.js skills using a strict Layered Archi
 All backend code is located in `/backend`.
 
 ### Core Layers
-- `/backend/controllers/**`: **HTTP Layer only.**
-    - **Rule:** Controllers are grouped by domain (e.g., `/user`, `/customer`, `/product`). Respect this nesting.
-    - **Responsibility:** Validate inputs, call Services, handle HTTP responses. NO core business logic here.
-- `/backend/services`: **Business Logic Layer.**
-    - **Rule:** All complex logic (calculations, database transactions) goes here.
-    - **Naming:** `[Entity]Service.ts` (e.g., `authService.ts`).
+- `/backend/modules/<domain>`: **NestJS domain modules** — `*.module.ts`, `*.controller.ts`, `*.service.ts`, `dto/`.
+  Domains: `customer`, `user`, `product` (with `upload/` for the image upload pipeline); `auth` holds the security
+  logic shared by both identities (`CredentialsService`, `JwtUserStrategy`, `AuthUserGuard`, `@CurrentUser()`).
+    - **Controllers — HTTP layer only.** Declare route, guards, DTOs and status code; return the data and let
+      exceptions propagate. NO business logic, no try/catch to translate errors.
+    - **Services — business logic layer.** All complex logic (calculations, database transactions) goes here.
+      Database access through the injected `PrismaClient`.
 - `/backend/prisma`: **Data Layer.**
     - `schema.prisma` is the single source of truth for the data model; the typed
       client is generated from it. There is no `models/` directory anymore, and no
       hand-written model classes: add or change a model in the schema, then create a
       migration (`npx prisma migrate dev --name <name>`).
-    - `client.ts` exports the shared `prisma` instance. Import that, never instantiate
-      a second `PrismaClient`.
+    - `client.ts` exports the shared `prisma` instance; `prisma.module.ts` provides it under the `PrismaClient`
+      injection token. NestJS code injects `PrismaClient` in the constructor; only code outside the container
+      (seeds, `*.model.test.ts`) imports `client.ts`. Never instantiate a second `PrismaClient`.
 
 ### Support Structures
-- `/backend/classes`: Use this for Custom Errors (e.g., `InvalidImageTypeError`) or Utility Classes.
-- `/backend/middlewares`: Reusable middleware.
-    - **IMPORTANT:** Always check this folder before writing new validation logic.
-    - Use `responseFormatter.js` for consistent JSON responses.
-    - Use `errorMiddleware.js` for global error handling.
-- `/backend/routes`: Express routers. Grouped by domain.
+- `/backend/common`: NestJS cross-cutting infrastructure — `filters/` (`AllExceptionsFilter`, the single error
+  handler, which talks to the response only through `HttpAdapterHost`), `interceptors/`, `decorators/`,
+  `logger/`, `validation/`, and `middleware/` for the JSON body parser that keeps the `errore json: ...`
+  message (`json-content-type-parser.ts`). Files follow the Nest naming convention (`*.filter.ts`,
+  `*.interceptor.ts`).
+- `/backend/config`: environment validation (`env.validation.ts`), database URL, Winston logger, image limits.
+- `/backend/services`: only `emailNormalizer.ts`, a pure function shared by the identity services.
+- `/backend/types`: ambient type augmentation (`req.user`).
+- Root of `/backend`: `main.ts` (bootstrap), `app.module.ts`, `app.setup.ts` (Express middleware shared by
+  `main.ts` and the e2e tests), `health.controller.ts`.
 - `/backend/__tests__`: All Jest test files reside here.
 
 ## 3. Environment & Networking
@@ -51,8 +61,9 @@ All backend code is located in `/backend`.
 - **Service Pattern:** Never write business logic inside a Controller. Always create or extend a Service.
 - **Async/Await:** Mandatory. Avoid callback hell or raw Promise chains.
 - **Error Handling:**
-    - Throw custom errors from Services.
-    - Catch them in Controllers (or let `async-handler` do it) and pass to `next(err)`.
+    - Throw NestJS `HttpException`s (`BadRequestException`, `ConflictException`, ...) from services, guards
+      and pipes, with an Italian message; `AllExceptionsFilter` formats them.
+    - Let unexpected errors propagate: the filter answers 500 with a generic message and logs the details.
     - **NEVER** use `console.log` for errors in production code.
 - **Language:**
     - **Code/Comments:** English.
@@ -60,9 +71,17 @@ All backend code is located in `/backend`.
 
 ## 5. Existing Utilities (Reuse these!)
 Do not reinvent the wheel. The project already contains:
-- `responseFormatter.js` -> Use this to wrap successful responses.
-- `uploadMiddleware.js` / `handleMulterErrorsMiddleware.js` -> For file uploads.
-- `validateProductImageMiddleware.js` -> For image validation.
+- Response format: return the data from a controller (`ResponseEnvelopeInterceptor` wraps it) and throw `HttpException`s (`AllExceptionsFilter` formats them). Success messages: `@ResponseMessage()`.
+- Validation: DTOs with class-validator; error shape from `common/validation/validation-exception.factory.ts`.
+- Authentication: `@UseGuards(AuthUserGuard)` + `@CurrentUser()` from `modules/auth/`.
+- Transactions: a nested write (`create` with `images: { create: ... }`) is already atomic; use an interactive
+  `prisma.$transaction(async (tx) => ...)` only when application code or a lock sits between the writes, and
+  then run **every** query through `tx`. Examples: `ProductService.create` (advisory lock + duplicate check),
+  `UserAuthService.register` / `CustomerAuthService.register` (the token needs the new id).
+- Image uploads: `ProductImageUploadInterceptor` (reads the multipart body with `@fastify/multipart`),
+  `ProductImageValidator` and `NewProductFormPipe` in `modules/product/upload/`; everything about the
+  `uploads/` and `uploads/tmp/` folders (the project's `UploadedImage` type, archiving a validated image,
+  deleting files) is in `uploaded-files.ts`. Read image dimensions ONLY through `readImageDimensions` (`image-inspection.ts`), never by calling `image-size` directly: its ICNS/HEIF/JXL parsers had unpatched DoS vulnerabilities when those defences were written (fixed in 2.0.3, the project is on 2.0.4), and the check stays as defence in depth — the API accepts only JPG and PNG anyway.
 
 ## 6. Frontend Context (Status: ON HOLD)
 The frontend is located in `/frontend` but is currently **NOT the focus**.
@@ -157,3 +176,102 @@ keep entries short, one line each)
   An explicit function was preferred over a Sequelize `beforeSave` hook: the
   hook would not cover the login's `findOne`, and it would turn the rule into
   hidden state in a project that uses no hooks anywhere else.
+- Duplicate email on registration and profile update (User and Customer,
+  NestJS migration F3): the unique-constraint violation (Prisma P2002) is
+  translated into `409 Email già registrata` by `rejectDuplicateEmail`,
+  instead of a generic 500. The error is caught **after** the write rather
+  than checked with a `findUnique` beforehand: a pre-check is racy (two
+  concurrent registrations would both see the email as free), so the database
+  constraint stays the only arbiter. Only the error code is checked, because
+  with the Prisma 7 `pg` driver adapter `meta.target` is absent. Rejected: the
+  generic 500 (a normal, expected case reported as an unexpected failure and
+  logged as one).
+- Failed login (both identities, F3): a single `401 Credenziali non valide`
+  for unknown email and wrong password, and bcrypt runs against a dummy hash
+  when the account does not exist, so neither the message nor the response
+  time reveals which emails are registered. Accepted trade-off: registration
+  still reveals it through the 409 above; the login endpoint is the one
+  targeted by credential stuffing, where knowing valid accounts helps most.
+- Password change invalidates the current token (F3): new password hash and
+  `current_token = null` are written in the same `update`, so a failure cannot
+  leave the password changed with the old token still valid. The client must
+  log in again. Rejected: keeping the old token valid (a stolen token would
+  survive the victim's password change) and returning a freshly issued token
+  (changes the response shape from `data: {}` to a token).
+- User email format (F3): `@IsEmail` on User registration and profile update,
+  as already on Customer registration. Login DTOs still do not validate the
+  format, so a malformed email keeps producing the uniform 401.
+- `GET /products` pagination (NestJS migration F4, user's choice): offset pagination with metadata inside
+  `data` (`{ items, page, limit, total, totalPages }`), default 20, max 100, ordered by `createdAt` then `id`
+  descending so rows created in the same instant keep a deterministic order. Rejected: keeping `data` as an
+  array with metadata in response headers (body contract unchanged, but metadata less discoverable and to be
+  exposed through CORS). Page and total are two parallel queries, not a transaction: `total` may be off by one
+  under concurrent writes, accepted for an admin list.
+- Image dimensions are read only through `readImageDimensions` (F4): magic-byte check for JPEG/PNG before
+  calling `image-size`, plus `disableTypes` for every other format in the library. `image-size` then had unpatched
+  DoS vulnerabilities in its ICNS/HEIF/JXL parsers and, when the first byte does not confirm a format, its
+  detector tries all 20 formats; the client-provided Content-Type cannot be trusted to keep files out of them.
+  The two defences are independent on purpose. Rejected: replacing the library (larger change, and the
+  mitigation fully covers the only two formats accepted). The advisories were fixed in image-size 2.0.3 and the
+  project is on 2.0.4; the defences stay as defence in depth, since they also cover future flaws in parsers the
+  API has no reason to reach.
+- JSON body parser kept explicit after the last Express router was removed (NestJS migration F5):
+  `bodyParser: false` plus `express.json()` and `json-syntax-error.middleware.ts` in `app.setup.ts`. NestJS
+  registers its own parser inside `init()`, after every `app.use()`, so the translation middleware would sit
+  before the parser and never see its errors, and NestJS's own handler turns the `SyntaxError` into a plain
+  400, losing the `errore json: ...` contract. The built-in parser would also start accepting
+  `application/x-www-form-urlencoded` bodies. Pinned by a test in `errorHandling.test.ts`, verified to fail
+  with the built-in parser on. Rejected: going back to the built-in parser and recognising malformed JSON in
+  `AllExceptionsFilter` by the text of the error message (fragile, it depends on `JSON.parse` wording).
+- Duplicate product submissions (F6, protocol category *Duplication*; user's choice). A second
+  `POST /products/new` from the same user with the same name, description, price and quantity within 10 seconds
+  returns the product already created (200, same id) and the duplicate's uploaded file is deleted. The user
+  proposed identifying the sender by IP address and user agent; the route is authenticated, so `user.id` from
+  the token is used instead (IP changes between retries and is shared behind NAT, the user agent is identical
+  across users, both are client-controlled). Check and insert are serialized per user with
+  `pg_advisory_xact_lock(1, userId)` inside the transaction: without it, simultaneous requests all see "no
+  duplicate" (verified: 2-4 products out of 10 simultaneous requests). It relies on READ COMMITTED; under
+  REPEATABLE READ the waiting request would not see the committed product. Accepted trade-off: two identical
+  products wanted by the same admin must be created more than 10 seconds apart. Rejected: accepting duplicates
+  (no protection from double clicks), an `Idempotency-Key` header (exact, but needs a new table with expiry
+  and a cooperating client; better suited to orders), a unique constraint on `(createdBy, name)` (blocks
+  legitimate same-name products).
+- Product price and quantity rules (F6, user's choice): price ≥ 0 (zero allowed for free items), at most 2
+  decimals, at most 99999999.99; quantity an integer from 1 to 2147483647; name at most 255 characters. All
+  rejected with a per-field 400. Before, `DECIMAL(10,2)` silently rounded `12.345` to `12.35` and out-of-range
+  values made the INSERT fail with a 500. The price stays a string down to Prisma, never a float. Rejected:
+  only the anti-overflow limits (keeps silent rounding and negative prices), strictly positive price.
+- `POST /products/new` returns the created product with its images (F6, user's choice), instead of the stub's
+  `data: {}`: the client gets the id without a second request. Rejected: only the id, and `{}`.
+- Registration is atomic (F6, user's choice): entity creation and token storage run in one interactive
+  transaction, for both identities. Before, a failure after the INSERT left an account without a token, and
+  the retry got a 409 for an account the client believed it had not created.
+- Uploaded images are not moved or renamed after the product is saved (F6): `image_url` is
+  `/uploads/<multer name>`. A move after the commit could leave the database pointing to a missing file; a move
+  before it could leave an orphan file if the commit failed. Page and total of `GET /products` stay outside a
+  transaction (F4 entry above): a batched `$transaction([...])` would not help under READ COMMITTED, since each
+  statement takes its own snapshot.
+- Zero Express (F7, user's request after noticing `NestExpressApplication` in main.ts): the HTTP platform is
+  now Fastify. NestJS is not a server — it delegates to a platform — so until F6 Express was still the engine
+  under the app. Two spikes measured the risk first, booting the real `AppModule` on the Fastify adapter
+  without changing code: DI, response envelope, validation, Prisma, transactions and pagination worked
+  unchanged, while every error response broke (`AllExceptionsFilter` called `response.status().json()`, absent
+  on a Fastify reply) and uploads returned 415. Rejected: staying on Express (the goal was explicit), and
+  `fastify-multer` for uploads (last published in 2022, requires Fastify 3).
+- The authentication guard is hand-written (F7, user's choice), reversing **D3**. `@nestjs/passport` does work
+  on Fastify (verified: the guard sets `request.user` itself and passes a callback, so it never needs
+  `req.logIn`), but passport is Express-shaped and `@types/passport` depends on `@types/express`. One
+  `CanActivate` class now produces the five 401 messages where the rejection happens, instead of a
+  passport-jwt strategy plus a guard that rebuilt them afterwards. The five messages and every end-to-end
+  assertion are unchanged.
+- Uploaded images are archived, not left in place (F7, revises the F6 entry above): `@fastify/multipart`
+  deletes the files it wrote on every response (its own `onResponse` hook), so a file that must outlive the
+  request is moved from `uploads/tmp/` to `uploads/` — after validation and **before** the database insert, so
+  a failure can only ever leave an orphan file, never a row pointing at a missing one. The final extension
+  comes from the verified type of the bytes, not from the client's filename, so a future static route cannot
+  be tricked into serving something else. Rejected: writing the stream to disk by hand (more code for the same
+  guarantees).
+- A request whose content type has no parser gets **415** `Tipo di contenuto non supportato` (F7): Fastify
+  refuses it before the route runs, where Express left an empty body and let validation answer 400. The
+  framework's English message is translated in `AllExceptionsFilter`. `POST /products/new` without a multipart
+  body stays 400, with the single upload message instead of the grouped array.

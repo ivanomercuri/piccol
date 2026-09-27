@@ -3,9 +3,18 @@
 // token (logout / cambio password): con un modello mockato non potremmo mai
 // verificare che un vecchio JWT smetta davvero di funzionare dopo queste
 // operazioni, perché "current_token" vive nel DB.
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import request from 'supertest';
-import app from '../index';
+import { useTestApp } from './helpers/useTestApp';
 import { prisma } from '../prisma/client';
+import { JwtService } from '@nestjs/jwt';
+import { WinstonLoggerService } from '../common/logger/winston-logger.service';
+
+// Avvio e chiusura dell'app NestJS, gestiti dall'helper. Chiamato qui, alla
+// radice del file e fuori dal describe, perché la chiusura (che disconnette
+// Prisma) avvenga sempre DOPO gli afterAll di pulizia del describe: vedi il
+// commento in helpers/useTestApp.ts.
+const testApp = useTestApp();
 
 describe('Admin/User routes', () => {
   const emailsToClean: string[] = [];
@@ -17,7 +26,7 @@ describe('Admin/User routes', () => {
 
     emailsToClean.push(email);
 
-    const res = await request(app)
+    const res = await request(testApp.http)
       .post('/admin/user/register')
       .send({ name, email, password: 'password123' });
 
@@ -26,8 +35,6 @@ describe('Admin/User routes', () => {
 
   afterAll(async () => {
     await prisma.user.deleteMany({ where: { email: { in: emailsToClean } } });
-
-    await prisma.$disconnect();
   });
 
   describe('POST /admin/user/register', () => {
@@ -47,7 +54,7 @@ describe('Admin/User routes', () => {
     });
 
     it('should return 400 when required fields are missing', async () => {
-      const res = await request(app).post('/admin/user/register').send({});
+      const res = await request(testApp.http).post('/admin/user/register').send({});
 
       expect(res.status).toBe(400);
     });
@@ -69,7 +76,7 @@ describe('Admin/User routes', () => {
 
       emailsToClean.push(lowercaseEmail);
 
-      const registerRes = await request(app)
+      const registerRes = await request(testApp.http)
         .post('/admin/user/register')
         .send({
           name: 'Case Test',
@@ -87,7 +94,7 @@ describe('Admin/User routes', () => {
 
       // Login con la forma minuscola, pur essendosi registrati con le
       // maiuscole: deve funzionare.
-      const loginLower = await request(app)
+      const loginLower = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email: lowercaseEmail, password: 'password123' });
 
@@ -96,7 +103,7 @@ describe('Admin/User routes', () => {
       // E anche il percorso inverso: login con maiuscole su una riga salvata
       // in minuscolo, che è il caso reale più frequente (l'utente digita
       // l'email come gli pare al momento del login).
-      const loginMixed = await request(app)
+      const loginMixed = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email: mixedCaseEmail, password: 'password123' });
 
@@ -108,7 +115,7 @@ describe('Admin/User routes', () => {
     it('should return a token for correct credentials', async () => {
       const { email } = await registerUser('Login Test');
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email, password: 'password123' });
 
@@ -120,19 +127,20 @@ describe('Admin/User routes', () => {
     it('should return 401 for a wrong password', async () => {
       const { email } = await registerUser('Wrong Password Test');
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email, password: 'wrong-password' });
 
       expect(res.status).toBe(401);
 
-      expect(res.body.error).toBe('Password errata');
+      // Messaggio unico (decisione B, fase F3; prima "Password errata").
+      expect(res.body.error).toBe('Credenziali non valide');
     });
   });
 
   describe('protected routes (require a Bearer token)', () => {
     it('GET /admin/user should return 401 without a token', async () => {
-      const res = await request(app).get('/admin/user');
+      const res = await request(testApp.http).get('/admin/user');
 
       expect(res.status).toBe(401);
 
@@ -142,7 +150,7 @@ describe('Admin/User routes', () => {
     it('GET /admin/user should return the profile with a valid token', async () => {
       const { token, email } = await registerUser('Profilo Test');
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .get('/admin/user')
         .set('Authorization', `Bearer ${token}`);
 
@@ -160,7 +168,7 @@ describe('Admin/User routes', () => {
 
       emailsToClean.push(newEmail);
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .patch('/admin/user')
         .set('Authorization', `Bearer ${token}`)
         .send({ name: 'Aggiornato', email: newEmail });
@@ -175,7 +183,7 @@ describe('Admin/User routes', () => {
     it('PATCH /admin/user/password should change the password and update login behavior accordingly', async () => {
       const { email, token } = await registerUser('Cambio Password');
 
-      const changeRes = await request(app)
+      const changeRes = await request(testApp.http)
         .patch('/admin/user/password')
         .set('Authorization', `Bearer ${token}`)
         .send({ oldPassword: 'password123', newPassword: 'newpassword456' });
@@ -183,14 +191,14 @@ describe('Admin/User routes', () => {
       expect(changeRes.status).toBe(200);
 
       // La vecchia password non deve più funzionare al login...
-      const oldLoginRes = await request(app)
+      const oldLoginRes = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email, password: 'password123' });
 
       expect(oldLoginRes.status).toBe(401);
 
       // ...quella nuova sì.
-      const newLoginRes = await request(app)
+      const newLoginRes = await request(testApp.http)
         .post('/admin/user/login')
         .send({ email, password: 'newpassword456' });
 
@@ -200,7 +208,7 @@ describe('Admin/User routes', () => {
     it('PATCH /admin/user/password should return 400 if oldPassword is wrong', async () => {
       const { token } = await registerUser('Password Sbagliata');
 
-      const res = await request(app)
+      const res = await request(testApp.http)
         .patch('/admin/user/password')
         .set('Authorization', `Bearer ${token}`)
         .send({ oldPassword: 'wrong', newPassword: 'newpassword456' });
@@ -213,7 +221,7 @@ describe('Admin/User routes', () => {
     it('POST /admin/user/logout should invalidate the token for subsequent requests', async () => {
       const { token } = await registerUser('Logout Test');
 
-      const logoutRes = await request(app)
+      const logoutRes = await request(testApp.http)
         .post('/admin/user/logout')
         .set('Authorization', `Bearer ${token}`);
 
@@ -222,13 +230,296 @@ describe('Admin/User routes', () => {
       // Lo stesso identico token, usato subito dopo il logout, deve essere
       // rifiutato: è il comportamento che rende possibile invalidare i
       // vecchi token, descritto in CLAUDE.md.
-      const afterLogoutRes = await request(app)
+      const afterLogoutRes = await request(testApp.http)
         .get('/admin/user')
         .set('Authorization', `Bearer ${token}`);
 
       expect(afterLogoutRes.status).toBe(401);
 
       expect(afterLogoutRes.body.error).toBe('Token non più valido');
+    });
+  });
+
+  // --- Fase F3: il dominio User è servito da NestJS ---
+  //
+  // Tutte le asserzioni sopra sono rimaste invariate: sono la prova che il
+  // contratto non è cambiato passando dal middleware legacy ad AuthUserGuard
+  // con passport. I test che seguono fissano i casi del guard che prima non
+  // erano coperti end-to-end, e i comportamenti cambiati DI PROPOSITO.
+  describe('F3: autenticazione con AuthUserGuard e comportamenti fissati', () => {
+    // Il JWT_SECRET reale dell'ambiente di test: serve a costruire token
+    // integri ma scaduti, o di utenti inesistenti, per arrivare ai controlli
+    // successivi alla verifica della firma.
+    const realSecret = process.env.JWT_SECRET as string;
+
+    // Il collegamento fra la configurazione reale e JwtModule: la durata dei
+    // token viene da JWT_EXPIRES_IN in .env ("1h" per questo progetto). Il
+    // test che lo verificava stava in tokenService.test.ts, ridotto in F3.
+    it('emette token che scadono secondo JWT_EXPIRES_IN', async () => {
+      const { token } = await registerUser('Scadenza');
+
+      const payload = jwt.decode(token) as JwtPayload;
+
+      expect(process.env.JWT_EXPIRES_IN).toBe('1h');
+
+      expect(payload.exp! - payload.iat!).toBe(3600);
+    });
+
+    it('rifiuta un header senza token con "Formato token non valido"', async () => {
+      const res = await request(testApp.http).get('/admin/user').set('Authorization', 'Bearer');
+
+      expect(res.status).toBe(401);
+
+      expect(res.body.error).toBe('Formato token non valido');
+    });
+
+    // Cambio deliberato: il middleware legacy prendeva la seconda parola
+    // dell'header qualunque fosse lo schema, quindi accettava anche un token
+    // VALIDO inviato come "Basic <token>". Ora serve lo schema Bearer.
+    it('rifiuta un token valido inviato con uno schema diverso da Bearer', async () => {
+      const { token } = await registerUser('Schema Basic');
+
+      const res = await request(testApp.http)
+        .get('/admin/user')
+        .set('Authorization', `Basic ${token}`);
+
+      expect(res.status).toBe(401);
+
+      expect(res.body.error).toBe('Formato token non valido');
+    });
+
+    // Firma corretta ma scadenza passata: rifiutato da passport-jwt prima di
+    // arrivare al controllo su current_token.
+    it('rifiuta un token scaduto con "Token scaduto o non valido"', async () => {
+      const expired = jwt.sign(
+        { id: 1, email: 'x@example.com', exp: Math.floor(Date.now() / 1000) - 60 },
+        realSecret
+      );
+
+      const res = await request(testApp.http)
+        .get('/admin/user')
+        .set('Authorization', `Bearer ${expired}`);
+
+      expect(res.status).toBe(401);
+
+      expect(res.body.error).toBe('Token scaduto o non valido');
+    });
+
+    // Un token con la forma giusta ma firmato con un altro segreto: è il caso
+    // di un token contraffatto.
+    it('rifiuta un token firmato con un altro segreto', async () => {
+      const forged = jwt.sign({ id: 1, email: 'x@example.com' }, 'segreto-sbagliato');
+
+      const res = await request(testApp.http)
+        .get('/admin/user')
+        .set('Authorization', `Bearer ${forged}`);
+
+      expect(res.status).toBe(401);
+
+      expect(res.body.error).toBe('Token scaduto o non valido');
+    });
+
+    // Token integro e ancora valido, ma l'utente è stato cancellato.
+    it('rifiuta il token di un utente cancellato con "Utente non trovato"', async () => {
+      const { token, email } = await registerUser('Da Cancellare');
+
+      await prisma.user.delete({ where: { email } });
+
+      const res = await request(testApp.http)
+        .get('/admin/user')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(401);
+
+      expect(res.body.error).toBe('Utente non trovato');
+    });
+
+    // Sicurezza: profilo e aggiornamento non devono mai esporre l'hash della
+    // password né il token corrente. Confronto sull'insieme esatto delle
+    // chiavi, così un campo in più fa fallire il test.
+    it('non espone password né current_token in lettura e aggiornamento del profilo', async () => {
+      const { token } = await registerUser('Campi Pubblici');
+
+      const auth = { Authorization: `Bearer ${token}` };
+
+      const profile = await request(testApp.http).get('/admin/user').set(auth);
+
+      const newEmail = `user-route-test-public-${Date.now()}@example.com`;
+
+      emailsToClean.push(newEmail);
+
+      const updated = await request(testApp.http)
+        .patch('/admin/user')
+        .set(auth)
+        .send({ name: 'Campi Pubblici', email: newEmail });
+
+      expect(Object.keys(profile.body.data).sort()).toEqual(['email', 'id', 'level', 'name']);
+
+      expect(Object.keys(updated.body.data).sort()).toEqual(['email', 'id', 'name']);
+    });
+
+    // Sicurezza: un client non può registrarsi come superadmin. `level` non è
+    // nel DTO, e la ValidationPipe lo scarta prima del service.
+    it('ignora `level` in registrazione: ogni utente nasce admin', async () => {
+      const email = `user-route-test-escalation-${Date.now()}@example.com`;
+
+      emailsToClean.push(email);
+
+      const res = await request(testApp.http)
+        .post('/admin/user/register')
+        .send({ name: 'Furbo', email, password: 'password123', level: 'superadmin' });
+
+      expect(res.status).toBe(200);
+
+      const created = await prisma.user.findUniqueOrThrow({ where: { email } });
+
+      expect(created.level).toBe('admin');
+    });
+
+    // Contratto delle risposte senza dati: `data: {}` e il messaggio di
+    // successo, impostato con @ResponseMessage. Due utenti distinti perché,
+    // dalla decisione C, il cambio password invalida il token con cui è stato
+    // chiesto: non si potrebbe più usarlo per il logout.
+    it('risponde con data {} e il messaggio di successo a cambio password e logout', async () => {
+      const first = await registerUser('Messaggio Cambio');
+
+      const second = await registerUser('Messaggio Logout');
+
+      const change = await request(testApp.http)
+        .patch('/admin/user/password')
+        .set('Authorization', `Bearer ${first.token}`)
+        .send({ oldPassword: 'password123', newPassword: 'nuovapassword1' });
+
+      const logout = await request(testApp.http)
+        .post('/admin/user/logout')
+        .set('Authorization', `Bearer ${second.token}`);
+
+      expect(change.body).toEqual(
+        expect.objectContaining({
+          data: {},
+          message: 'Password aggiornata con successo: effettua di nuovo il login',
+        })
+      );
+
+      expect(logout.body).toEqual(
+        expect.objectContaining({ status: 200, data: {}, message: 'Logout effettuato con successo' })
+      );
+    });
+
+    // DECISIONE C (fase F3): il cambio password invalida il token corrente,
+    // sia sulle rotte NestJS sia su quelle legacy dei prodotti. Fino a F3 il
+    // token restava valido: chi l'aveva rubato restava dentro anche dopo che
+    // la vittima aveva cambiato password.
+    it('dopo il cambio password il token precedente è rifiutato ovunque', async () => {
+      const { token } = await registerUser('Token Dopo Cambio');
+
+      const auth = { Authorization: `Bearer ${token}` };
+
+      await request(testApp.http)
+        .patch('/admin/user/password')
+        .set(auth)
+        .send({ oldPassword: 'password123', newPassword: 'nuovapassword1' });
+
+      const nestRoute = await request(testApp.http).get('/admin/user').set(auth);
+
+      const legacyRoute = await request(testApp.http).get('/products').set(auth);
+
+      expect(nestRoute.status).toBe(401);
+
+      expect(nestRoute.body.error).toBe('Token non più valido');
+
+      expect(legacyRoute.status).toBe(401);
+
+      expect(legacyRoute.body.error).toBe('Token non più valido');
+    });
+
+    // DECISIONE A (fase F3), per gli User: registrazione con un'email già
+    // presente, e cambio della propria email in quella di un altro utente.
+    // È lo stesso caso di duplicazione, con la stessa risposta.
+    it('risponde 409 "Email già registrata" in registrazione e in aggiornamento del profilo', async () => {
+      const existing = await registerUser('Esistente');
+
+      const other = await registerUser('Altro');
+
+      const duplicateRegistration = await request(testApp.http)
+        .post('/admin/user/register')
+        .send({ name: 'Doppione', email: existing.email, password: 'password123' });
+
+      const duplicateUpdate = await request(testApp.http)
+        .patch('/admin/user')
+        .set('Authorization', `Bearer ${other.token}`)
+        .send({ name: 'Altro', email: existing.email });
+
+      for (const res of [duplicateRegistration, duplicateUpdate]) {
+        expect(res.status).toBe(409);
+
+        expect(res.body.error).toBe('Email già registrata');
+      }
+    });
+
+    // DECISIONE D (fase F3): il formato dell'email degli User è verificato,
+    // come già per i Customer. Prima "abc" veniva accettata in registrazione
+    // e in aggiornamento del profilo.
+    it('rifiuta un\'email malformata in registrazione e in aggiornamento del profilo', async () => {
+      const { token } = await registerUser('Formato Email');
+
+      const registration = await request(testApp.http)
+        .post('/admin/user/register')
+        .send({ name: 'Senza Formato', email: 'non-una-email', password: 'password123' });
+
+      const update = await request(testApp.http)
+        .patch('/admin/user')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'Senza Formato', email: 'non-una-email' });
+
+      for (const res of [registration, update]) {
+        expect(res.status).toBe(400);
+
+        expect(res.body.error).toEqual([{ id: 'email', message: 'Email non valida' }]);
+      }
+    });
+
+    // Bug corretto: un'email non stringa al login faceva esplodere la
+    // normalizzazione con un 500.
+    it('risponde 400, non 500, a un login con email non stringa', async () => {
+      const res = await request(testApp.http)
+        .post('/admin/user/login')
+        .send({ email: 123, password: 'password123' });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('F6: registrazione atomica', () => {
+    // Stesso caso di customerRoutes.test.ts, per l'altra identità: se la firma
+    // del token fallisce dopo la create, la transazione viene annullata e
+    // l'utente non resta nel database.
+    it('se il token non può essere emesso, l\'utente non resta registrato', async () => {
+      const email = `user-route-test-atomic-${Date.now()}@example.com`;
+
+      emailsToClean.push(email);
+
+      const signSpy = jest
+        .spyOn(testApp.nest.get(JwtService), 'signAsync')
+        .mockRejectedValueOnce(new Error('firma non disponibile'));
+
+      const loggerSpy = jest
+        .spyOn(testApp.nest.get(WinstonLoggerService), 'error')
+        .mockImplementation(() => undefined);
+
+      try {
+        const res = await request(testApp.http)
+          .post('/admin/user/register')
+          .send({ name: 'Atomico', email, password: 'password123' });
+
+        expect(res.status).toBe(500);
+
+        await expect(prisma.user.findUnique({ where: { email } })).resolves.toBeNull();
+      } finally {
+        signSpy.mockRestore();
+
+        loggerSpy.mockRestore();
+      }
     });
   });
 });
