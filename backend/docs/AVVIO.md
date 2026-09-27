@@ -368,21 +368,46 @@ container), e la chiusura dell'app è esplicita.
 
 ---
 
-## 10. Per chi viene da PHP
+## 10. Per chi viene dal PHP procedurale
 
-L'analogia più vicina è `public/index.php` di Symfony:
+L'analogia giusta non è un framework, è il tuo `index.php`:
 
-| Symfony | Qui |
-|---|---|
-| `public/index.php` | `main.ts` |
-| `Dotenv->bootEnv()` | `dotenv.config({ path })` |
-| `new Kernel(...)` + boot del container | `NestFactory.create(AppModule, ...)` |
-| Compilazione del container e validazione della configurazione | Costruzione dei provider e `validateEnvironment` |
-| PHP-FPM / il server web che riceve la richiesta | Fastify, scelto con `FastifyAdapter` |
-| `$kernel->handle($request)` a ogni richiesta | Il ciclo guard → interceptor → pipe → handler di NestJS |
+```php
+<?php
+require 'config.php';                  // credenziali e costanti
+$pdo = new PDO($dsn, $user, $pass);    // connessione
+// ...poi, in base a $_GET['page'], includi la pagina e stampi l'HTML
+```
 
-La differenza di fondo: in PHP il boot avviene **a ogni richiesta** (o quasi, con un
-preloader), mentre qui avviene **una volta sola** e il processo resta vivo. Da cui due
-conseguenze che in PHP non esistono: lo stato in memoria sopravvive fra le richieste (il
-pool di connessioni, i provider costruiti una volta), e spegnere l'applicazione è
-un'operazione vera, con una procedura — la sezione §9.
+`bootstrap()` è **la prima metà di quel file**: la parte che prepara tutto prima di
+servire qualcosa.
+
+Il salto sta in **quando** gira:
+
+| | PHP procedurale | Qui |
+|---|---|---|
+| Chi ascolta sulla porta | Apache o php-fpm, già avviati | **l'applicazione stessa**: è lei il server |
+| Quando gira `index.php` / `main.ts` | a ogni richiesta, da capo | **una volta sola**, all'avvio del processo |
+| Dopo la risposta | il processo muore, tutto viene buttato | il processo resta vivo e aspetta la prossima richiesta |
+| `require 'config.php'` | rifatto a ogni richiesta | gli `import` girano una volta sola (§3) |
+| La connessione al database | `new PDO(...)` a ogni richiesta | aperta una volta, riusata da tutte le richieste |
+| Fine del lavoro | niente da chiudere: muore tutto | serve uno spegnimento esplicito (§9) |
+
+Quindi `main.ts` non è l'`index.php` che gira a ogni click: è un `index.php` che eseguiresti
+**una volta sola all'accensione del server**, e che poi resta in memoria. Le richieste
+successive non ricaricano nessun file: chiamano funzioni già pronte.
+
+Due conseguenze pratiche che in PHP non ti riguardavano:
+
+- **lo stato sopravvive fra le richieste.** Il pool di connessioni aperto all'avvio è lo
+  stesso per tutti. È un vantaggio (non si riapre niente ogni volta), ma significa che una
+  variabile globale sporcata da una richiesta la vedono anche le successive;
+- **fermare l'applicazione è un'operazione vera**, con una procedura: è tutta la §9, e in
+  PHP semplicemente non esisteva.
+
+Una differenza di linguaggio, non di architettura, ma che spiega la forma del file: in PHP
+ogni istruzione blocca finché non ha finito, quindi scrivi le righe una dopo l'altra e basta.
+In Node alcune operazioni restituiscono una *promessa* di risultato, che va attesa con
+`await`, e `await` si può usare solo dentro una funzione dichiarata `async`. Da qui la
+necessità di racchiudere i passi di avvio in `async function bootstrap()` invece di
+scriverli al livello principale del file.

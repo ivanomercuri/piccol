@@ -33,9 +33,23 @@ come da convenzione del progetto (vedi sotto).
 ## Stile delle risposte in chat
 
 Il proprietario del progetto sta studiando attivamente il codice TypeScript generato (obiettivo:
-portfolio per colloqui di lavoro), proviene da un background PHP 8 — quando introduci pattern non
-banali o scelte architetturali non ovvie, in particolare costrutti TypeScript senza equivalente
-diretto in PHP, spiega brevemente il *perché* nella risposta, non solo nel codice.
+portfolio per colloqui di lavoro) — quando introduci pattern non banali o scelte architetturali non
+ovvie, in particolare costrutti TypeScript senza equivalente diretto in PHP, spiega brevemente il
+*perché* nella risposta, non solo nel codice.
+
+**Background da cui partire per le analogie: PHP 8, ma su progetti legacy procedurali.** Niente
+Symfony, niente Laravel, niente Doctrine: non dare per noti kernel, container dei servizi, entity
+manager, middleware, autoload PSR-4 o attributi di routing. Le analogie utili sono quelle con il PHP
+che usa davvero: `include`/`require`, file di funzioni, `$pdo` o `mysqli`, `$_POST`/`$_GET`,
+`session_start()`, l'`index.php` che smista le pagine. **Un'analogia con un framework PHP spiega
+l'ignoto con l'ignoto**: se un concetto ha un corrispettivo solo lì (dependency injection,
+interceptor, ORM con unit of work), va spiegato da zero, non per paragone.
+
+Il salto mentale più grande, da richiamare quando è pertinente invece di darlo per acquisito: in PHP
+lo script parte a ogni richiesta, risponde e muore, quindi non esiste stato condiviso fra richieste;
+qui il processo si avvia una volta e resta vivo, quindi connessioni e oggetti costruiti all'avvio
+vivono per giorni e servono tutte le richieste. Da lì discendono cose che in PHP non esistono: il
+pool di connessioni, lo spegnimento pulito, l'ordine degli import che decide lo stato del processo.
 
 Quando spieghi codice in prosa discorsiva (non blocchi di codice), evita di racchiudere ogni
 singolo identificatore, variabile, tipo o proprietà citato tra backtick singoli — scrivili in
