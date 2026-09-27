@@ -9,10 +9,16 @@ backend rigorosamente a livelli. Il backend è la parte attivamente sviluppata; 
 al momento solo lo scaffold di Vite e **non** è l'oggetto del lavoro — non aggiungere funzionalità frontend
 a meno che non venga esplicitamente richiesto.
 
-**Il backend è un'applicazione NestJS**, migrata da Express a fasi (F0–F5), più la fase F6 che ha implementato
-la creazione dei prodotti con le transazioni. Tutte concluse. Il documento di riferimento è
-`backend/docs/MIGRAZIONE-NESTJS.md` (decisioni prese, piano, registro di ogni fase); lo stato di ripresa è in
-fondo a `CHECKPOINT.md`. Non esistono più router Express: ogni rotta è un controller NestJS.
+**Il backend è un'applicazione NestJS su Fastify.** È stata migrata da Express a fasi (F0–F5), poi F6 ha
+implementato la creazione dei prodotti con le transazioni, e **F7 ha tolto Express anche come piattaforma
+HTTP**: `@nestjs/platform-fastify` al posto di `@nestjs/platform-express`. Tutte le fasi sono concluse. Il
+documento di riferimento è `backend/docs/MIGRAZIONE-NESTJS.md` (decisioni prese, piano, registro di ogni
+fase); lo stato di ripresa è in fondo a `CHECKPOINT.md`.
+
+**Express, multer e passport non sono più dipendenze del progetto**, e nessun file li importa: non
+reintrodurli. NestJS non è un server HTTP, delega a una piattaforma, e questa è Fastify (scelta in
+`main.ts`). Quando servono i tipi di una richiesta o di una risposta, si usa l'astrazione di NestJS
+(`HttpAdapterHost`) o un tipo strutturale del progetto, non quelli della piattaforma.
 
 Alla radice del repo c'è @./AGENTS.md, la fonte di verità unica per le regole architetturali di questo
 progetto. Il riepilogo qui sotto lo riflette, con dettagli aggiuntivi trovati nel codice reale.
@@ -173,7 +179,7 @@ non in `backend/`, apposta per essere un unico file letto sia da Docker Compose 
 `docker-compose.yml` sia dall'app Node, vedi sotto): `PORT` (porta di ascolto del server, letta in
 `main.ts`), `JWT_SECRET`, `JWT_EXPIRES_IN` (durata dei token, formato `jsonwebtoken` es. `1h`/`7d`),
 `MAX_FILE_SIZE` (MB, intero, limite di business per le immagini caricate), `MAX_FILE_HARD_SIZE`
-(MB, intero, limite hard di multer, letto davvero dalla fase F4; deve essere ≥ `MAX_FILE_SIZE`), `DB_ROOT_PASSWORD`, `DB_NAME`, e le porte pubblicate sull'host (`BACKEND_HOST_PORT`,
+(MB, intero, limite hard del plugin di upload, letto davvero dalla fase F4; deve essere ≥ `MAX_FILE_SIZE`), `DB_ROOT_PASSWORD`, `DB_NAME`, e le porte pubblicate sull'host (`BACKEND_HOST_PORT`,
 `BACKEND_DEBUG_PORT`, `DB_HOST_PORT`, `ADMINER_HOST_PORT`, `FRONTEND_HOST_PORT`).
 
 **Nessuna di queste ha un fallback**: sia `docker-compose.yml` (via la sintassi `${VAR:?messaggio}`, che
@@ -206,7 +212,7 @@ gerarchia condivisa di tipo "User":
 
 - **User** (modello `User` in `prisma/schema.prisma`) — account interni/admin, `level` enum
   `admin`/`superadmin`, montato su `/admin/user`. **Migrato a NestJS in F3**: `modules/user/`. Le rotte
-  protette usano `@UseGuards(AuthUserGuard)` (passport + passport-jwt, in `modules/auth/`) e ricevono
+  protette usano `@UseGuards(AuthUserGuard)` (in `modules/auth/`, scritto a mano dalla fase F7) e ricevono
   l'utente con `@CurrentUser()`. Lo stesso guard protegge le rotte dei prodotti (dalla fase F4).
 - **Customer** (modello `Customer` in `prisma/schema.prisma`) — clienti dello storefront, montato su `/`.
   **Migrato a NestJS in F2**: `modules/customer/` (controller, `CustomerAuthService`, DTO).
@@ -225,10 +231,11 @@ sua query e riusa `CredentialsService`. Segreto, algoritmo (HS256) e scadenza de
 una sola volta in `modules/auth/auth.module.ts`.
 
 **Pattern di invalidazione del token**: i JWT sono stateful. Al login/registrazione, il token firmato viene
-scritto anche nella colonna `current_token` dell'entità. `JwtUserStrategy` verifica il JWT *e* che
-corrisponda a `current_token` nel DB. La strategia
-ha `passReqToCallback: true` proprio per poter rileggere il token grezzo: senza, il confronto non sarebbe
-possibile e un token revocato verrebbe accettato. È questo che rende possibile invalidare i vecchi
+scritto anche nella colonna `current_token` dell'entità. `AuthUserGuard` verifica il JWT *e* che corrisponda
+a `current_token` nel DB: per questo confronto serve il token **grezzo**, non solo il payload, perché dal
+payload la stringa firmata non è ricostruibile. Fino a F6 il guard ereditava da `AuthGuard` di
+@nestjs/passport e la verifica stava in una `JwtUserStrategy` con `passReqToCallback: true`; dalla fase F7 è
+una sola classe che implementa `CanActivate`. È questo che rende possibile invalidare i vecchi
 token al logout / cambio password (il logout imposta `current_token = null`; i flussi di
 password/2FA fanno lo stesso: dalla fase F3 `UserAuthService.changePassword` scrive la nuova password e
 `current_token = null` nella stessa query, e il client deve rifare login).
@@ -267,8 +274,15 @@ POST NestJS rispondono **201** di default, mentre il contratto delle POST esiste
 propagati con `next(err)` e le rotte inesistenti (404 → "Non trovato"), che prima gestivano `errorMiddleware.ts` e
 `noPathMiddleware.ts`, rimossi. Per un errore che non è una HttpException risponde 500 con un messaggio
 generico e **non fa mai trapelare** il messaggio interno, che finisce solo nei log; logga soltanto i 5xx.
-Il JSON malformato è tradotto in "errore json: ..." da `common/middleware/json-syntax-error.middleware.ts`,
-montato subito dopo il parser, perché NestJS perderebbe l'errore originale prima che arrivi al filter.
+Il JSON malformato è tradotto in "errore json: ..." dal parser dei body JSON dell'app
+(`common/middleware/json-content-type-parser.ts`): l'errore viene sostituito nel punto in cui nasce, perché a
+valle il messaggio originale non sarebbe più distinguibile da un 400 qualsiasi. Un tipo di contenuto per cui
+non esiste un parser (un body di form, o una richiesta senza `Content-Type` su una rotta multipart) riceve
+**415**, con il messaggio inglese di Fastify tradotto dal filter.
+
+`AllExceptionsFilter` non parla direttamente alla risposta: passa da `HttpAdapterHost`
+(`reply`, `getRequestUrl`, `getRequestMethod`, `isHeadersSent`). È ciò che lo rende indipendente dalla
+piattaforma — la reply di Fastify non ha il metodo `json()` di Express — e va mantenuto così.
 
 ### Validazione e upload (dalla fase F4)
 
@@ -280,9 +294,11 @@ L'upload dell'immagine di un nuovo prodotto (`POST /products/new`) passa da ques
 NestJS li esegue:
 
 1. `AuthUserGuard`: 401 prima che un solo byte venga salvato.
-2. `ProductImageUploadInterceptor` (`modules/product/upload/`): multer salva i file in `uploads/` con il limite
-   hard `MAX_FILE_HARD_SIZE` (oltre: **413** `Operazione non permessa.`). **Cancella i file temporanei a
-   qualunque errore successivo** (pipe, service), perché le pipe girano dentro il flusso che osserva.
+2. `ProductImageUploadInterceptor` (`modules/product/upload/`): legge il corpo multipart con
+   `@fastify/multipart`, che scrive i file in `uploads/tmp/` con il limite hard `MAX_FILE_HARD_SIZE`
+   (oltre: **413** `Operazione non permessa.`). **Cancella i file a qualunque errore successivo** (pipe,
+   service), perché le pipe girano dentro il flusso che osserva. Rifiuta anche i file inviati in un campo
+   diverso da `image`: il plugin, a differenza di multer, salverebbe qualunque campo.
 3. `NewProductFormPipe`: valida **insieme** i campi (`CreateProductDto`) e le immagini
    (`ProductImageValidator`) e risponde con un'unica lista, prima i campi e poi un elemento `image` con i
    messaggi raggruppati per file. Due parametri separati (`@Body` + `@UploadedFiles`) avrebbero restituito
@@ -291,10 +307,13 @@ NestJS li esegue:
    (`config/imageConfig.ts`).
 5. `ProductService.create`: prodotto e immagine nel database (vedi "Creazione dei prodotti e transazioni").
 
-Il file caricato resta dove multer l'ha scritto, e `image_url` vale `/uploads/<nome>`
-(`publicUrlOf` in `modules/product/upload/uploaded-files.ts`, dove sta tutto ciò che riguarda quella
-cartella). Non spostarlo né rinominarlo dopo il salvataggio: si aprirebbe una finestra in cui il database
-punta a un file che non esiste. Nessuna rotta serve ancora `uploads/`.
+I file appena ricevuti stanno in `uploads/tmp/`, le immagini definitive in `uploads/`: **@fastify/multipart
+cancella da sé, a ogni risposta, i file che ha scritto**, quindi un'immagine che deve sopravvivere alla
+richiesta va spostata. Lo fa `storeUploadedImage` (`modules/product/upload/uploaded-files.ts`, dove sta tutto
+ciò che riguarda quelle cartelle) dopo la validazione e **prima** dell'inserimento nel database: mai dopo, o
+un errore dello spostamento lascerebbe una riga che punta a un file inesistente. `image_url` vale
+`/uploads/<nome>.<estensione>`, con l'estensione decisa dal tipo **reale** del file, non da quello dichiarato.
+Nessuna rotta serve ancora `uploads/`.
 
 Prezzo e quantità hanno regole proprie (`modules/product/dto/product-field-rules.ts`): prezzo ≥ 0 con al
 massimo 2 decimali ed entro `DECIMAL(10,2)`, quantità entro il massimo di un `integer`. Il prezzo resta una
@@ -394,7 +413,8 @@ immagini caricate.
   stessa `configureApp` di main.ts, senza `.listen()`). `useTestApp()` va chiamato **alla radice del
   file, fuori dal describe**: registra da sé avvio e chiusura, e da quella posizione la chiusura (che
   disconnette Prisma) gira sempre dopo gli `afterAll` di pulizia del describe. Le richieste usano
-  `request(testApp.http)`; nessun file chiama più `close()` o `$disconnect()` a mano,
+  `request(testApp.http)`; l'helper attende anche `ready()`, perché Fastify costruisce rotte e plugin in modo
+  asincrono e prima di allora il server non risponde. Nessun file chiama più `close()` o `$disconnect()` a mano,
   attraversando l'intero stack fino al DB di test. Usano email/dati univoci per evitare collisioni tra
   test file eseguiti in parallelo, e ripuliscono le righe create in `afterAll`. `productRoutes.test.ts`
   cancella i prodotti **per proprietario** (quelli creati con POST /products/new non hanno un id noto in
@@ -410,16 +430,22 @@ fissi, (2) ripulisci sempre quello che crei.
 
 ### Avvio e catena delle richieste (`backend/main.ts`, `backend/app.setup.ts`)
 
-`main.ts` crea l'app NestJS da `app.module.ts` e chiama `configureApp` (in `app.setup.ts`), la stessa
-funzione usata dai test. Ordine effettivo della catena: CORS → `express.json()` →
-`json-syntax-error.middleware.ts` → rotte NestJS → 404 NestJS → gestore errori NestJS.
+`main.ts` crea l'app NestJS da `app.module.ts` con `FastifyAdapter` e chiama `configureApp` (in
+`app.setup.ts`), la stessa funzione usata dai test. Dalla fase F7 **non ci sono middleware**: `configureApp`
+configura l'istanza Fastify (CORS, parser JSON, plugin multipart) ed è `async`, perché i plugin Fastify si
+registrano così. L'ordine di esecuzione di una richiesta è quello di NestJS: parser del body → guard →
+interceptor → pipe → handler, con `AllExceptionsFilter` su qualunque eccezione e il 404 in coda.
+
+`app.listen(port, '0.0.0.0')`: il default di Fastify è `127.0.0.1`, che dentro un container non è
+raggiungibile da fuori. Express ascoltava su tutte le interfacce.
 
 Domini: Customer (`POST /register`, `POST /login`, in `modules/customer/`), User (le 6 rotte sotto
 `/admin/user`, in `modules/user/`), Product (`GET /products`, `POST /products/new`, in `modules/product/`) e
 l'health-check `GET /` (`health.controller.ts`). `GET /routes` e `SHOW_ROUTES` non esistono più (fase F5,
 decisione D8).
 
-**Il parser JSON di NestJS è disattivato di proposito** (`bodyParser: false` in `NEST_APP_OPTIONS`): NestJS lo
-registrerebbe dentro `init()`, dopo il middleware che traduce gli errori JSON, e il messaggio "errore json: ..."
-andrebbe perso; in più accetterebbe i body urlencoded. Non riattivarlo: il motivo è spiegato in `app.setup.ts`
-ed è presidiato da un test in `errorHandling.test.ts`.
+**Il parser JSON di NestJS è disattivato di proposito** (`bodyParser: false` in `NEST_APP_OPTIONS`): l'app
+registra il proprio, che conserva il messaggio "errore json: ...". Con entrambi, Fastify rifiuta l'avvio
+("Content type parser 'application/json' already present"); e quello di NestJS accetterebbe anche i body di
+form, allargando il contratto in silenzio. Non riattivarlo: il motivo è in `app.setup.ts`, ed è presidiato da
+un test in `errorHandling.test.ts`.

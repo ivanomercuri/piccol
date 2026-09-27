@@ -215,6 +215,14 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
     uno), e col lock passa 10 volte su 10;
   - **ogni test di questo tipo va visto rosso**: togli la protezione (la transazione, il lock), esegui il
     test, rimetti la protezione. Se passa anche senza, non la sta verificando.
+- **App di test su Fastify** (dalla fase F7): `useTestApp()` crea l'app con `FastifyAdapter` e attende
+  `ready()` prima di restituirla, perché Fastify costruisce rotte e plugin in modo asincrono e prima di allora
+  il server non risponde (`init()` di NestJS non lo comprende). supertest continua a funzionare com'era, su
+  `app.getHttpServer()`.
+- **Verificare un cambio di piattaforma con uno spike, non con la fede.** Il passaggio a Fastify è iniziato
+  avviando l'AppModule vero sul nuovo adapter, senza modificare il codice, per vedere che cosa si rompeva
+  davvero: tre casi su nove, invece dei sospetti iniziali. Lo spike è codice usa e getta, da cancellare
+  (vedi §16 di docs/MIGRAZIONE-NESTJS.md).
 - **Eseguire Jest sempre tramite `npm test`**, mai con `npx jest` nudo: lo script imposta
   `NODE_OPTIONS=--experimental-vm-modules`, senza il quale ogni suite che importa NestJS fallisce con
   "Must use import to load ES Module".

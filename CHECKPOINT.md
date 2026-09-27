@@ -867,11 +867,28 @@ il token, il client deve rifare login; D) `@IsEmail` per gli User.
 - **Registrazione atomica** per User e Customer, con transazione interattiva.
 - Stato: **30 suite / 238 test verdi**, type-check e lint puliti.
 
+**Fatto in F7** (2026-09-27, registro completo in §16 del documento). **Zero Express: la piattaforma HTTP è
+Fastify.**
+
+- `@nestjs/platform-fastify` al posto di `@nestjs/platform-express`. `npm ls` conferma che express, multer,
+  passport e @types/express non sono più nell'albero; nessun file li importa.
+- Due spike prima di toccare il codice, avviando l'AppModule vero su Fastify: funzionavano già DI, involucro
+  delle risposte, validazione, Prisma, transazioni, paginazione **e passport**; si rompevano tutte le risposte
+  d'errore e l'upload.
+- `AllExceptionsFilter` passa da `HttpAdapterHost`; il JSON malformato è tradotto da un content-type parser;
+  l'upload usa `@fastify/multipart`, che cancella da sé i file temporanei, quindi l'immagine valida viene
+  archiviata da `uploads/tmp/` a `uploads/` prima dell'inserimento.
+- `AuthUserGuard` è scritto a mano (ribalta D3): una sola classe al posto di strategia + guard.
+- Cambi di contratto voluti: **415** per un tipo di contenuto senza parser, e messaggio unico per
+  POST /products/new senza corpo multipart.
+- Stato: **28 suite / 230 test verdi**, type-check e lint puliti. Il pacchetto e il container si chiamano ora
+  `piccol-backend`.
+
 **Prossimi passi possibili**, nessuno avviato (da scegliere con l'utente):
 
 - percorso PostgreSQL, **indici**: `createdBy` + `createdAt` ora serve a due query (elenco di un admin e
   ricerca dei doppioni), da decidere guardando `EXPLAIN`;
-- una rotta che serva le immagini di `uploads/`;
+- una rotta che serva le immagini di `uploads/` (con Fastify si userebbe `@fastify/static`);
 - categorie e `sku` nel form di creazione;
 - `@nestjs/swagger`.
 

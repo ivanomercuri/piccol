@@ -1,6 +1,6 @@
 # Assessment: migrazione da Express a NestJS
 
-Stato: **tutte le fasi completate, F0–F6** (registri in §8–§13 e §15). Segue il metodo già usato per la migrazione a Prisma:
+Stato: **tutte le fasi completate, F0–F7** (registri in §8–§13, §15 e §16). Dalla fase F7 l'app non gira più su Express: la piattaforma HTTP è Fastify. Segue il metodo già usato per la migrazione a Prisma:
 prima questo report (inventario, punti critici, decisioni da prendere), poi il via libera, poi
 l'implementazione a commit incrementali.
 
@@ -1089,3 +1089,100 @@ attivata come conseguenza della scelta sui doppioni.
 - **Nessuna rotta serve `uploads/`**: le immagini sono salvate e referenziate, ma non raggiungibili via HTTP.
 - **Un indice per le query per utente** (`createdBy`, `createdAt`): ora lo usano sia l'elenco di un admin sia
   la ricerca dei doppioni. Resta il prossimo tema del percorso PostgreSQL, da decidere guardando `EXPLAIN`.
+
+---
+
+## 16. Registro di esecuzione — F7 (completata il 2026-09-27)
+
+Fase non prevista dall'assessment, chiesta dall'utente dopo aver notato
+`NestExpressApplication` in main.ts: **zero Express**. NestJS non è un server HTTP,
+usa una piattaforma (`@nestjs/platform-express` o `@nestjs/platform-fastify`), quindi
+fino a F6 Express restava il motore sotto l'app. Obiettivo: togliere anche quello.
+
+Stato finale: **28 suite / 230 test verdi**, type-check e lint puliti. `npm ls`
+conferma che express, multer, passport e @types/express non sono più nell'albero
+delle dipendenze, e nessun file del progetto li importa. Verificato sull'app di
+sviluppo: health-check, JSON malformato ("errore json: ..."), 404 "Non trovato",
+body di form (415), login, profilo con token, schema `Basic` rifiutato, creazione
+prodotto con immagine, file nel campo sbagliato rifiutato.
+
+### Prima di toccare il codice: due spike
+
+Il rischio era concentrato in tre punti (autenticazione, upload, messaggio del JSON
+malformato), quindi la fase è iniziata avviando **l'AppModule vero** sull'adapter
+Fastify, senza modificare niente, e misurando cosa si rompeva:
+
+- **funzionano invariati** health-check, dependency injection,
+  `ResponseEnvelopeInterceptor` (la reply di Fastify ha anch'essa `statusCode`),
+  `ValidationPipe`, ConfigModule, Prisma, la transazione di registrazione, la
+  paginazione — **e passport**: il profilo ha risposto 200 con un token reale.
+  Dal sorgente di `@nestjs/passport`: il guard assegna lui stesso `request.user` e
+  passa una callback, quindi non usa `req.logIn`, il metodo che passport aggiunge
+  alle richieste di Express;
+- **si rompono** tutte le risposte d'errore (il filter chiamava
+  `response.status().json()`, e la reply di Fastify non ha `json()`), e l'upload
+  (415: Fastify non ha un parser per multipart, multer non gira mai).
+
+Un secondo spike, su un'app minimale, ha misurato i dettagli: che cosa arriva al
+filter (classe, codice, status), che la reply espone `status()`/`send()`/`sent`, che
+un content-type parser personalizzato produce già il messaggio
+"errore json: Unexpected end of JSON input", che il 404 di NestJS ha lo stesso testo
+di prima ("Cannot GET /nope"), e che il limite di dimensione di @fastify/multipart
+arriva come errore con codice `FST_REQ_FILE_TOO_LARGE` e status 413.
+
+### Decisioni, prese dall'utente
+
+| | Domanda | Scelta |
+|---|---|---|
+| **Autenticazione** | passport funziona su Fastify, ma è di forma Express e i suoi tipi dipendono da @types/express | **Guard scritto a mano**, che ribalta la decisione D3. Via passport, passport-jwt e @types/passport-jwt |
+| **Upload** | @fastify/multipart cancella sempre i file temporanei a fine risposta | **saveRequestFiles + spostamento**: il file viene archiviato da uploads/tmp/ a uploads/ dopo la validazione e prima dell'inserimento |
+
+Scartato senza domanda `fastify-multer` (API di multer su Fastify): ultima
+pubblicazione maggio 2022 e dipende da fastify-plugin 2, cioè Fastify 3.
+
+### Fatto
+
+- `main.ts` e `useTestApp` creano l'app con `FastifyAdapter`; `configureApp` è
+  diventata asincrona (i plugin Fastify si registrano così) e non monta più nessun
+  middleware: CORS, parser JSON e multipart sono configurazione dell'istanza.
+- `AllExceptionsFilter` usa `HttpAdapterHost`: `reply`, `getRequestUrl`,
+  `getRequestMethod`, `isHeadersSent`. Non conosce più nessuna piattaforma.
+- `AuthUserGuard` implementa `CanActivate` e produce i cinque messaggi del 401 dove
+  nasce il rifiuto; `extractBearerToken` riceve l'header, non la richiesta;
+  `AuthenticatedRequest` sostituisce l'estensione globale di `Express.User`.
+- Upload riscritto: `ProductImageUploadInterceptor` chiama `saveRequestFiles`,
+  normalizza i file nel tipo `UploadedImage` del progetto (quattro campi, non i
+  venti di `Express.Multer.File`), rifiuta i file in campi diversi da `image` e
+  cancella tutto in caso di errore. `storeUploadedImage` archivia il file con
+  l'estensione decisa dal tipo REALE.
+- `types/express.d.ts` e `json-syntax-error.middleware.ts` cancellati.
+
+### Cose emerse solo implementando
+
+1. **Il parser JSON personalizzato richiede `bodyParser: false`.** Con il parser di
+   NestJS attivo, Fastify rifiuta l'avvio: "Content type parser 'application/json'
+   already present". L'opzione era già quella del progetto, per un motivo diverso.
+2. **`@fastify/multipart` cancella da sé i file temporanei** (hook `onResponse`,
+   verificato nel sorgente), e tollera un file già spostato. Da qui la cartella
+   `uploads/tmp/`, che rende anche visibile la distinzione fra file in transito e
+   immagini definitive. Lo spostamento è un rename nella stessa partizione.
+3. **Un file in un campo inatteso sarebbe passato.** multer lo rifiutava da sé
+   (`LIMIT_UNEXPECTED_FILE`); @fastify/multipart salva qualunque campo file. Senza il
+   controllo aggiunto, un'immagine inviata nel campo sbagliato sarebbe diventata
+   l'immagine del prodotto. **L'ha scoperto un test esistente**, non una revisione
+   del codice.
+4. **Fastify ascolta su 127.0.0.1 per default**: dentro un container non basta, serve
+   `listen(port, '0.0.0.0')`. Express ascoltava su tutte le interfacce.
+5. **I test hanno bisogno di `ready()`**: Fastify costruisce rotte e plugin in modo
+   asincrono, e `init()` di NestJS non lo comprende.
+6. **415 al posto di 400** per un tipo di contenuto senza parser, con il messaggio
+   inglese di Fastify tradotto dal filter. È il cambio di contratto di questa fase,
+   insieme al messaggio unico per una POST /products/new senza corpo multipart.
+7. **Il nome del pacchetto era `express-backend`**: rinominato `piccol-backend`,
+   come il container.
+
+### Cosa resta di Express, e cosa no
+
+Niente. L'unica traccia è concettuale: `enableCors()` è API di NestJS e sotto usa
+@fastify/cors invece del pacchetto cors. Un eventuale ritorno indietro
+richiederebbe di rifare adapter, parser JSON, upload e i tipi delle richieste.

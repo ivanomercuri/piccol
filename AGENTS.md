@@ -5,7 +5,11 @@ The goal is to showcase Senior-Level Node.js skills using a strict Layered Archi
 
 ## 1. Tech Stack
 - **Runtime:** Node.js 24.9+ (required: NestJS 12 packages are ESM-only, and Jest can load them only on 24.9+ with `--experimental-vm-modules`)
-- **Framework:** NestJS 12 on Express (`@nestjs/platform-express`). Migrated from plain Express in phases F0–F5 (see `backend/docs/MIGRAZIONE-NESTJS.md`); no Express router is left, every route is a NestJS controller.
+- **Framework:** NestJS 12 on **Fastify** (`@nestjs/platform-fastify`). Migrated from plain Express in phases
+  F0–F5, then F7 replaced Express as the HTTP platform too (see `backend/docs/MIGRAZIONE-NESTJS.md`).
+  **express, multer and passport are not dependencies any more, and no file imports them — do not bring them
+  back.** For request/response types use NestJS's own abstraction (`HttpAdapterHost`) or a structural type of
+  the project, never the platform's.
 - **Database:** PostgreSQL (v16 via Docker)
 - **ORM:** Prisma 7 (schema in `backend/prisma/schema.prisma`)
 - **Testing:** Jest
@@ -34,9 +38,10 @@ All backend code is located in `/backend`.
 
 ### Support Structures
 - `/backend/common`: NestJS cross-cutting infrastructure — `filters/` (`AllExceptionsFilter`, the single error
-  handler), `interceptors/`, `decorators/`, `logger/`, `validation/`, and `middleware/` for the one Express-level
-  middleware (`json-syntax-error.middleware.ts`: a 4-argument Express error handler, which a NestJS middleware
-  cannot be). Files follow the Nest naming convention (`*.filter.ts`, `*.interceptor.ts`, `*.middleware.ts`).
+  handler, which talks to the response only through `HttpAdapterHost`), `interceptors/`, `decorators/`,
+  `logger/`, `validation/`, and `middleware/` for the JSON body parser that keeps the `errore json: ...`
+  message (`json-content-type-parser.ts`). Files follow the Nest naming convention (`*.filter.ts`,
+  `*.interceptor.ts`).
 - `/backend/config`: environment validation (`env.validation.ts`), database URL, Winston logger, image limits.
 - `/backend/services`: only `emailNormalizer.ts`, a pure function shared by the identity services.
 - `/backend/types`: ambient type augmentation (`req.user`).
@@ -73,7 +78,10 @@ Do not reinvent the wheel. The project already contains:
   `prisma.$transaction(async (tx) => ...)` only when application code or a lock sits between the writes, and
   then run **every** query through `tx`. Examples: `ProductService.create` (advisory lock + duplicate check),
   `UserAuthService.register` / `CustomerAuthService.register` (the token needs the new id).
-- Image uploads: `ProductImageUploadInterceptor`, `ProductImageValidator` and `NewProductFormPipe` in `modules/product/upload/`; everything about the `uploads/` folder (public URL, deleting files) is in `uploaded-files.ts`. Read image dimensions ONLY through `readImageDimensions` (`image-inspection.ts`), never by calling `image-size` directly: it has unpatched DoS vulnerabilities in parsers the magic-byte check keeps out.
+- Image uploads: `ProductImageUploadInterceptor` (reads the multipart body with `@fastify/multipart`),
+  `ProductImageValidator` and `NewProductFormPipe` in `modules/product/upload/`; everything about the
+  `uploads/` and `uploads/tmp/` folders (the project's `UploadedImage` type, archiving a validated image,
+  deleting files) is in `uploaded-files.ts`. Read image dimensions ONLY through `readImageDimensions` (`image-inspection.ts`), never by calling `image-size` directly: it has unpatched DoS vulnerabilities in parsers the magic-byte check keeps out.
 
 ## 6. Frontend Context (Status: ON HOLD)
 The frontend is located in `/frontend` but is currently **NOT the focus**.
@@ -241,3 +249,27 @@ keep entries short, one line each)
   before it could leave an orphan file if the commit failed. Page and total of `GET /products` stay outside a
   transaction (F4 entry above): a batched `$transaction([...])` would not help under READ COMMITTED, since each
   statement takes its own snapshot.
+- Zero Express (F7, user's request after noticing `NestExpressApplication` in main.ts): the HTTP platform is
+  now Fastify. NestJS is not a server — it delegates to a platform — so until F6 Express was still the engine
+  under the app. Two spikes measured the risk first, booting the real `AppModule` on the Fastify adapter
+  without changing code: DI, response envelope, validation, Prisma, transactions and pagination worked
+  unchanged, while every error response broke (`AllExceptionsFilter` called `response.status().json()`, absent
+  on a Fastify reply) and uploads returned 415. Rejected: staying on Express (the goal was explicit), and
+  `fastify-multer` for uploads (last published in 2022, requires Fastify 3).
+- The authentication guard is hand-written (F7, user's choice), reversing **D3**. `@nestjs/passport` does work
+  on Fastify (verified: the guard sets `request.user` itself and passes a callback, so it never needs
+  `req.logIn`), but passport is Express-shaped and `@types/passport` depends on `@types/express`. One
+  `CanActivate` class now produces the five 401 messages where the rejection happens, instead of a
+  passport-jwt strategy plus a guard that rebuilt them afterwards. The five messages and every end-to-end
+  assertion are unchanged.
+- Uploaded images are archived, not left in place (F7, revises the F6 entry above): `@fastify/multipart`
+  deletes the files it wrote on every response (its own `onResponse` hook), so a file that must outlive the
+  request is moved from `uploads/tmp/` to `uploads/` — after validation and **before** the database insert, so
+  a failure can only ever leave an orphan file, never a row pointing at a missing one. The final extension
+  comes from the verified type of the bytes, not from the client's filename, so a future static route cannot
+  be tricked into serving something else. Rejected: writing the stream to disk by hand (more code for the same
+  guarantees).
+- A request whose content type has no parser gets **415** `Tipo di contenuto non supportato` (F7): Fastify
+  refuses it before the route runs, where Express left an empty body and let validation answer 400. The
+  framework's English message is translated in `AllExceptionsFilter`. `POST /products/new` without a multipart
+  body stays 400, with the single upload message instead of the grouped array.

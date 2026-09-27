@@ -1,6 +1,6 @@
 # API Piccol
 
-Documentazione delle API REST esposte dal backend NestJS di Piccol. Base URL locale (fuori Docker):
+Documentazione delle API REST esposte dal backend NestJS (su Fastify, dalla fase F7) di Piccol. Base URL locale (fuori Docker):
 `http://localhost:5000`; via Docker Compose il backend è esposto su `http://localhost:5001` (mappato sulla
 porta interna 5000, vedi `docker-compose.yml`).
 
@@ -84,12 +84,15 @@ un multipart malformato o un file in un campo diverso da `image`.
 Casi trasversali a tutte le rotte:
 
 - **body JSON malformato** → **400** `errore json: <dettaglio del parser>`;
+- **tipo di contenuto senza parser** (un body `application/x-www-form-urlencoded`, o una richiesta senza
+  `Content-Type` dove serve) → **415** `Tipo di contenuto non supportato`. Dalla fase F7: prima il body
+  restava vuoto e rispondeva la validazione con un 400;
 - **rotta inesistente** → **404** `Non trovato`;
 - **errore imprevisto** → **500** `Qualcosa è andato storto!`. Il messaggio interno non arriva mai al
   client: finisce solo nei log di Winston (`backend/logs/error.log` e `combined.log`), con stack, percorso e
   metodo. Solo i 5xx vengono loggati.
-- I body `application/x-www-form-urlencoded` **non** vengono letti: le rotte con body accettano solo JSON
-  (o `multipart/form-data` per l'upload).
+- Le rotte con body accettano solo JSON (o `multipart/form-data` per l'upload): qualunque altro tipo di
+  contenuto riceve il 415 descritto sopra.
 
 ## Autenticazione
 
@@ -323,10 +326,11 @@ prodotto compare in due pagine o in nessuna.
 Route `multipart/form-data`. Validazione completa, eseguita in questo ordine:
 
 1. **Autenticazione** (`AuthUserGuard`): senza token valido, 401 prima di ricevere qualunque file.
-2. **Ricezione** (`ProductImageUploadInterceptor`): i file del campo `image` vengono salvati in `uploads/`. Un
-   file oltre `MAX_FILE_HARD_SIZE` MB interrompe l'upload con **413** `Operazione non permessa.` (fino alla
-   fase F4: 400). Un file in un campo con un altro nome, o un multipart malformato: **400** `Richiesta di
-   caricamento dell'immagine non valida`.
+2. **Ricezione** (`ProductImageUploadInterceptor`): i file del campo `image` vengono salvati in `uploads/tmp/`.
+   Un file oltre `MAX_FILE_HARD_SIZE` MB interrompe l'upload con **413** `Operazione non permessa.` (fino alla
+   fase F4: 400). Un file in un campo con un altro nome, un multipart malformato, o una richiesta senza corpo
+   multipart: **400** `Richiesta di caricamento dell'immagine non valida` (dalla fase F7 anche il corpo
+   assente riceve questo messaggio, invece dell'array raggruppato con "immagine richiesta").
 3. **Validazione di campi e immagine insieme** (`NewProductFormPipe`), con una sola risposta d'errore.
 4. **Creazione** (`ProductService.create`, dalla fase F6): prodotto e riga dell'immagine nella stessa
    transazione, con il controllo dei doppioni descritto sotto.
@@ -391,8 +395,9 @@ producevano un 500.
   - `price` è una **stringa decimale esatta** nella forma minima: `"19.9"` per 19,90, `"0"` per zero. Non è
     formattata a due decimali: la formattazione spetta al client. Stessa forma di `GET /products`.
   - `createdBy` è l'utente del token, non un campo del form.
-  - `image_url` è `/uploads/<nome del file>`, con il nome casuale scelto al caricamento. **Oggi nessuna rotta
-    serve la cartella `uploads/`**: l'indirizzo è già nella forma che quella rotta userà.
+  - `image_url` è `/uploads/<nome casuale>.<estensione>`, dove l'estensione viene dal tipo **reale** del file
+    verificato sui byte, non da quella dichiarata dal client (dalla fase F7). **Oggi nessuna rotta serve la
+    cartella `uploads/`**: l'indirizzo è già nella forma che quella rotta userà.
 
 **Invii duplicati** (dalla fase F6). Se lo stesso utente invia di nuovo gli stessi `name`, `description`,
 `price` e `quantity` entro **10 secondi**, non nasce un secondo prodotto: la risposta è **200** con il
