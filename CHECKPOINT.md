@@ -903,8 +903,13 @@ Fastify.**
   funzionalità nuova, non una pulizia. Da decidere.
 - Il branch `feature/seed-dati-sviluppo` va mergiato in `main` quando si ritiene concluso (vedi la nota
   sulla catena dei branch sopra).
-- Le 3 advisory high residue (`deepmerge-ts`, `mysql2` via `@prisma/config`) sono transitive della CLI
-  di Prisma, che è una devDependency. **`npm audit fix --force` NON va eseguito**: retrocederebbe prisma
-  a 6.19.3, disfacendo la migrazione a Prisma 7.
+- Le 4 advisory high residue (`deepmerge-ts` e `mysql2` via `@prisma/config`, che le riporta due volte)
+  sono transitive della CLI di Prisma, che è una devDependency e non gira in produzione; il progetto non
+  usa MySQL. **`npm audit fix --force` NON va eseguito**: retrocederebbe prisma a 6.19.3, disfacendo la
+  migrazione a Prisma 7. L'unica high su una dipendenza diretta era `image-size`, risolta aggiornandola
+  alla 2.0.4 (2026-09-27).
+- Dipendenze ferme di proposito, con il motivo ricontrollato il 2026-09-27: **typescript** alla 6.0.3
+  (ts-jest dichiara `>=4.3 <7`, typescript-eslint `>=4.8.4 <6.1.0`), **prisma** alla 7.10.0 (più recente
+  esiste solo la 8.0.0-rc.17, una release candidate).
 - Nel servizio `db` di `docker-compose.yml` restano due commenti che citano `config/config.js` e
   Sequelize come se esistessero ancora.
