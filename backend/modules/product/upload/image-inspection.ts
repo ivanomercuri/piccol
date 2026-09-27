@@ -4,12 +4,20 @@ import { disableTypes, imageSize, types } from 'image-size';
  * Lettura sicura delle dimensioni di un'immagine caricata da un utente.
  *
  * IL PROBLEMA (debito aperto in F0, docs/MIGRAZIONE-NESTJS.md §8)
- * `image-size` ha vulnerabilità di denial of service senza correzione
- * disponibile: i parser dei formati ICNS, HEIF e JXL possono entrare in un
- * ciclo infinito su file costruiti apposta, bloccando il processo. Il vecchio
- * middleware chiamava la libreria su qualunque file il cui Content-Type
- * dichiarasse image/png o image/jpeg. Ma quel valore lo sceglie chi carica:
- * un file ICNS dichiarato come PNG arrivava al parser vulnerabile.
+ * `image-size` aveva vulnerabilità di denial of service **senza correzione
+ * disponibile** quando queste difese sono state scritte (F4): i parser dei
+ * formati ICNS, HEIF e JXL potevano entrare in un ciclo infinito su file
+ * costruiti apposta, bloccando il processo. Il vecchio middleware chiamava la
+ * libreria su qualunque file il cui Content-Type dichiarasse image/png o
+ * image/jpeg. Ma quel valore lo sceglie chi carica: un file ICNS dichiarato
+ * come PNG arrivava al parser vulnerabile.
+ *
+ * AGGIORNAMENTO: la 2.0.3 le ha corrette (gli advisory valgono fino alla
+ * 2.0.2), e il progetto è sulla 2.0.4. Le due difese qui sotto RESTANO, per tre
+ * motivi: valgono per qualunque falla futura degli stessi parser, non dipendono
+ * dal fatto che la libreria sia aggiornata, e comunque il progetto accetta solo
+ * JPG e PNG — leggere gli altri formati non serve a niente. È difesa in
+ * profondità, non una toppa da togliere quando il buco è chiuso.
  *
  * Verificato nel sorgente della libreria: il rilevatore guarda il primo byte
  * del file; se quel formato non si conferma, prova in ordine TUTTI i 20

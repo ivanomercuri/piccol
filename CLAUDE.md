@@ -322,8 +322,10 @@ massimo 2 decimali ed entro `DECIMAL(10,2)`, quantità entro il massimo di un `i
 **Regola di sicurezza**: le dimensioni si leggono solo con `readImageDimensions`
 (`modules/product/upload/image-inspection.ts`), mai chiamando `image-size` direttamente. Quel modulo verifica
 i magic bytes JPEG/PNG prima di interpellare la libreria e disattiva nella libreria ogni altro formato: i parser
-ICNS/HEIF/JXL di image-size hanno vulnerabilità di denial of service senza correzione, e il Content-Type lo
-sceglie chi carica.
+ICNS/HEIF/JXL di image-size avevano vulnerabilità di denial of service senza correzione quando quelle difese
+sono state scritte (corrette dalla 2.0.3; il progetto è sulla 2.0.4), e il Content-Type lo sceglie chi
+carica. Le difese restano come difesa in profondità: valgono per qualunque falla futura di quei parser, e
+il progetto accetta comunque solo JPG e PNG.
 
 Il vecchio accumulatore `req.validationErrors` e la catena di middleware che lo scriveva non esistono più.
 

@@ -81,7 +81,7 @@ Do not reinvent the wheel. The project already contains:
 - Image uploads: `ProductImageUploadInterceptor` (reads the multipart body with `@fastify/multipart`),
   `ProductImageValidator` and `NewProductFormPipe` in `modules/product/upload/`; everything about the
   `uploads/` and `uploads/tmp/` folders (the project's `UploadedImage` type, archiving a validated image,
-  deleting files) is in `uploaded-files.ts`. Read image dimensions ONLY through `readImageDimensions` (`image-inspection.ts`), never by calling `image-size` directly: it has unpatched DoS vulnerabilities in parsers the magic-byte check keeps out.
+  deleting files) is in `uploaded-files.ts`. Read image dimensions ONLY through `readImageDimensions` (`image-inspection.ts`), never by calling `image-size` directly: its ICNS/HEIF/JXL parsers had unpatched DoS vulnerabilities when those defences were written (fixed in 2.0.3, the project is on 2.0.4), and the check stays as defence in depth — the API accepts only JPG and PNG anyway.
 
 ## 6. Frontend Context (Status: ON HOLD)
 The frontend is located in `/frontend` but is currently **NOT the focus**.
@@ -208,11 +208,13 @@ keep entries short, one line each)
   exposed through CORS). Page and total are two parallel queries, not a transaction: `total` may be off by one
   under concurrent writes, accepted for an admin list.
 - Image dimensions are read only through `readImageDimensions` (F4): magic-byte check for JPEG/PNG before
-  calling `image-size`, plus `disableTypes` for every other format in the library. `image-size` has unpatched
+  calling `image-size`, plus `disableTypes` for every other format in the library. `image-size` then had unpatched
   DoS vulnerabilities in its ICNS/HEIF/JXL parsers and, when the first byte does not confirm a format, its
   detector tries all 20 formats; the client-provided Content-Type cannot be trusted to keep files out of them.
   The two defences are independent on purpose. Rejected: replacing the library (larger change, and the
-  mitigation fully covers the only two formats accepted).
+  mitigation fully covers the only two formats accepted). The advisories were fixed in image-size 2.0.3 and the
+  project is on 2.0.4; the defences stay as defence in depth, since they also cover future flaws in parsers the
+  API has no reason to reach.
 - JSON body parser kept explicit after the last Express router was removed (NestJS migration F5):
   `bodyParser: false` plus `express.json()` and `json-syntax-error.middleware.ts` in `app.setup.ts`. NestJS
   registers its own parser inside `init()`, after every `app.use()`, so the translation middleware would sit

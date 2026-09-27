@@ -408,9 +408,11 @@ creare prodotti identici. Conseguenza da conoscere: due prodotti identici voluti
 creati a più di 10 secondi di distanza.
 
 > **Sicurezza (fase F4):** il tipo dell'immagine si verifica sui byte reali (magic bytes), non sul
-> Content-Type dichiarato dal client, prima di leggerne le dimensioni. La libreria usata, `image-size`, ha
-> vulnerabilità di denial of service senza correzione nei parser di altri formati (ICNS, HEIF, JXL): un file
-> di quei formati dichiarato come PNG viene rifiutato senza raggiungerli.
+> Content-Type dichiarato dal client, prima di leggerne le dimensioni. I parser di altri formati della
+> libreria usata, `image-size` (ICNS, HEIF, JXL), avevano vulnerabilità di denial of service senza
+> correzione: un file di quei formati dichiarato come PNG viene rifiutato senza raggiungerli. Gli advisory
+> sono stati corretti nella 2.0.3 e il progetto è aggiornato, ma il controllo resta come difesa in
+> profondità.
 
 ---
 
