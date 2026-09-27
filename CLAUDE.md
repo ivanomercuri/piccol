@@ -154,7 +154,16 @@ Prisma richiede un **driver adapter** esplicito (client "Rust-free"): `@prisma/a
 Il client viene generato nel `Dockerfile` e non a runtime, perché `/app/node_modules` è un volume anonimo
 inizializzato dall'immagine: un client generato a runtime sparirebbe alla prima ricreazione del volume.
 
-**Il client va però generato anche sull'host** (`npm run generate` da `backend/`), altrimenti VS Code
+**Le dipendenze vanno installate anche sull'host.** `node_modules` dentro il container è un volume Docker,
+separato da `backend/node_modules` sull'host: un `npm install` eseguito nel container non si vede
+sull'host. Il server TypeScript di VS Code però gira sull'host, quindi dopo ogni modifica alle dipendenze
+(aggiunta, rimozione, aggiornamento) va eseguito `npm ci` da `backend/` anche lì, altrimenti l'editor
+segnala errori come `Cannot find module '@nestjs/platform-fastify'` su codice che compila benissimo nel
+container. `npm ci` ricrea `node_modules` da zero, quindi subito dopo va rifatto `npm run generate` (vedi
+qui sotto). Se l'errore resta visibile dopo l'installazione, l'editor tiene in cache la risoluzione dei
+moduli: serve il comando "TypeScript: Restart TS Server".
+
+**Il client Prisma va generato anche sull'host** (`npm run generate` da `backend/`), altrimenti VS Code
 segnala `Module '"@prisma/client"' has no exported member 'PrismaClient'`: il server TypeScript
 dell'editor gira sull'host e legge `backend/node_modules`, dove `@prisma/client` è installato ma non
 generato. Va rifatto **ogni volta che si modifica `schema.prisma`**, altrimenti l'editor mostra i tipi
