@@ -12,9 +12,10 @@ import type {
   ImageError,
   ProductImageValidator,
 } from '../modules/product/upload/product-image.validator';
+import type { UploadedImage } from '../modules/product/upload/uploaded-files';
 
 describe('NewProductFormPipe', () => {
-  const image = { originalname: 'ok.png' } as Express.Multer.File;
+  const image = { originalname: 'ok.png' } as UploadedImage;
 
   const validFields = {
     name: 'Prodotto',

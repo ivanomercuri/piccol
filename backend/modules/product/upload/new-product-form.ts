@@ -7,25 +7,26 @@ import {
 } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import type { Request } from 'express';
+import type { FastifyRequest } from 'fastify';
 import {
   FieldValidationError,
   toFieldErrors,
 } from '../../../common/validation/validation-exception.factory';
 import { CreateProductDto } from '../dto/create-product.dto';
 import { ImageError, ProductImageValidator } from './product-image.validator';
-import { PRODUCT_IMAGE_FIELD } from './product-image-upload.interceptor';
+import { PRODUCT_IMAGE_FIELD, withProductForm } from './product-image-upload.interceptor';
+import type { UploadedImage } from './uploaded-files';
 
 /** Ciò che arriva dalla richiesta, prima della validazione. */
 export interface RawNewProductForm {
   fields: Record<string, unknown>;
-  images: Express.Multer.File[];
+  images: UploadedImage[];
 }
 
 /** Ciò che il controller riceve, dopo la validazione: tutto garantito. */
 export interface NewProductForm {
   fields: CreateProductDto;
-  image: Express.Multer.File;
+  image: UploadedImage;
 }
 
 /** Errori delle immagini raggruppati per file, come nel legacy. */
@@ -52,15 +53,12 @@ interface ImageFieldErrors {
  */
 export const NewProductFormData = createParamDecorator(
   (_data: unknown, context: ExecutionContext): RawNewProductForm => {
-    const request = context.switchToHttp().getRequest<Request>();
+    const request = context.switchToHttp().getRequest<FastifyRequest>();
 
-    return {
-      // Senza body (richiesta vuota o non multipart) i campi risultano tutti
-      // mancanti, invece di far esplodere la validazione su undefined.
-      fields: (request.body as Record<string, unknown> | undefined) ?? {},
-      // Cast: con multer.array() req.files è sempre un array quando esiste.
-      images: (request.files as Express.Multer.File[] | undefined) ?? [],
-    };
+    // Lo ha messo ProductImageUploadInterceptor, che gira prima. Se manca è un
+    // errore di programmazione (decoratore usato senza quell'interceptor), e il
+    // valore vuoto fa rispondere "immagine richiesta" invece di esplodere.
+    return withProductForm(request).productForm ?? { fields: {}, images: [] };
   }
 );
 

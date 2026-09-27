@@ -7,6 +7,7 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { ProductImageValidator } from '../modules/product/upload/product-image.validator';
+import type { UploadedImage } from '../modules/product/upload/uploaded-files';
 import { icnsHeader, pngHeader, VALID_PNG } from './helpers/imageFixtures';
 
 describe('ProductImageValidator', () => {
@@ -25,14 +26,14 @@ describe('ProductImageValidator', () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  // Scrive il contenuto su disco e restituisce un oggetto con la forma che
-  // multer produce per un file ricevuto. `size` è quella dichiarata da multer,
+  // Scrive il contenuto su disco e restituisce l'immagine nella forma con cui
+  // il progetto la rappresenta (UploadedImage). `size` è un dato a parte,
   // quindi si può simulare un file pesante senza scriverlo davvero.
   async function uploaded(
     name: string,
     content: Buffer,
-    overrides: Partial<Express.Multer.File> = {}
-  ): Promise<Express.Multer.File> {
+    overrides: Partial<UploadedImage> = {}
+  ): Promise<UploadedImage> {
     const filePath = path.join(directory, name);
 
     await writeFile(filePath, content);
@@ -42,9 +43,8 @@ describe('ProductImageValidator', () => {
       mimetype: 'image/png',
       size: content.length,
       path: filePath,
-      fieldname: 'image',
       ...overrides,
-    } as Express.Multer.File;
+    };
   }
 
   // Caso base: un PNG piccolo e reale non ha problemi.

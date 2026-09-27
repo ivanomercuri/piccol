@@ -6,7 +6,12 @@
 // - "risponde con err.message" diventa "un errore imprevisto non fa mai
 //   trapelare il proprio messaggio".
 // Il collegamento reale del filter all'app è verificato invece da
-// errorHandling.test.ts e nestHosting.test.ts, con richieste HTTP vere.
+// errorHandling.test.ts e appInfrastructure.test.ts, con richieste HTTP vere.
+//
+// Dalla fase F7 il filter non parla più direttamente alla risposta: passa
+// dall'adapter HTTP di NestJS, l'astrazione che gli permette di funzionare su
+// Express come su Fastify. Qui l'adapter è finto, e le asserzioni guardano che
+// cosa gli viene chiesto di inviare.
 import {
   ArgumentsHost,
   BadRequestException,
@@ -14,56 +19,71 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
+import { AbstractHttpAdapter, HttpAdapterHost } from '@nestjs/core';
 import { AllExceptionsFilter } from '../common/filters/all-exceptions.filter';
 import { WinstonLoggerService } from '../common/logger/winston-logger.service';
 
 describe('AllExceptionsFilter', () => {
   let logger: { error: jest.Mock };
   let filter: AllExceptionsFilter;
-  let request: Request;
-  let response: Response & { status: jest.Mock; json: jest.Mock };
+  let adapter: {
+    reply: jest.Mock;
+    getRequestUrl: jest.Mock;
+    getRequestMethod: jest.Mock;
+    isHeadersSent: jest.Mock;
+  };
+
+  // Oggetti opachi: il filter non legge nulla da loro, li passa all'adapter.
+  const request = { finta: 'richiesta' };
+  const response = { finta: 'risposta' };
 
   // Costruisce l'ArgumentsHost minimo che il filter usa: switchToHttp() con
   // request e response. È l'astrazione con cui NestJS passa il contesto di
   // esecuzione, indipendente dal tipo di trasporto (HTTP, WebSocket, ecc.).
-  function hostFor(req: Request, res: Response): ArgumentsHost {
+  function host(): ArgumentsHost {
     return {
-      switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
+      switchToHttp: () => ({ getRequest: () => request, getResponse: () => response }),
     } as unknown as ArgumentsHost;
+  }
+
+  // L'involucro che il filter ha chiesto di inviare, e con quale status.
+  function sent(): { status: number; body: { error: unknown; [key: string]: unknown } } {
+    const [, body, status] = adapter.reply.mock.calls[0];
+
+    return { status, body };
   }
 
   beforeEach(() => {
     logger = { error: jest.fn() };
 
-    // Il logger arriva dal costruttore: basta un oggetto finto, senza
-    // jest.mock sul modulo di Winston. È il vantaggio concreto della
-    // dipendenza esplicita.
-    filter = new AllExceptionsFilter(logger as unknown as WinstonLoggerService);
+    adapter = {
+      reply: jest.fn(),
+      getRequestUrl: jest.fn().mockReturnValue('/prodotti/42'),
+      getRequestMethod: jest.fn().mockReturnValue('GET'),
+      isHeadersSent: jest.fn().mockReturnValue(false),
+    };
 
-    request = { method: 'GET', originalUrl: '/prodotti/42' } as Request;
-
-    response = {
-      headersSent: false,
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn(),
-    } as unknown as Response & { status: jest.Mock; json: jest.Mock };
+    // Logger e adapter arrivano dal costruttore: bastano oggetti finti, senza
+    // jest.mock sui moduli. È il vantaggio concreto della dipendenza esplicita.
+    filter = new AllExceptionsFilter(logger as unknown as WinstonLoggerService, {
+      httpAdapter: adapter as unknown as AbstractHttpAdapter,
+    } as HttpAdapterHost);
   });
 
   // Il caso più comune in futuro: un controller lancia un'eccezione HTTP con
   // un messaggio pensato per il client. Status e messaggio arrivano intatti,
   // dentro l'involucro standard del progetto.
   it('risponde con status e messaggio di una HttpException, nel formato del progetto', () => {
-    filter.catch(new ForbiddenException('Non autorizzato'), hostFor(request, response));
+    filter.catch(new ForbiddenException('Non autorizzato'), host());
 
-    expect(response.status).toHaveBeenCalledWith(403);
-
-    expect(response.json).toHaveBeenCalledWith({
-      success: false,
-      status: 403,
-      data: null,
-      error: 'Non autorizzato',
-    });
+    // La risposta viene inviata tramite l'adapter, con l'oggetto risposta
+    // ricevuto dal contesto: è il punto in cui il filter resta indipendente
+    // dalla piattaforma.
+    expect(adapter.reply).toHaveBeenCalledWith(
+      response,
+      { success: false, status: 403, data: null, error: 'Non autorizzato' },
+      403
+    );
   });
 
   // Regola di sicurezza introdotta in F1. Il vecchio errorMiddleware
@@ -73,15 +93,13 @@ describe('AllExceptionsFilter', () => {
   it('per un errore imprevisto risponde 500 con un messaggio generico, senza far trapelare il dettaglio interno', () => {
     const internal = new Error('relation "users" does not exist');
 
-    filter.catch(internal, hostFor(request, response));
+    filter.catch(internal, host());
 
-    expect(response.status).toHaveBeenCalledWith(500);
+    expect(sent().status).toBe(500);
 
-    const body = response.json.mock.calls[0][0];
+    expect(sent().body.error).toBe('Qualcosa è andato storto!');
 
-    expect(body.error).toBe('Qualcosa è andato storto!');
-
-    expect(JSON.stringify(body)).not.toContain('relation');
+    expect(JSON.stringify(sent().body)).not.toContain('relation');
   });
 
   // Contropartita del test sopra: il dettaglio tolto al client deve
@@ -91,7 +109,7 @@ describe('AllExceptionsFilter', () => {
   it('logga gli errori 5xx con messaggio, stack, percorso e metodo', () => {
     const internal = new Error('connessione rifiutata');
 
-    filter.catch(internal, hostFor(request, response));
+    filter.catch(internal, host());
 
     expect(logger.error).toHaveBeenCalledWith('Errore:', {
       message: 'connessione rifiutata',
@@ -106,7 +124,7 @@ describe('AllExceptionsFilter', () => {
   // veri. Stessa politica che aveva res.error, che loggava solo nei rami
   // catch.
   it('non logga gli errori 4xx', () => {
-    filter.catch(new BadRequestException('Email non valida'), hostFor(request, response));
+    filter.catch(new BadRequestException('Email non valida'), host());
 
     expect(logger.error).not.toHaveBeenCalled();
   });
@@ -115,9 +133,9 @@ describe('AllExceptionsFilter', () => {
   // produrre un 500 pulito e un log leggibile, non far esplodere il filter
   // leggendo .message su una stringa.
   it('gestisce anche un valore lanciato che non è un Error', () => {
-    filter.catch('qualcosa di strano', hostFor(request, response));
+    filter.catch('qualcosa di strano', host());
 
-    expect(response.status).toHaveBeenCalledWith(500);
+    expect(sent().status).toBe(500);
 
     expect(logger.error).toHaveBeenCalledWith(
       'Errore:',
@@ -131,11 +149,11 @@ describe('AllExceptionsFilter', () => {
   it('traduce il 404 di "rotta inesistente" di NestJS in "Non trovato"', () => {
     const unmatched = new NotFoundException('Cannot GET /prodotti/42');
 
-    filter.catch(unmatched, hostFor(request, response));
+    filter.catch(unmatched, host());
 
-    expect(response.status).toHaveBeenCalledWith(404);
+    expect(sent().status).toBe(404);
 
-    expect(response.json.mock.calls[0][0].error).toBe('Non trovato');
+    expect(sent().body.error).toBe('Non trovato');
   });
 
   // Il riconoscimento di sopra non deve inghiottire le 404 lanciate di
@@ -143,9 +161,9 @@ describe('AllExceptionsFilter', () => {
   // al client e va conservata. È il motivo per cui il confronto è sul
   // messaggio esatto, URL compreso, e non su "qualunque NotFoundException".
   it('conserva il messaggio di una NotFoundException lanciata da un controller', () => {
-    filter.catch(new NotFoundException('Prodotto non trovato'), hostFor(request, response));
+    filter.catch(new NotFoundException('Prodotto non trovato'), host());
 
-    expect(response.json.mock.calls[0][0].error).toBe('Prodotto non trovato');
+    expect(sent().body.error).toBe('Prodotto non trovato');
   });
 
   // Le eccezioni costruite con un oggetto (come quelle della ValidationPipe
@@ -155,9 +173,9 @@ describe('AllExceptionsFilter', () => {
   it('estrae `message` da una risposta a oggetto, anche quando è un array', () => {
     const exception = new BadRequestException(['name è richiesto', 'email è richiesta']);
 
-    filter.catch(exception, hostFor(request, response));
+    filter.catch(exception, host());
 
-    expect(response.json.mock.calls[0][0].error).toEqual([
+    expect(sent().body.error).toEqual([
       'name è richiesto',
       'email è richiesta',
     ]);
@@ -169,12 +187,10 @@ describe('AllExceptionsFilter', () => {
   it('conserva il messaggio di una HttpException 5xx lanciata di proposito, e la logga', () => {
     filter.catch(
       new ServiceUnavailableException('Pagamenti momentaneamente non disponibili'),
-      hostFor(request, response)
+      host()
     );
 
-    expect(response.json.mock.calls[0][0].error).toBe(
-      'Pagamenti momentaneamente non disponibili'
-    );
+    expect(sent().body.error).toBe('Pagamenti momentaneamente non disponibili');
 
     expect(logger.error).toHaveBeenCalled();
   });
@@ -183,13 +199,11 @@ describe('AllExceptionsFilter', () => {
   // headers after they are sent" DENTRO il gestore degli errori. Il filter
   // deve limitarsi a loggare (se grave) e fermarsi.
   it('non tenta un secondo invio se la risposta è già partita', () => {
-    Object.assign(response, { headersSent: true });
+    adapter.isHeadersSent.mockReturnValue(true);
 
-    filter.catch(new Error('dopo l\'invio'), hostFor(request, response));
+    filter.catch(new Error('dopo l\'invio'), host());
 
-    expect(response.status).not.toHaveBeenCalled();
-
-    expect(response.json).not.toHaveBeenCalled();
+    expect(adapter.reply).not.toHaveBeenCalled();
 
     expect(logger.error).toHaveBeenCalled();
   });

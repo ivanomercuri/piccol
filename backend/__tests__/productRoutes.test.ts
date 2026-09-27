@@ -169,18 +169,36 @@ describe('Product routes', () => {
       expect(res.status).toBe(401);
     });
 
-    it('should return 400 with a grouped image error when no file and no fields are sent', async () => {
+    // COMPORTAMENTO CAMBIATO NELLA FASE F7 (passaggio a Fastify): una richiesta
+    // senza corpo, e quindi senza un Content-Type multipart, resta un 400 ma con
+    // il messaggio unico del caricamento non valido, invece dell'array
+    // raggruppato con "immagine richiesta". Fastify segnala che il corpo non è
+    // multipart, e l'interceptor traduce quell'errore come errore del client;
+    // multer invece tollerava il corpo assente e lasciava rispondere la
+    // validazione.
+    it('risponde 400 a una richiesta senza corpo multipart', async () => {
       const res = await request(testApp.http)
         .post('/products/new')
         .set('Authorization', `Bearer ${adminA.token}`);
 
       expect(res.status).toBe(400);
 
+      expect(res.body.error).toBe("Richiesta di caricamento dell'immagine non valida");
+    });
+
+    // Con un corpo multipart vuoto invece si arriva alla validazione, che
+    // segnala l'immagine mancante nella forma raggruppata di sempre.
+    it('should return 400 with a grouped image error when no file and no fields are sent', async () => {
+      const res = await request(testApp.http)
+        .post('/products/new')
+        .set('Authorization', `Bearer ${adminA.token}`)
+        .field('vuoto', '');
+
+      expect(res.status).toBe(400);
+
       expect(Array.isArray(res.body.error)).toBe(true);
 
-      const imageError = res.body.error.find(
-        (e: { id: string }) => e.id === 'image'
-      );
+      const imageError = res.body.error.find((e: { id: string }) => e.id === 'image');
 
       expect(imageError).toBeDefined();
     });
@@ -508,6 +526,10 @@ describe('Product routes', () => {
 
       const product = res.body.data;
 
+      // Annotato subito, prima delle asserzioni: se una di loro fallisce, il
+      // file va comunque ripulito a fine file.
+      const imageFile = trackUploadedFile(product.images[0].image_url);
+
       expect(product).toEqual(
         expect.objectContaining({
           id: expect.any(Number),
@@ -522,9 +544,12 @@ describe('Product routes', () => {
 
       expect(product.images).toHaveLength(1);
 
-      expect(product.images[0].image_url).toMatch(/^\/uploads\/[0-9a-f]{32}$/);
+      // Nome casuale più l'estensione decisa dal tipo REALE del file (fase F7),
+      // non da quella dichiarata dal client: serve a un'eventuale rotta che
+      // serva queste immagini.
+      expect(product.images[0].image_url).toMatch(/^\/uploads\/[0-9a-f]+\.png$/);
 
-      expect(fs.existsSync(trackUploadedFile(product.images[0].image_url))).toBe(true);
+      expect(fs.existsSync(imageFile)).toBe(true);
 
       const saved = await prisma.product.findUnique({
         where: { id: product.id },

@@ -1,7 +1,11 @@
-import express from 'express';
 import type { NestApplicationOptions } from '@nestjs/common';
-import type { NestExpressApplication } from '@nestjs/platform-express';
-import { jsonSyntaxErrorMiddleware } from './common/middleware/json-syntax-error.middleware';
+import { ConfigService } from '@nestjs/config';
+import multipart from '@fastify/multipart';
+import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import { mkdir } from 'fs/promises';
+import { registerJsonContentTypeParser } from './common/middleware/json-content-type-parser';
+import { megabytesToBytes } from './modules/product/upload/product-image.validator';
+import { TEMP_UPLOADS_DIR } from './modules/product/upload/uploaded-files';
 
 /**
  * Punto unico in cui si configura l'app NestJS, usato sia da main.ts sia dai
@@ -9,7 +13,7 @@ import { jsonSyntaxErrorMiddleware } from './common/middleware/json-syntax-error
  *
  * PERCHÉ UN FILE CONDIVISO
  * È un errore classico dei progetti NestJS: main.ts configura l'app (pipe,
- * middleware, CORS) e i test costruiscono la loro app senza quella
+ * plugin, CORS) e i test costruiscono la loro app senza quella
  * configurazione, quindi verificano un'applicazione diversa da quella che
  * gira davvero. Con una sola funzione chiamata da entrambi, i test
  * attraversano esattamente la stessa catena della produzione.
@@ -18,61 +22,52 @@ import { jsonSyntaxErrorMiddleware } from './common/middleware/json-syntax-error
 /**
  * Opzioni di creazione dell'app.
  *
- * `bodyParser: false`: il parser JSON di NestJS resta disattivato anche ora
- * che i router Express legacy non esistono più (fase F5 della migrazione).
- * Il motivo originale era proprio quei router; quello che resta è il
- * messaggio "errore json: ..." del contratto API (docs/API.md).
- *
- * NestJS registra il proprio parser dentro init(), cioè DOPO tutti gli
- * app.use() di configureApp — l'ordine di init() è: body parser, moduli,
- * rotte NestJS, gestori 404/errori (verificato in
- * @nestjs/core/nest-application.js). Express fa avanzare un errore solo
- * verso i middleware registrati dopo quello che l'ha generato: con il parser
- * di NestJS, jsonSyntaxErrorMiddleware starebbe PRIMA del parser e non ne
- * vedrebbe mai gli errori. E non si può nemmeno registrarlo dopo init(),
- * perché finirebbe dietro al gestore 404, che risponde a tutto. A valle resta
- * solo il gestore di NestJS, che converte il SyntaxError in una
- * BadRequestException perdendo l'errore originale (vedi il commento in
- * json-syntax-error.middleware.ts).
- *
- * Effetto collaterale voluto: il parser di NestJS attiverebbe anche
- * express.urlencoded, cioè i body `application/x-www-form-urlencoded`, che
- * l'API oggi non accetta. Tenendo il parser esplicito, il contratto non si
- * allarga in silenzio.
- *
- * Trappola verificata: impostando `true` SENZA togliere express.json() da
- * configureApp, il JSON malformato continua a funzionare, perché NestJS salta
- * il proprio parser JSON se ne trova già montato uno con lo stesso nome di
- * funzione (isMiddlewareApplied in express-adapter.js); ma aggiunge comunque
- * quello urlencoded. È ciò che rileva il test "non legge i body
- * application/x-www-form-urlencoded" in __tests__/errorHandling.test.ts.
+ * `bodyParser: false` disattiva il parser JSON che NestJS registrerebbe da sé.
+ * Il progetto ne installa uno proprio (json-content-type-parser.ts) per
+ * conservare il messaggio "errore json: ..." del contratto API; con entrambi,
+ * Fastify rifiuta l'avvio perché un tipo di contenuto può avere un solo parser
+ * ("Content type parser 'application/json' already present", verificato).
  */
 export const NEST_APP_OPTIONS: NestApplicationOptions = { bodyParser: false };
 
 /**
- * Applica all'app i middleware Express che devono precedere le rotte.
+ * Configura l'istanza Fastify che sta sotto l'app NestJS: CORS, parser JSON e
+ * lettura dei body multipart.
  *
- * Va chiamata PRIMA di app.init() (o di app.listen(), che lo esegue): tutto
- * ciò che si registra qui con app.use() finisce sull'istanza Express nel
- * momento stesso della chiamata, quindi prima delle rotte NestJS e dei loro
- * gestori 404/errori, che init() aggiunge in coda. L'ordine risultante è:
+ * VA CHIAMATA PRIMA DI app.init() (o di app.listen(), che lo esegue), ed è
+ * asincrona perché `register` di Fastify lo è: un plugin registrato dopo
+ * l'avvio verrebbe rifiutato ("Fastify instance is already listening").
  *
- *   CORS → express.json() → traduzione errori JSON
- *   → rotte NestJS → 404 NestJS → gestore errori NestJS
- *
- * Fino alla fase F4 questa funzione montava anche i router Express non
- * ancora migrati e il middleware responseFormatter (res.success/res.error)
- * che usavano. Sono spariti in F5 con l'ultima rotta legacy, GET /routes
- * (decisione D8 in docs/MIGRAZIONE-NESTJS.md).
+ * DALLA FASE F7 NON CI SONO PIÙ MIDDLEWARE
+ * Fino a F6 questa funzione montava, nell'ordine, responseFormatter (fino a
+ * F5), CORS, express.json() e la traduzione degli errori JSON, perché l'app
+ * girava sull'adapter Express. Con Fastify le stesse tre esigenze si
+ * soddisfano con configurazione dell'istanza e plugin: nessun `app.use`.
  */
-export function configureApp(app: NestExpressApplication): void {
+export async function configureApp(app: NestFastifyApplication): Promise<void> {
   // Stesso comportamento del vecchio app.use(cors()): nessuna opzione, quindi
-  // tutte le origini ammesse.
+  // tutte le origini ammesse. enableCors è API di NestJS e vale su qualunque
+  // piattaforma: sotto usa @fastify/cors invece del pacchetto cors.
   app.enableCors();
 
-  app.use(express.json());
+  const fastify = app.getHttpAdapter().getInstance();
 
-  // Subito dopo il parser, perché intercetti solo gli errori del parser:
-  // vedi il commento in json-syntax-error.middleware.ts.
-  app.use(jsonSyntaxErrorMiddleware);
+  registerJsonContentTypeParser(fastify);
+
+  // Lettura dei body multipart (l'upload delle immagini dei prodotti). Il
+  // limite è quello hard: oltre quel peso la richiesta viene interrotta mentre
+  // arriva, senza che il file venga scritto per intero.
+  //
+  // Il limite arriva da ConfigService, quindi già validato come intero da
+  // config/env.validation.ts: il container esiste, perché questa funzione gira
+  // dopo NestFactory.create.
+  const hardLimitMegabytes = app.get(ConfigService).getOrThrow<number>('MAX_FILE_HARD_SIZE');
+
+  await app.register(multipart, {
+    limits: { fileSize: megabytesToBytes(hardLimitMegabytes) },
+  });
+
+  // La cartella dei file temporanei dell'upload: @fastify/multipart ci scrive
+  // dentro ma non la crea (verificato nel sorgente del plugin).
+  await mkdir(TEMP_UPLOADS_DIR, { recursive: true });
 }

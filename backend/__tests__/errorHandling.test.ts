@@ -74,25 +74,27 @@ describe('Gestione errori a livello di app', () => {
       expect(Array.isArray(res.body.error)).toBe(true);
     });
 
-    // Presidio della scelta di tenere disattivato il parser di NestJS
-    // (commento di NEST_APP_OPTIONS in app.setup.ts). Quel parser attiverebbe
-    // anche express.urlencoded: un body di form verrebbe letto, e il login
-    // arriverebbe al service. Con il solo express.json() il body di form
-    // resta vuoto e la richiesta si ferma alla validazione, come ha sempre
-    // fatto. Se qualcuno riattivasse il parser di NestJS, il contratto si
-    // allargherebbe in silenzio: questo test lo renderebbe visibile.
+    // Presidio della scelta di tenere disattivato il parser di NestJS (commento
+    // di NEST_APP_OPTIONS in app.setup.ts): l'app registra solo il proprio
+    // parser JSON, quindi un body di form non ha chi lo legga.
+    //
+    // COMPORTAMENTO CAMBIATO NELLA FASE F7: la risposta è 415 "Tipo di contenuto
+    // non supportato" invece del 400 con gli errori di validazione. Fastify
+    // rifiuta un tipo di contenuto senza parser prima di eseguire la rotta,
+    // mentre Express lasciava il body vuoto e la richiesta arrivava alla
+    // validazione. Il 415 dice al client qual è davvero il problema.
+    //
+    // Se qualcuno attivasse il parser di NestJS (che include i body di form), il
+    // contratto si allargherebbe in silenzio: questo test lo renderebbe visibile.
     it('non legge i body application/x-www-form-urlencoded', async () => {
       const res = await request(testApp.http)
         .post('/admin/user/login')
         .type('form')
         .send({ email: 'qualcuno@example.com', password: 'password' });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(415);
 
-      expect(res.body.error).toEqual([
-        { id: 'email', message: expect.any(String) },
-        { id: 'password', message: expect.any(String) },
-      ]);
+      expect(res.body.error).toBe('Tipo di contenuto non supportato');
     });
   });
 

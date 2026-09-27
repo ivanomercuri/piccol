@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { readFile } from 'fs/promises';
 import { maxHeight, maxWidth } from '../../../config/imageConfig';
 import { readImageDimensions } from './image-inspection';
+import type { UploadedImage } from './uploaded-files';
 
 /**
  * Chiave usata per gli errori che riguardano l'insieme delle immagini e non
@@ -40,7 +41,7 @@ export class ProductImageValidator {
     this.maxSizeMb = config.getOrThrow<number>('MAX_FILE_SIZE');
   }
 
-  async validate(images: Express.Multer.File[]): Promise<ImageError[]> {
+  async validate(images: UploadedImage[]): Promise<ImageError[]> {
     if (images.length === 0) {
       return [{ filename: GENERAL_IMAGE_ERROR_KEY, message: "L'immagine del prodotto è richiesta" }];
     }
@@ -72,7 +73,7 @@ export class ProductImageValidator {
    * dal più economico al più costoso, così un file già scartato non viene
    * letto dal disco.
    */
-  private async problemWith(image: Express.Multer.File): Promise<string | undefined> {
+  private async problemWith(image: UploadedImage): Promise<string | undefined> {
     if (!ALLOWED_MIME_TYPES.includes(image.mimetype)) {
       return `Il file ${image.originalname} non è un'immagine JPG o PNG`;
     }

@@ -3,7 +3,7 @@ import { Prisma, PrismaClient, Product, User } from '@prisma/client';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
 import { toQuantity } from './dto/product-field-rules';
 import type { NewProductForm } from './upload/new-product-form';
-import { discardUploadedFiles, publicUrlOf } from './upload/uploaded-files';
+import { discardUploadedFiles, storeUploadedImage, StoredImage } from './upload/uploaded-files';
 
 /** Una pagina di prodotti, con i dati per chiedere le altre. */
 export interface ProductPage {
@@ -110,13 +110,24 @@ export class ProductService {
    * viene da PHP: è `$em->wrapInTransaction(function () { ... })` di Doctrine.
    *
    * IL FILE SU DISCO NON È NELLA TRANSAZIONE, E NON SERVE CHE CI SIA
-   * - Se la transazione fallisce, l'eccezione risale attraverso
-   *   ProductImageUploadInterceptor, che cancella il file (fase F4).
-   * - Se la richiesta è un doppione, la risposta è un successo e l'interceptor
-   *   non interviene: il file che questa richiesta ha caricato non verrà mai
-   *   referenziato, e lo cancella il service, DOPO il commit.
+   * L'immagine viene archiviata (spostata dalla cartella temporanea a uploads/)
+   * PRIMA della transazione, e ogni esito successivo è coperto:
+   * - transazione fallita: l'eccezione risale attraverso
+   *   ProductImageUploadInterceptor, che cancella il file archiviato;
+   * - richiesta duplicata: la risposta è un successo, quindi l'interceptor non
+   *   interviene, e il file lo cancella il service dopo il commit — nessun
+   *   prodotto lo referenzierà mai.
+   * L'ordine non è invertibile: archiviare DOPO il commit lascerebbe, in caso di
+   * errore dello spostamento, una riga che punta a un file inesistente. Un file
+   * orfano si cancella, una riga che punta al vuoto no.
    */
   async create(user: User, form: NewProductForm): Promise<ProductWithImages> {
+    const image = await storeUploadedImage(form.image);
+
+    // Da qui in poi il file da cancellare in caso di errore è quello
+    // archiviato, non più quello temporaneo.
+    form.image.path = image.path;
+
     const { product, isDuplicate } = await this.prisma.$transaction(async (tx) => {
       await lockProductCreationFor(tx, user.id);
 
@@ -126,11 +137,11 @@ export class ProductService {
         return { product: duplicate, isDuplicate: true };
       }
 
-      return { product: await insertProduct(tx, user, form), isDuplicate: false };
+      return { product: await insertProduct(tx, user, form, image), isDuplicate: false };
     });
 
     if (isDuplicate) {
-      await discardUploadedFiles([form.image], this.logger);
+      await discardUploadedFiles([image.path], this.logger);
     }
 
     return product;
@@ -246,7 +257,8 @@ function findRecentDuplicate(
 function insertProduct(
   tx: Prisma.TransactionClient,
   user: User,
-  form: NewProductForm
+  form: NewProductForm,
+  image: StoredImage
 ): Promise<ProductWithImages> {
   const { name, description, price, quantity } = form.fields;
 
@@ -257,7 +269,7 @@ function insertProduct(
       price,
       quantity: toQuantity(quantity),
       createdBy: user.id,
-      images: { create: [{ image_url: publicUrlOf(form.image), sort_order: 0 }] },
+      images: { create: [{ image_url: image.url, sort_order: 0 }] },
     },
     include: { images: true },
   });

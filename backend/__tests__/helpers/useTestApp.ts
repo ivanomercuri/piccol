@@ -1,6 +1,6 @@
 import type { Server } from 'http';
 import type { INestApplication, Type } from '@nestjs/common';
-import type { NestExpressApplication } from '@nestjs/platform-express';
+import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../app.module';
 import { NEST_APP_OPTIONS, configureApp } from '../../app.setup';
@@ -132,7 +132,8 @@ async function createTestApp(
     controllers: options.controllers ?? [],
   }).compile();
 
-  const app = moduleRef.createNestApplication<NestExpressApplication>({
+  // Stesso adapter di main.ts: dalla fase F7 la piattaforma è Fastify.
+  const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter(), {
     ...NEST_APP_OPTIONS,
     // Niente log del framework nei test (ogni rotta registrata stamperebbe
     // una riga a ogni avvio dell'app, cioè per ogni file di test). Gli
@@ -141,9 +142,16 @@ async function createTestApp(
     logger: false,
   });
 
-  configureApp(app);
+  await configureApp(app);
 
   await app.init();
+
+  // PERCHÉ ready() SERVE CON FASTIFY, E CON EXPRESS NO
+  // Fastify costruisce le proprie rotte e i plugin in modo asincrono: finché
+  // `ready()` non si risolve, il server non risponde e supertest riceverebbe
+  // errori di connessione. init() di NestJS non lo comprende, quindi va
+  // chiamato qui. Express invece è sincrono e non ha un equivalente.
+  await app.getHttpAdapter().getInstance().ready();
 
   return app;
 }

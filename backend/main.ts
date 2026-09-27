@@ -22,7 +22,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import type { NestExpressApplication } from '@nestjs/platform-express';
+import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import winstonLogger from './config/logger';
 import { AppModule } from './app.module';
 import { NEST_APP_OPTIONS, configureApp } from './app.setup';
@@ -33,7 +33,10 @@ import { WinstonLoggerService } from './common/logger/winston-logger.service';
  * Express) e server.ts (che la metteva in ascolto).
  */
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+  // FastifyAdapter: dalla fase F7 la piattaforma HTTP è Fastify, non più
+  // Express (obiettivo "zero Express"). NestJS non è un server: delega a una
+  // piattaforma, e questo è il punto in cui si sceglie quale.
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
     ...NEST_APP_OPTIONS,
     // I log prodotti durante la costruzione dell'app vengono trattenuti
     // finché useLogger() non registra l'adapter Winston, invece di finire sul
@@ -49,14 +52,17 @@ async function bootstrap(): Promise<void> {
   // una chiamata esplicita ad app.close().
   app.enableShutdownHooks();
 
-  configureApp(app);
+  await configureApp(app);
 
   // PORT è già stata validata e convertita in numero da validateEnvironment:
   // getOrThrow resta come difesa esplicita, e comunica a chi legge che qui
   // un valore mancante non è un'eventualità prevista.
   const port = app.get(ConfigService).getOrThrow<number>('PORT');
 
-  await app.listen(port);
+  // '0.0.0.0' è necessario con Fastify: il suo default è 127.0.0.1, che dentro
+  // un container non è raggiungibile dall'esterno. Express ascoltava su tutte
+  // le interfacce per default, quindi fino a F6 non serviva dirlo.
+  await app.listen(port, '0.0.0.0');
 }
 
 // Un errore di avvio (configurazione non valida, porta occupata) deve

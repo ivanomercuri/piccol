@@ -64,7 +64,7 @@ services:
     build: ./backend
     # Nome dell'immagine esplicito e CONDIVISO con test_backend (vedi lì).
     image: piccol-backend
-    container_name: express-backend
+    container_name: piccol-backend
     user: "1000:1000"
     ports:
       # Lato host (sinistra) e porta interna dell'app (destra) configurabili

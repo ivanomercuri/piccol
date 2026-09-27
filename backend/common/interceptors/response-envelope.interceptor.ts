@@ -5,7 +5,6 @@ import {
   NestInterceptor,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Response } from 'express';
 import { Observable, map } from 'rxjs';
 import { RESPONSE_MESSAGE_KEY } from '../decorators/response-message.decorator';
 
@@ -56,7 +55,10 @@ export class ResponseEnvelopeInterceptor<T>
     context: ExecutionContext,
     next: CallHandler<T>
   ): Observable<SuccessEnvelope<T>> {
-    const response = context.switchToHttp().getResponse<Response>();
+    // Tipo strutturale invece di quello della piattaforma: l'unica cosa che
+    // serve è lo status già impostato sulla risposta, e si chiama `statusCode`
+    // sia sulla Response di Express sia sulla reply di Fastify.
+    const response = context.switchToHttp().getResponse<{ statusCode: number }>();
 
     // context.getHandler() è il metodo del controller che sta per essere
     // eseguito: il messaggio si legge dai SUOI metadati. Le rotte senza
