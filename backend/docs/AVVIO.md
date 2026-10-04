@@ -22,67 +22,86 @@ il contratto delle API, vedi [API.md](API.md); se cerchi la storia delle scelte,
 | `npm run build` + `npm start` | Compila una volta ed esegue `node dist/main`, senza watch né debugger. |
 | I test | **Non usano `main.ts`.** `__tests__/helpers/useTestApp.ts` costruisce l'app con lo stesso `AppModule` e la stessa `configureApp`, ma senza `listen()`. È il motivo per cui quella funzione esiste separata: vedi §7. |
 
-Il fatto che giri da `dist/` ha una conseguenza pratica che ritorna subito, alla riga 21:
-i percorsi relativi non partono da `backend/`, partono da `backend/dist/`.
+Il fatto che giri da `dist/` ha una conseguenza pratica: i percorsi relativi calcolati con
+`__dirname` non partono da `backend/`, partono da `backend/dist/`. Vale per il percorso del
+file `.env` in `app.module.ts` (§2).
 
 ---
 
-## 2. Le prime due righe, e perché l'ordine è tutto
+## 2. La configurazione: chi legge `.env`, e quando
+
+**In main.ts non c'è.** Il file comincia direttamente con gli import, ed è il risultato di
+un refactor (fase F8) che vale la pena raccontare, perché prima era il contrario ed è il
+tipo di vincolo invisibile che si paga a lungo.
+
+### 2.1 Com'era, e perché era fragile
+
+Fino alla fase F7 la prima istruzione del file era:
 
 ```ts
-import dotenv from 'dotenv';
-import path from 'path';
-
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });   // PRIMA di ogni import
 ```
 
-### 2.1 Perché il caricamento di `.env` è la PRIMA istruzione del file
+Doveva stare lì, e non altrove, per una ragione meccanica. Quando TypeScript compila in
+CommonJS, ogni `import` diventa una `require()`, e quelle `require()` vengono eseguite
+**nell'ordine in cui gli import compaiono nel sorgente**, intervallate dalle istruzioni
+scritte fra loro. Importare `app.module.ts` significava importare `PrismaModule`, che
+importava `prisma/client.ts`, che **al momento dell'import** componeva la stringa di
+connessione leggendo `process.env` — e lanciava se una variabile mancava.
 
-Non è una preferenza stilistica: è un vincolo.
+Quindi: spostare quella riga di tre posizioni più in basso faceva morire l'applicazione
+all'avvio. Il funzionamento dipendeva dall'**ordine delle righe**, cioè da una cosa che
+nessun tipo e nessun test avrebbero protetto.
 
-Quando TypeScript compila in CommonJS, ogni `import` diventa una `require()`, e quelle
-`require()` vengono emesse **nello stesso ordine in cui gli import compaiono nel
-sorgente**, intervallate dalle istruzioni scritte fra loro. Mettendo `dotenv.config()`
-prima degli import dell'applicazione, si ottiene questo ordine di esecuzione reale:
+### 2.2 Com'è adesso
 
-1. `require('dotenv')`, `require('path')`;
-2. **`dotenv.config(...)`** — le variabili finiscono in `process.env`;
-3. `require('./app.module')` e tutto ciò che quel file trascina con sé.
-
-Il punto 3 non è innocuo. Importare `app.module.ts` significa importare `PrismaModule`,
-che importa `prisma/client.ts`, che **al momento dell'import** costruisce il client:
+`ConfigModule` (in `app.module.ts`) fa entrambe le cose: **carica** il file `.env` e
+**valida** l'ambiente contro il contratto di `config/env.validation.ts`.
 
 ```ts
-const adapter = new PrismaPg({ connectionString: buildDatabaseUrl() });
+ConfigModule.forRoot({
+  isGlobal: true,
+  envFilePath: path.resolve(__dirname, '..', '..', '.env'),
+  validate: validateEnvironment,
+}),
 ```
 
-`buildDatabaseUrl()` (in `config/databaseUrl.ts`) legge `DB_USER`, `DB_ROOT_PASSWORD`,
-`DB_HOST` e `DB_NAME` e **lancia un errore se una manca**. Se `.env` non fosse ancora
-stato caricato, l'app morirebbe durante gli import, con un errore sulle variabili del
-database, prima ancora di arrivare a `bootstrap()`.
+Il client Prisma non si costruisce più all'import: lo costruisce `PrismaModule` con una
+factory che riceve `ConfigService` (§4.1). Non è più una convenzione da ricordare, è il
+**grafo delle dipendenze** a imporre l'ordine: il client non può esistere prima di chi gli
+fornisce la configurazione.
 
-> **Nota onesta.** `config/databaseUrl.ts` chiama a sua volta `dotenv.config()`, quindi in
-> pratica funzionerebbe anche senza la riga 21. Ma quel caricamento esiste per un'altra
-> ragione (serve alla CLI di Prisma, che esegue `prisma.config.ts` fuori dal ciclo di vita
-> dell'app), ed è un **effetto collaterale nascosto dentro un altro modulo**: l'avvio
-> dell'applicazione non deve dipendere da qualcosa che un giorno potrebbe essere spostato
-> o rimosso. La riga 21 rende la dipendenza esplicita, che è la regola del progetto.
+Il guadagno visibile: una variabile mancante produce ora l'elenco completo della
+validazione (verificato avviando l'app senza `DB_USER`) —
 
-### 2.2 Il percorso `../../.env`
+    Missing or invalid environment variables in .env: DB_USER (DB_USER should not be empty)
 
-`__dirname` a runtime è `backend/dist`. Risalendo di due livelli si arriva alla radice del
-repository, dove `.env` vive accanto a `docker-compose.yml`. La posizione è deliberata:
-**un unico file letto da due mondi**, Docker Compose (che lo interpola nel YAML e lo inietta
-nei container con `env_file`) e l'app Node.
+— invece del primo errore incontrato durante gli import.
 
-### 2.3 Dentro Docker quel file non esiste, e va bene così
+### 2.3 Il percorso, e perché dentro Docker non esiste
 
-Nel container è montata solo `backend/`, quindi `/app/../../.env` non esiste e dotenv non
-trova niente. Nessun problema: le variabili sono già in `process.env`, iniettate da
-`env_file`. E dotenv **non sovrascrive mai** una variabile già presente, quindi anche
-quando entrambe le strade funzionano (esecuzione diretta sull'host) non c'è conflitto.
+`__dirname` a runtime è `backend/dist`: due livelli sopra c'è la radice del repository,
+dove `.env` vive accanto a `docker-compose.yml`. La posizione del file è deliberata: **un
+unico file letto da due mondi**, Docker Compose (che lo interpola nel YAML e lo inietta nei
+container con `env_file`) e l'applicazione Node.
 
-La riga 21 è quindi una rete di sicurezza per chi esegue l'app fuori da Docker.
+Nel container è montata solo `backend/`, quindi quel percorso non esiste. Nessun problema,
+ed è verificato nel sorgente di `@nestjs/config`:
+
+- i percorsi inesistenti vengono **saltati** (`fs.existsSync`), senza errori;
+- le variabili **già presenti** nell'ambiente non vengono sovrascritte: assegna solo le
+  chiavi che non ci sono. Quindi ciò che arriva da `env_file` vince sempre sul file.
+
+### 2.4 Chi carica ancora `.env` da sé, e perché
+
+Chi gira **fuori** dal container di NestJS, e quindi non ha un `ConfigModule`:
+`prisma.config.ts` (eseguito dalla CLI di Prisma per `migrate`, `db push`, `generate`) e
+`prisma/client.ts` (usato dai seed e dai test dei modelli). Entrambi chiamano
+`loadEnvFile()` di `config/loadEnvFile.ts` in modo esplicito.
+
+Prima quel caricamento era nascosto dentro `config/databaseUrl.ts`, che lo faceva
+all'import: comodo, ma di nuovo un effetto collaterale invisibile in un modulo di
+libreria. Ora è una chiamata che si vede.
 
 ---
 
@@ -103,9 +122,9 @@ Un import non è mai "gratis": esegue il modulo. Al termine di questo blocco, **
 
 - **il logger Winston esiste** (`config/logger.ts` crea l'istanza al volo con i suoi tre
   trasporti: console, `logs/error.log`, `logs/combined.log`);
-- **il client Prisma esiste**, con la stringa di connessione già composta (vedi §2.1). La
-  connessione vera al database però non è ancora stata aperta: Prisma la apre alla prima
-  query;
+- **il client Prisma NON esiste ancora** (dalla fase F8): lo costruisce il container più
+  tardi, in `NestFactory.create`. Fino a F7 invece nasceva proprio qui, all'import, ed era
+  la ragione del vincolo descritto in §2.1;
 - **i decoratori sono stati eseguiti.** `@Module`, `@Injectable`, `@Controller` sono
   funzioni: caricare `app.module.ts` le esegue tutte, e ognuna attacca metadati alle
   classi. Il "grafo" dell'applicazione a questo punto è solo una raccolta di metadati:
@@ -138,7 +157,10 @@ Tre argomenti, tre decisioni distinte.
    il contratto di `.env`** (`config/env.validation.ts`). Un solo errore che elenca tutte
    le variabili mancanti o non valide;
 3. **istanzia i provider**: service, filter, interceptor, pipe, guard globali. È il momento
-   in cui la dependency injection risolve i costruttori.
+   in cui la dependency injection risolve i costruttori — e in cui nasce il **client
+   Prisma**, costruito da `PrismaModule` con una factory che riceve `ConfigService`. Per
+   questo l'ordine fra configurazione e database non è più affidato all'ordine degli
+   import: il client dipende da `ConfigService`, quindi non può essere costruito prima.
 
 Se qualcosa non torna — una variabile d'ambiente non valida, un provider che NestJS non sa
 risolvere — l'errore nasce **qui**, e l'app non parte affatto. È la garanzia "fail fast"
@@ -310,19 +332,20 @@ Tre dettagli deliberati:
 ## 6. La sequenza completa, in ordine
 
 1. Node carica `dist/main.js`.
-2. `dotenv` legge `.env` (fuori da Docker) e riempie `process.env`.
-3. Gli import eseguono i moduli: nasce il logger Winston, nasce il client Prisma (senza
-   connettersi), i decoratori registrano i metadati.
-4. `NestFactory.create`: albero dei moduli → **validazione di `.env`** → costruzione di
-   tutti i provider. Se qualcosa manca, si ferma qui.
-5. `useLogger`: da qui in poi i log del framework passano a Winston (quelli trattenuti
-   restano in attesa fino al passo 9).
-6. `enableShutdownHooks`: i segnali di sistema diventano hook del ciclo di vita.
-7. `configureApp`: CORS, parser JSON del progetto, plugin multipart, cartella temporanea.
-8. Lettura di `PORT` dalla configurazione validata.
-9. `listen`: rotte registrate, 404 e gestore errori in coda, server in ascolto su tutte le
+2. Gli import eseguono i moduli: nasce il logger Winston e i decoratori registrano i
+   metadati. Nessuna lettura della configurazione.
+3. `NestFactory.create`: albero dei moduli → **ConfigModule carica `.env` e valida
+   l'ambiente** → costruzione di tutti i provider, fra cui il client Prisma (che non si
+   connette ancora: Prisma apre la connessione alla prima query). Se qualcosa manca, si
+   ferma qui, elencando tutto.
+4. `useLogger`: da qui in poi i log del framework passano a Winston (quelli trattenuti
+   restano in attesa fino al passo 8).
+5. `enableShutdownHooks`: i segnali di sistema diventano hook del ciclo di vita.
+6. `configureApp`: CORS, parser JSON del progetto, plugin multipart, cartella temporanea.
+7. Lettura di `PORT` dalla configurazione validata.
+8. `listen`: rotte registrate, 404 e gestore errori in coda, server in ascolto su tutte le
    interfacce, e **scarico dei log trattenuti** — che a questo punto vanno su Winston.
-10. Da qui in poi l'app risponde. Per il percorso di una singola richiesta — guard,
+9. Da qui in poi l'app risponde. Per il percorso di una singola richiesta — guard,
     interceptor, pipe, handler, filter — vedi la sezione "Convenzioni di risposta ed
     errore" di `CLAUDE.md`.
 
@@ -330,15 +353,20 @@ Tre dettagli deliberati:
 
 ## 7. Cosa fanno i test al posto di tutto questo
 
-`__tests__/helpers/useTestApp.ts` ripete i passi 4, 7 e l'inizializzazione, ma **non il 9**:
+`__tests__/helpers/useTestApp.ts` ripete i passi 3 e 6 e l'inizializzazione, ma **non l'8**:
 non c'è nessuna porta in ascolto, supertest parla direttamente con il server HTTP. In più
 attende `ready()` di Fastify, perché rotte e plugin si costruiscono in modo asincrono e
 `init()` di NestJS non lo comprende.
 
-Quello che i test **non** eseguono è `main.ts`: quindi il caricamento di `.env` della riga
-21, l'adapter Winston e `enableShutdownHooks` non fanno parte di ciò che la suite verifica.
-Nei test le variabili d'ambiente arrivano dal comando (`NODE_ENV=test` più `env_file` del
-container), e la chiusura dell'app è esplicita.
+Quello che i test **non** eseguono è `main.ts`: l'adapter Winston e `enableShutdownHooks`
+non fanno parte di ciò che la suite verifica. Le variabili d'ambiente arrivano dal comando
+(`NODE_ENV=test`) e da `env_file` del container, e la chiusura dell'app è esplicita.
+
+L'helper espone anche `testApp.prisma`, cioè il client costruito dal container: i test di
+rotta lo usano per creare e ripulire i dati. Importarlo invece da `prisma/client.ts`
+aprirebbe un **secondo** pool di connessioni nello stesso processo, che nessuno chiude —
+non un test rosso, ma Jest che resta appeso a fine esecuzione. I test dei modelli, che non
+avviano l'app, continuano a usare `prisma/client.ts` e chiamano `$disconnect()` da sé.
 
 ---
 
@@ -347,7 +375,8 @@ container), e la chiusura dell'app è esplicita.
 | Sintomo | Causa | Dove guardare |
 |---|---|---|
 | L'app non parte e l'errore elenca più variabili d'ambiente | `validateEnvironment` durante `create()` | `config/env.validation.ts` |
-| L'app non parte per **una** variabile del database | Il controllo di `databaseUrl.ts`, che scatta prima, all'import | `config/databaseUrl.ts` |
+| Un comando Prisma (`migrate`, `db push`) o un seed non parte per **una** variabile del database | Il controllo di `buildDatabaseUrl`, usato da chi gira fuori da NestJS | `config/databaseUrl.ts` |
+| L'app parte ma il database non risponde, con credenziali giuste in `.env` | Fuori da Docker manca `DB_HOST`, che vive nel blocco `environment` di compose e non in `.env` | `docker-compose.yml` |
 | `Content type parser 'application/json' already present` | Qualcuno ha rimesso `bodyParser: true` | `app.setup.ts`, `NEST_APP_OPTIONS` |
 | `Fastify instance is already listening` | Un plugin registrato dopo `listen()` | l'ordine in `bootstrap()` |
 | `curl` dall'host non si connette, ma nel container funziona | Ascolto su `127.0.0.1` | il secondo argomento di `listen` |

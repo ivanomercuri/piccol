@@ -890,6 +890,14 @@ Fastify.**
 - Stato: **28 suite / 230 test verdi**, type-check e lint puliti. Il pacchetto e il container si chiamano ora
   `piccol-backend`.
 
+**Fatto dopo F7** (2026-10-04): **il client Prisma lo costruisce il container**. `PrismaModule` lo crea
+con una factory che riceve `ConfigService`, quindi `ConfigModule` carica *e* valida il `.env`
+(`ignoreEnvFile` non c'è più) e `main.ts` non usa più dotenv. Una variabile mancante produce ora l'elenco
+completo di `validateEnvironment` invece del primo errore incontrato durante gli import — verificato
+avviando l'app senza `DB_USER`. `prisma/client.ts` resta per chi gira fuori da NestJS (seed, CLI, test dei
+modelli) e **non è più la stessa istanza** dell'app: i test che avviano l'app usano `testApp.prisma`,
+altrimenti nel processo resterebbero due pool e Jest si pianterebbe. Stato: 29 suite / 239 test verdi.
+
 **Prossimi passi possibili**, nessuno avviato (da scegliere con l'utente):
 
 - percorso PostgreSQL, **indici**: `createdBy` + `createdAt` ora serve a due query (elenco di un admin e

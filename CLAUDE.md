@@ -155,7 +155,10 @@ suo container, Adminer serve il proprio PHP built-in server sulla 8080) e cambia
 riconfigurare il servizio stesso, non solo la mappatura.
 
 L'host del DB è `db` dentro Docker, `localhost` dalla macchina host, porta `5432`. L'ORM è **Prisma**: lo
-schema è in `backend/prisma/schema.prisma`, il client condiviso in `backend/prisma/client.ts`. Prisma 7 non
+schema è in `backend/prisma/schema.prisma`. Il client dell'applicazione lo costruisce `PrismaModule` con
+i valori di `ConfigService`; `backend/prisma/client.ts` è invece il client di chi gira fuori da NestJS
+(seed, CLI, test dei modelli). Entrambi passano da `prisma/create-client.ts`, unico punto che chiama
+`new PrismaClient`. Prisma 7 non
 accetta più `url` dentro il blocco datasource (errore P1012), quindi la connessione è dichiarata in
 `backend/prisma.config.ts` e composta da `backend/config/databaseUrl.ts` a partire da
 `DB_USER`/`DB_ROOT_PASSWORD`/`DB_HOST`/`DB_NAME` — niente `DATABASE_URL` in `.env`, che sarebbe una
@@ -218,13 +221,17 @@ imposta mai esplicitamente, quindi pretenderla romperebbe l'avvio in sviluppo.
 YAML (es. la mappatura delle porte del servizio `backend` è `"${BACKEND_HOST_PORT:?...}:${PORT:?...}"`, non
 più numeri fissi) e lo inietta come variabili d'ambiente reali nel container tramite `env_file`, così l'app
 Node lo trova in `process.env` a prescindere dal fatto che `backend/` (l'unica cartella montata nel
-container) non contenga più `.env`. `backend/main.ts` punta comunque esplicitamente al nuovo percorso
-(`path.resolve(__dirname, '..', '..', '.env')`, calcolato da `dist/`, dove main.ts gira compilato) come
-rete di sicurezza per un'eventuale esecuzione diretta sull'host, fuori da Docker. Il caricamento deve
-restare la prima istruzione di main.ts, perché `prisma/client.ts` compone la stringa di connessione già
-all'import.
-La validazione dell'intero contratto la fa invece `config/env.validation.ts`, passata a `ConfigModule`:
-un solo errore che elenca tutte le variabili mancanti.
+container) non contenga più `.env`.
+
+**A leggere e validare l'ambiente è `ConfigModule`** (`app.module.ts`), con `envFilePath` verso la radice
+del repo (`path.resolve(__dirname, '..', '..', '.env')`, calcolato da `dist/`) e `validate:
+validateEnvironment`: un solo errore che elenca tutte le variabili mancanti o non valide. Dentro i
+container quel file non esiste e viene saltato senza errori; le variabili già presenti nell'ambiente non
+vengono mai sovrascritte dal file. **Non reintrodurre `dotenv` in `main.ts`**: fino alla fase F7 serviva
+perché `prisma/client.ts` componeva la stringa di connessione all'import, ma ora il client lo costruisce
+`PrismaModule` da `ConfigService` e l'ordine lo garantisce il grafo delle dipendenze. Chi gira **fuori**
+da NestJS (`prisma.config.ts` per la CLI di Prisma, `prisma/client.ts` per seed e test dei modelli) carica
+il file con `loadEnvFile()` di `config/loadEnvFile.ts`, in modo esplicito.
 
 ## Architettura
 

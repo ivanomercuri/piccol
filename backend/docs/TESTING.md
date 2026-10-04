@@ -215,6 +215,10 @@ Risultato finale: **26 file di test, 120 test, tutti verdi**, ripetibili senza i
     uno), e col lock passa 10 volte su 10;
   - **ogni test di questo tipo va visto rosso**: togli la protezione (la transazione, il lock), esegui il
     test, rimetti la protezione. Se passa anche senza, non la sta verificando.
+- **Il client Prisma nei test** (dalla fase F8): chi avvia l'app usa `testApp.prisma`, cioè il client
+  costruito dal container; chi non la avvia (i `*.model.test.ts`) importa `prisma/client.ts` e chiama
+  `$disconnect()` in `afterAll`. Non mescolare le due strade nello stesso file: due client significano due
+  pool di connessioni, e quello non chiuso lascia Jest appeso senza far fallire nessun test.
 - **App di test su Fastify** (dalla fase F7): `useTestApp()` crea l'app con `FastifyAdapter` e attende
   `ready()` prima di restituirla, perché Fastify costruisce rotte e plugin in modo asincrono e prima di allora
   il server non risponde (`init()` di NestJS non lo comprende). supertest continua a funzionare com'era, su

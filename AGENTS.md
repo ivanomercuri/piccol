@@ -32,9 +32,12 @@ All backend code is located in `/backend`.
       client is generated from it. There is no `models/` directory anymore, and no
       hand-written model classes: add or change a model in the schema, then create a
       migration (`npx prisma migrate dev --name <name>`).
-    - `client.ts` exports the shared `prisma` instance; `prisma.module.ts` provides it under the `PrismaClient`
-      injection token. NestJS code injects `PrismaClient` in the constructor; only code outside the container
-      (seeds, `*.model.test.ts`) imports `client.ts`. Never instantiate a second `PrismaClient`.
+    - The app's client is built by `prisma.module.ts` with a factory that takes `ConfigService`, and provided
+      under the `PrismaClient` injection token; NestJS code injects `PrismaClient` in the constructor and
+      never imports a client. `client.ts` is the client for code that runs **outside** the Nest container
+      (seeds, the Prisma CLI, `*.model.test.ts`), and reads the environment itself. Both go through
+      `create-client.ts`, the only place that calls `new PrismaClient`. Never add a third one: inside one
+      process there must be a single pool, which is why tests that boot the app use `testApp.prisma`.
 
 ### Support Structures
 - `/backend/common`: NestJS cross-cutting infrastructure — `filters/` (`AllExceptionsFilter`, the single error
@@ -275,3 +278,14 @@ keep entries short, one line each)
   refuses it before the route runs, where Express left an empty body and let validation answer 400. The
   framework's English message is translated in `AllExceptionsFilter`. `POST /products/new` without a multipart
   body stays 400, with the single upload message instead of the grouped array.
+- Prisma client built by the DI container (F8): `PrismaModule` composes the connection string from
+  `ConfigService` instead of reusing the singleton that `prisma/client.ts` builds at import time. The point is
+  ordering: the old arrangement forced `main.ts` to load `.env` with dotenv as its very first statement — move
+  that line three positions down and the app died — and reduced `ConfigModule` to a validator
+  (`ignoreEnvFile: true`). Now the dependency graph enforces what a convention used to: the client cannot
+  exist before `ConfigService`, `ConfigModule` both loads and validates, and a missing variable produces the
+  full list from `validateEnvironment` instead of the first failure hit during imports (verified by booting
+  without `DB_USER`). Cost accepted: the app's client and `client.ts` are no longer the same instance, so
+  tests that boot the app take the client from the container (`testApp.prisma`) — otherwise a second,
+  never-closed pool leaves Jest hanging. Rejected: keeping `useValue` and only flipping `ignoreEnvFile`
+  (cosmetic: dotenv had already populated `process.env`, so the file would be read and discarded).
