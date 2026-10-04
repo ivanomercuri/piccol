@@ -11,7 +11,6 @@ import fs from 'fs';
 import path from 'path';
 import request from 'supertest';
 import { useTestApp } from './helpers/useTestApp';
-import { prisma } from '../prisma/client';
 
 // Immagini di prova costruite byte per byte (vedi helpers/imageFixtures.ts).
 // VALID_PNG è un PNG 1x1 reale, ben sotto ogni limite.
@@ -59,7 +58,7 @@ describe('Product routes', () => {
       .post('/admin/user/register')
       .send({ name, email, password: 'password123' });
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await testApp.prisma.user.findUnique({ where: { email } });
 
     return { email, user, token: registerRes.body.data };
   }
@@ -69,7 +68,7 @@ describe('Product routes', () => {
 
     adminB = await registerAndLogin('Admin B');
 
-    productOfA = await prisma.product.create({
+    productOfA = await testApp.prisma.product.create({
       data: {
         name: 'Prodotto di A',
         price: 1,
@@ -77,7 +76,7 @@ describe('Product routes', () => {
       },
     });
 
-    productOfB = await prisma.product.create({
+    productOfB = await testApp.prisma.product.create({
       data: {
         name: 'Prodotto di B',
         price: 2,
@@ -92,9 +91,9 @@ describe('Product routes', () => {
     // POST /products/new, di cui il test non conosce l'id in anticipo. Vanno
     // cancellati prima degli utenti: la FK products.createdBy non ha cascade.
     // Le righe di product_images seguono il prodotto (ON DELETE CASCADE).
-    await prisma.product.deleteMany({ where: { creator: { email: { in: emailsToClean } } } });
+    await testApp.prisma.product.deleteMany({ where: { creator: { email: { in: emailsToClean } } } });
 
-    await prisma.user.deleteMany({ where: { email: { in: emailsToClean } } });
+    await testApp.prisma.user.deleteMany({ where: { email: { in: emailsToClean } } });
 
     uploadedFilesToClean.forEach((file) => fs.rmSync(file, { force: true }));
   });
@@ -135,7 +134,7 @@ describe('Product routes', () => {
       // Non esiste un endpoint per creare un superadmin: lo eleviamo
       // direttamente sul DB, come si dovrebbe fare anche in produzione
       // (vedi backend/docs/API.md).
-      await prisma.user.update({
+      await testApp.prisma.user.update({
         where: { id: adminA.user.id },
         data: { level: 'superadmin' },
       });
@@ -155,7 +154,7 @@ describe('Product routes', () => {
 
       // Ripristiniamo il livello per non influenzare eventuali altri test
       // in questo stesso file che assumono adminA come admin normale.
-      await prisma.user.update({
+      await testApp.prisma.user.update({
         where: { id: adminA.user.id },
         data: { level: 'admin' },
       });
@@ -299,7 +298,7 @@ describe('Product routes', () => {
       paged = [];
 
       for (const offset of [1, 2, 3]) {
-        const product = await prisma.product.create({
+        const product = await testApp.prisma.product.create({
           data: {
             name: `Paginato ${offset}`,
             price: 1,
@@ -510,7 +509,7 @@ describe('Product routes', () => {
 
     // Quanti prodotti con quel nome esistono nel database, di chiunque.
     function countProductsNamed(name: string): Promise<number> {
-      return prisma.product.count({ where: { name } });
+      return testApp.prisma.product.count({ where: { name } });
     }
 
     // Il caso base. La risposta è il prodotto creato con la sua immagine
@@ -551,7 +550,7 @@ describe('Product routes', () => {
 
       expect(fs.existsSync(imageFile)).toBe(true);
 
-      const saved = await prisma.product.findUnique({
+      const saved = await testApp.prisma.product.findUnique({
         where: { id: product.id },
         include: { images: true },
       });
@@ -667,7 +666,7 @@ describe('Product routes', () => {
 
       trackUploadedFile(first.body.data.images[0].image_url);
 
-      await prisma.product.update({
+      await testApp.prisma.product.update({
         where: { id: first.body.data.id },
         data: { createdAt: new Date(Date.now() - 11_000) },
       });

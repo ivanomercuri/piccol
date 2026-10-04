@@ -10,7 +10,6 @@
 // in fondo alle sezioni fissano invece i comportamenti cambiati DI PROPOSITO.
 import request from 'supertest';
 import { useTestApp } from './helpers/useTestApp';
-import { prisma } from '../prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { WinstonLoggerService } from '../common/logger/winston-logger.service';
 
@@ -24,7 +23,7 @@ describe('Customer routes', () => {
   const emailsToClean: string[] = [];
 
   afterAll(async () => {
-    await prisma.customer.deleteMany({ where: { email: { in: emailsToClean } } });
+    await testApp.prisma.customer.deleteMany({ where: { email: { in: emailsToClean } } });
   });
 
   describe('GET /', () => {
@@ -63,7 +62,7 @@ describe('Customer routes', () => {
       // Il token restituito deve essere anche quello salvato come
       // current_token sul record appena creato (pattern di invalidazione
       // descritto in CLAUDE.md).
-      const created = await prisma.customer.findUniqueOrThrow({
+      const created = await testApp.prisma.customer.findUniqueOrThrow({
         where: { email },
       });
 
@@ -189,7 +188,7 @@ describe('Customer routes', () => {
 
       expect(res.status).toBe(200);
 
-      const created = await prisma.customer.findUniqueOrThrow({ where: { email } });
+      const created = await testApp.prisma.customer.findUniqueOrThrow({ where: { email } });
 
       expect(created.id).not.toBe(999999);
 
@@ -297,7 +296,7 @@ describe('Customer routes', () => {
 
         expect(res.status).toBe(500);
 
-        await expect(prisma.customer.findUnique({ where: { email } })).resolves.toBeNull();
+        await expect(testApp.prisma.customer.findUnique({ where: { email } })).resolves.toBeNull();
 
         // La controprova che conta per il client: lo stesso invio, riprovato,
         // riesce invece di scontrarsi con un account "fantasma".

@@ -17,7 +17,6 @@ import { BadRequestException, Controller, Get, Post } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { WinstonLoggerService } from '../common/logger/winston-logger.service';
-import { prisma as sharedPrismaClient } from '../prisma/client';
 import { CurrentUser } from '../modules/auth/current-user.decorator';
 import { useTestApp } from './helpers/useTestApp';
 
@@ -34,10 +33,9 @@ class ProbeController {
   read() {
     return {
       injected: this.prisma !== undefined,
-      // Stessa istanza del singleton di prisma/client.ts (usato anche dai
-      // seed e dai test dei modelli), non una seconda: un solo pool di
-      // connessioni per processo (PrismaModule).
-      sameInstanceAsShared: this.prisma === sharedPrismaClient,
+      // Il token PrismaClient è stato risolto con un client vero, non con un
+      // oggetto qualsiasi: `$connect` esiste solo su un PrismaClient.
+      isPrismaClient: typeof this.prisma.$connect === 'function',
     };
   }
 
@@ -90,11 +88,21 @@ describe('Infrastruttura trasversale dell\'app', () => {
 
   describe('dependency injection', () => {
     // Prova end-to-end che i flag dei decoratori in tsconfig.json funzionano
-    // anche sotto ts-jest, e che PrismaModule consegna il singleton condiviso.
-    it('inietta PrismaClient, ed è la stessa istanza di prisma/client.ts', async () => {
+    // anche sotto ts-jest: senza emitDecoratorMetadata NestJS passerebbe
+    // undefined al costruttore SENZA dare errore.
+    it('inietta un PrismaClient vero risolvendo il token', async () => {
       const res = await request(testApp.http).get('/__probe');
 
-      expect(res.body.data).toEqual({ injected: true, sameInstanceAsShared: true });
+      expect(res.body.data).toEqual({ injected: true, isPrismaClient: true });
+    });
+
+    // Il provider è costruito una volta sola: chi chiede il token riceve
+    // sempre lo stesso client, quindi un solo pool di connessioni per
+    // processo. Dalla fase F8 quell'istanza la costruisce il container con i
+    // valori di ConfigService, e NON è più quella di prisma/client.ts, che
+    // resta per chi gira fuori da NestJS (seed, CLI, test dei modelli).
+    it('consegna sempre la stessa istanza, anche a chi la chiede dal container', () => {
+      expect(testApp.nest.get(PrismaClient)).toBe(testApp.prisma);
     });
   });
 
@@ -107,7 +115,7 @@ describe('Infrastruttura trasversale dell\'app', () => {
       expect(res.body).toEqual({
         success: true,
         status: 200,
-        data: { injected: true, sameInstanceAsShared: true },
+        data: { injected: true, isPrismaClient: true },
         message: '',
       });
     });

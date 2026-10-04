@@ -1,6 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
 import { buildDatabaseUrl } from '../config/databaseUrl';
+import { createPrismaClient } from './create-client';
 
 /**
  * Istanza condivisa del Prisma Client: sostituisce models/index.ts, il
@@ -15,17 +14,19 @@ import { buildDatabaseUrl } from '../config/databaseUrl';
  * campo, senza bisogno di alcun cast.
  */
 
-// Prisma 7 richiede un driver adapter esplicito: il client "Rust-free" non
-// incorpora più il motore di connessione, quindi va detto quale driver
-// usare (qui `pg`, già dipendenza del progetto).
-const adapter = new PrismaPg({ connectionString: buildDatabaseUrl() });
-
-// In test il logging delle query è disattivato: la suite parla con un
-// database reale e ogni query stampata renderebbe illeggibile l'output di
-// npm test. Stessa scelta che models/index.ts faceva con config.logging.
-const prisma = new PrismaClient({
-  adapter,
-  log: process.env.NODE_ENV === 'test' ? [] : ['query'],
+// L'istanza è costruita qui, all'import: è ciò che distingue questo file dal
+// client dell'applicazione. Chi lo importa gira FUORI dal container di NestJS
+// (seed, CLI di Prisma, test dei modelli) e non ha un ConfigService da cui
+// attingere, quindi i valori arrivano da process.env tramite
+// buildDatabaseUrl().
+//
+// L'app invece NON passa da qui: dalla fase F8 il suo client lo costruisce
+// PrismaModule con i valori validati di ConfigService. Erano la stessa istanza
+// fino a F7, ma quella condivisione era anche la ragione per cui il
+// caricamento di .env doveva avvenire prima di qualunque import.
+const prisma = createPrismaClient({
+  connectionString: buildDatabaseUrl(),
+  logQueries: process.env.NODE_ENV !== 'test',
 });
 
 export { prisma };

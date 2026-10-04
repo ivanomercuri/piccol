@@ -2,6 +2,7 @@ import type { Server } from 'http';
 import type { INestApplication, Type } from '@nestjs/common';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
+import { PrismaClient } from '@prisma/client';
 import { AppModule } from '../../app.module';
 import { NEST_APP_OPTIONS, configureApp } from '../../app.setup';
 
@@ -11,10 +12,19 @@ import { NEST_APP_OPTIONS, configureApp } from '../../app.setup';
  * `http` è ciò che si passa a supertest: `request(testApp.http)`.
  * `nest` serve solo quando un test deve chiedere qualcosa al container, ad
  * esempio un provider su cui mettere uno spy: `testApp.nest.get(Classe)`.
+ * `prisma` è il client dell'APP, quello costruito dal container.
+ *
+ * PERCHÉ IL CLIENT PASSA DA QUI (dalla fase F8)
+ * I test di rotta creano e ripuliscono dati attorno alle richieste HTTP.
+ * Importarlo da prisma/client.ts aprirebbe un SECONDO pool di connessioni
+ * accanto a quello dell'app, e nessuno lo chiuderebbe: non un test rosso, ma
+ * Jest che resta appeso a fine esecuzione. Prendendolo dal container, il
+ * processo ha un client solo, e lo chiude `app.close()` come sempre.
  */
 export interface TestApp {
   readonly nest: INestApplication;
   readonly http: Server;
+  readonly prisma: PrismaClient;
 }
 
 interface TestAppOptions {
@@ -96,6 +106,9 @@ export function useTestApp(options: TestAppOptions = {}): TestApp {
     },
     get http(): Server {
       return requireStarted(nestApp).getHttpServer();
+    },
+    get prisma(): PrismaClient {
+      return requireStarted(nestApp).get(PrismaClient);
     },
   };
 }

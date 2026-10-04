@@ -6,7 +6,6 @@
 import jwt, { JwtPayload } from 'jsonwebtoken';
 import request from 'supertest';
 import { useTestApp } from './helpers/useTestApp';
-import { prisma } from '../prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { WinstonLoggerService } from '../common/logger/winston-logger.service';
 
@@ -34,7 +33,7 @@ describe('Admin/User routes', () => {
   }
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { email: { in: emailsToClean } } });
+    await testApp.prisma.user.deleteMany({ where: { email: { in: emailsToClean } } });
   });
 
   describe('POST /admin/user/register', () => {
@@ -48,7 +47,7 @@ describe('Admin/User routes', () => {
       // findUniqueOrThrow invece di findUnique: se la riga non esistesse, il
       // test deve fallire subito con un errore esplicito, non propagare un
       // null (findOne di Sequelize era tipizzato `any` e nascondeva il caso).
-      const created = await prisma.user.findUniqueOrThrow({ where: { email } });
+      const created = await testApp.prisma.user.findUniqueOrThrow({ where: { email } });
 
       expect(created.level).toBe('admin');
     });
@@ -88,7 +87,7 @@ describe('Admin/User routes', () => {
 
       // La riga salvata deve avere l'email normalizzata: cercarla nella
       // forma originale (con maiuscole) su PostgreSQL non la troverebbe.
-      const created = await prisma.user.findUnique({ where: { email: lowercaseEmail } });
+      const created = await testApp.prisma.user.findUnique({ where: { email: lowercaseEmail } });
 
       expect(created).not.toBeNull();
 
@@ -323,7 +322,7 @@ describe('Admin/User routes', () => {
     it('rifiuta il token di un utente cancellato con "Utente non trovato"', async () => {
       const { token, email } = await registerUser('Da Cancellare');
 
-      await prisma.user.delete({ where: { email } });
+      await testApp.prisma.user.delete({ where: { email } });
 
       const res = await request(testApp.http)
         .get('/admin/user')
@@ -371,7 +370,7 @@ describe('Admin/User routes', () => {
 
       expect(res.status).toBe(200);
 
-      const created = await prisma.user.findUniqueOrThrow({ where: { email } });
+      const created = await testApp.prisma.user.findUniqueOrThrow({ where: { email } });
 
       expect(created.level).toBe('admin');
     });
@@ -514,7 +513,7 @@ describe('Admin/User routes', () => {
 
         expect(res.status).toBe(500);
 
-        await expect(prisma.user.findUnique({ where: { email } })).resolves.toBeNull();
+        await expect(testApp.prisma.user.findUnique({ where: { email } })).resolves.toBeNull();
       } finally {
         signSpy.mockRestore();
 
