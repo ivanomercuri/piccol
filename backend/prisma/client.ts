@@ -1,5 +1,10 @@
 import { buildDatabaseUrl } from '../config/databaseUrl';
+import { loadEnvFile } from '../config/loadEnvFile';
 import { createPrismaClient } from './create-client';
+
+// Chi importa questo file gira fuori da NestJS e non ha un ConfigModule che
+// abbia caricato .env: lo carica qui, prima di comporre l'indirizzo.
+loadEnvFile();
 
 /**
  * Istanza condivisa del Prisma Client: sostituisce models/index.ts, il

@@ -1,5 +1,10 @@
 import { defineConfig } from 'prisma/config';
 import { buildDatabaseUrl } from './config/databaseUrl';
+import { loadEnvFile } from './config/loadEnvFile';
+
+// La CLI di Prisma gira fuori dall'applicazione: nessun ConfigModule ha
+// caricato .env, quindi lo carica questo file prima di comporre l'indirizzo.
+loadEnvFile();
 
 // Prisma 7 non accetta più `url` dentro il blocco datasource dello schema
 // (errore P1012): la connessione va dichiarata qui.

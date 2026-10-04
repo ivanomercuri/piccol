@@ -1,25 +1,3 @@
-import dotenv from 'dotenv';
-import path from 'path';
-
-// Il caricamento di .env DEVE restare la prima istruzione del file, prima
-// degli import dell'app: prisma/client.ts, tramite databaseUrl.ts, legge
-// process.env nel momento stesso in cui viene importato, e lancia se una
-// variabile manca. databaseUrl.ts carica .env anche da sé (gli serve per la
-// CLI di Prisma), ma l'app non deve dipendere da quell'effetto collaterale
-// nascosto dentro un altro modulo.
-// TypeScript, compilando in CommonJS, emette i require nello stesso ordine
-// in cui compaiono gli import, intervallati dalle istruzioni: questa riga
-// viene quindi eseguita prima che app.module venga caricato.
-//
-// Il percorso: main.ts gira sempre compilato, da dist/main.js (sia con
-// `npm run dev` sia con `npm start`), quindi da dist/ si risale di due
-// livelli — backend/ e poi la radice del repo, dove vive .env accanto a
-// docker-compose.yml. Dentro Docker il file non è montato e non viene
-// trovato, senza conseguenze: le variabili arrivano già da env_file, e dotenv
-// non sovrascrive mai quelle presenti. Serve come rete di sicurezza per
-// un'esecuzione diretta sull'host.
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
-
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -31,6 +9,14 @@ import { WinstonLoggerService } from './common/logger/winston-logger.service';
 /**
  * Avvio dell'applicazione. Sostituisce index.ts (che costruiva l'app
  * Express) e server.ts (che la metteva in ascolto).
+ *
+ * NIENTE CARICAMENTO DI .env QUI (dalla fase F8). Fino a F7 questo file
+ * doveva chiamare dotenv.config() come PRIMA istruzione, prima degli import,
+ * perché prisma/client.ts componeva la stringa di connessione al momento in
+ * cui veniva importato: il file dipendeva dall'ordine delle righe, e romperlo
+ * significava non far partire l'app. Ora il client lo costruisce PrismaModule
+ * da ConfigService, quindi a leggere, validare ed esporre l'ambiente è un
+ * modulo solo — ConfigModule, configurato in app.module.ts.
  */
 async function bootstrap(): Promise<void> {
   // FastifyAdapter: dalla fase F7 la piattaforma HTTP è Fastify, non più

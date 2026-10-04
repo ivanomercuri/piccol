@@ -1,12 +1,8 @@
-import path from 'path';
-import dotenv from 'dotenv';
-
-// Carica .env dalla radice del repo, come fanno index.ts e config/config.js:
-// questo modulo viene usato sia dall'app sia da prisma.config.ts, e
-// quest'ultimo è eseguito dalla CLI di Prisma, fuori dal ciclo di vita
-// dell'app — quindi non può dare per scontato che qualcun altro abbia già
-// caricato le variabili.
-dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') });
+// NESSUN EFFETTO COLLATERALE ALL'IMPORT (dalla fase F8). Fino a F7 questo
+// file chiamava dotenv.config() a livello di modulo, quindi importarlo
+// significava caricare .env: comodo, ma era un caricamento nascosto dentro un
+// modulo di libreria, e l'ordine degli import diventava parte del
+// funzionamento. Ora chi ha bisogno del file lo dice (config/loadEnvFile.ts).
 
 /**
  * Compone la stringa di connessione PostgreSQL a partire dalle variabili

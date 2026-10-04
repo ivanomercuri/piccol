@@ -1,3 +1,4 @@
+import path from 'path';
 import { Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
@@ -32,13 +33,22 @@ import { ProductModule } from './modules/product/product.module';
     ConfigModule.forRoot({
       // Disponibile in ogni modulo senza doverlo importare ovunque.
       isGlobal: true,
-      // Il file .env lo carica già main.ts con dotenv, prima di qualunque
-      // import (prisma/client.ts compone la stringa di connessione nel
-      // momento stesso in cui viene importato, quindi il caricamento non può
-      // aspettare la costruzione di questo modulo). ConfigModule qui VALIDA
-      // soltanto.
-      // Nei container le variabili arrivano comunque da env_file.
-      ignoreEnvFile: true,
+      // DALLA FASE F8 È QUESTO MODULO A CARICARE .env, oltre che a validarlo.
+      // Prima non poteva: prisma/client.ts componeva la stringa di
+      // connessione al momento dell'import, cioè prima che il container
+      // esistesse, quindi il file andava caricato con dotenv come primissima
+      // istruzione di main.ts e qui si metteva `ignoreEnvFile: true`. Ora il
+      // client lo costruisce PrismaModule da ConfigService, e l'ordine lo
+      // garantisce il grafo delle dipendenze.
+      //
+      // Il percorso parte da __dirname perché questo modulo gira compilato,
+      // da dist/: due livelli sopra c'è la radice del repo, dove .env vive
+      // accanto a docker-compose.yml. Dentro Docker quel file non è montato e
+      // non viene trovato: nessuna conseguenza, le variabili arrivano da
+      // env_file, e @nestjs/config salta i percorsi inesistenti senza
+      // lamentarsi (verificato nel sorgente) e non sovrascrive mai una
+      // variabile già presente nell'ambiente.
+      envFilePath: path.resolve(__dirname, '..', '..', '.env'),
       validate: validateEnvironment,
     }),
     PrismaModule,
