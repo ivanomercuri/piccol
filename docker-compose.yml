@@ -187,8 +187,7 @@ volumes:
   #   docker compose up -d
   backend-node-modules:
   # Rinominato da mysql-data nella migrazione a PostgreSQL: è un volume
-  # diverso, con un layout su disco incompatibile con quello di MySQL — il
-  # vecchio mysql-data resta sul sistema finché non lo si rimuove a mano
-  # (`docker volume rm piccol_mysql-data`), utile se serve ancora consultare
-  # i dati del vecchio database.
+  # diverso, con un layout su disco incompatibile con quello di MySQL. Il
+  # vecchio `piccol_mysql-data` era rimasto sul sistema come rete di
+  # sicurezza ed è stato rimosso il 2026-10-10, a migrazione assestata.
   postgres-data:

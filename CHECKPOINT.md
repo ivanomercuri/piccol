@@ -581,8 +581,8 @@ MySQL/MariaDB — scelto invece di pgAdmin perché è un container da ~10MB cont
 setup di login né registrazione manuale del server. Nuova variabile `DB_USER` (su MySQL l'utente era
 implicitamente `root`, su PostgreSQL deve coincidere con `POSTGRES_USER`), `DB_HOST_PORT` a 5432,
 `PHPMYADMIN_HOST_PORT` rinominata `ADMINER_HOST_PORT`. Dipendenze: `mysql2` sostituito da `pg` +
-`pg-hstore`. Il vecchio volume `piccol_mysql-data` **non è stato rimosso**: resta consultabile finché non
-lo si cancella a mano con `docker volume rm piccol_mysql-data`.
+`pg-hstore`. Il vecchio volume `piccol_mysql-data` era stato conservato; **è stato rimosso il 2026-10-10**, a
+migrazione assestata da un mese.
 
 **Cose emerse solo eseguendo davvero la migrazione** (nessuna era prevedibile leggendo il codice):
 
@@ -623,9 +623,11 @@ lo si cancella a mano con `docker volume rm piccol_mysql-data`.
 - `configs/config.user.inc.php` (configurazione di phpMyAdmin) **rimosso**: non più montato da nessun
   servizio dopo il passaggio ad Adminer. La cartella `configs/` è sparita di conseguenza, era il suo
   unico contenuto.
-- Il volume Docker `piccol_mysql-data` è stato **deliberatamente conservato** come rete di sicurezza, per
-  poter tornare indietro o consultare un dato storico: non è versionato, quindi non sporca il repository.
-  Si rimuove con `docker volume rm piccol_mysql-data` quando non servirà più.
+- Il volume Docker `piccol_mysql-data` era stato **deliberatamente conservato** come rete di sicurezza, per
+  poter tornare indietro o consultare un dato storico. **Rimosso il 2026-10-10**: conteneva solo i dati di
+  sviluppo dell'era Sequelize (187,6 MB, `mydatabase` e `mydatabase_test` con la tabella `SequelizeMeta`),
+  mai riaperti dalla fine della migrazione, e rigenerabili con i seed. Restano i due volumi in uso,
+  `piccol_postgres-data` e `piccol_backend-node-modules`.
 
 ## Migrazione A eseguita: da Sequelize a Prisma (database già su PostgreSQL)
 
