@@ -48,3 +48,13 @@ Per il primo nodo, o per un nodo senza padre, scrivi `Padre: nessuno`.
 
 Se il proprietario scrive "riparti da N-007": leggi solo quel nodo e i suoi collegati diretti
 (non l'intero grafo), riassumi in 3 righe dove eravamo e continua da lì.
+
+## Scelta del padre
+
+- "studio: riparti da N-xxx. <domanda>": il padre è N-xxx.
+- "studio: <domanda>" senza riferimento: NON indovinare il padre. Se la domanda sembra
+  continuare l'ultimo nodo discusso in questa conversazione, proponilo ("Lo collego a
+  N-002?") e attendi conferma prima di creare il file. Se non c'è un candidato chiaro,
+  chiedi se è un argomento nuovo (nodo radice, `Padre: nessuno`) o a quale nodo collegarlo.
+- Una domanda che tocca anche un altro nodo esistente lo cita in "Collegati", ma il padre
+  resta uno solo.
