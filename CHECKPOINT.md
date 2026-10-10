@@ -712,15 +712,25 @@ lì: non è servito un merge separato. Entrambi i branch sono stati cancellati, 
 essendo interamente contenuti in `main`, e i riferimenti remoti sono stati ripuliti con
 `git fetch --prune`. Nessun tag di archivio: nessun commit è rimasto fuori.
 
-## Stato al 2026-09-12 — punto di ripresa per una nuova sessione
+## Stato al 2026-10-10 — punto di ripresa per una nuova sessione
 
-**Branch corrente: `main`**, allineato con `origin/main`: dal 2026-09-28 non esistono altri branch. `main`
-contiene tutte le migrazioni completate, compresa quella a NestJS (vedi "Pulizia dei branch" sopra).
-Suite (aggiornata al 2026-09-28, dopo F7 e l'aggiornamento delle dipendenze): **28 suite / 230 test verdi**,
-type-check pulito, lint senza nessun problema. **Runtime: Node 24** — i test vanno lanciati con `npm test` (che
-imposta `--experimental-vm-modules`), mai con `npx jest` nudo.
+**Branch corrente: `main`**, allineato con `origin/main`: dal 2026-09-28 non esistono altri branch e tutto
+il lavoro è pushato. `main` contiene tutte le migrazioni completate, compresa quella a NestJS (vedi
+"Pulizia dei branch" sopra). Suite (aggiornata al 2026-10-10, dopo il refactor della configurazione di
+Prisma): **29 suite / 239 test verdi**, type-check pulito, lint senza nessun problema. **Runtime: Node 24** —
+i test vanno lanciati con `npm test` (che imposta `--experimental-vm-modules`), mai con `npx jest` nudo.
 
-Il prossimo lavoro va fatto su un branch tematico nuovo, creato da `main`.
+Il prossimo lavoro va fatto su un branch tematico nuovo, creato da `main`. Fanno eccezione i refactor
+piccoli e lineari, che finora sono andati dritti in `main` (es. quello della configurazione di Prisma del
+2026-10-04): è una scelta caso per caso, non una regola nuova.
+
+### Come sono organizzate le conversazioni (dal 2026-10-10)
+
+- **Una chat "cardine"**, quella del lavoro sul progetto: migrazioni, refactor, infrastruttura, decisioni.
+  È la chat da cui nascono i commit e in cui si aggiorna questo file.
+- **Chat separate per lo studio**, una per argomento. Lì le domande iniziano con `studio:` e producono i
+  nodi di `docs/studio/` (vedi il protocollo lì dentro, richiamato da CLAUDE.md). Nella chat cardine i nodi
+  NON si creano: le domande operative restano risposte in chat e basta.
 
 ### Percorso di apprendimento PostgreSQL (in corso)
 
@@ -908,6 +918,17 @@ altrimenti nel processo resterebbero due pool e Jest si pianterebbe. Stato: 29 s
 
 ### Cose in sospeso, non urgenti
 
+- **Sette analogie a Symfony nei commenti del codice** (`register-customer.dto.ts`, `product.service.ts`,
+  `product-field-rules.ts`, `new-product-form.ts`, `useTestApp.ts`, `response-message.decorator.ts`,
+  `docs/AVVIO.md`): da riscrivere in termini di PHP procedurale. Il 2026-09-28 CLAUDE.md è stato corretto
+  per dire che il proprietario lavora su progetti legacy procedurali, non con framework PHP, ma quei
+  commenti sono rimasti come erano.
+- **Pulizia dei volumi Docker, sospesa di proposito.** Sulla macchina ci sono ~3,8 GB di volumi anonimi con
+  node_modules (sicuri da cancellare), 7,6 GB di build cache e 11,5 GB di immagini inutilizzate. **Non
+  eseguire `docker volume prune`**: fra i volumi "non usati" ci sono `brinaclima_docker_php_code` (4,1 GB di
+  codice di un altro progetto, con un repository Git **senza remoto**, 5 commit mai pushati e decine di file
+  modificati) e `brinaclima_docker_db_data`, più i due di `onnwater`. Vanno messi al sicuro prima, copiandoli
+  fuori dal volume.
 - La configurazione di `pg_stat_statements` vive solo nel volume Docker: se la si vuole permanente va
   messa nel `docker-compose.yml` del servizio `db`.
 - Percorso PostgreSQL, prossimo tema: **indici**. Paginazione (F4) e transazioni (F6) sono fatte; il passo
