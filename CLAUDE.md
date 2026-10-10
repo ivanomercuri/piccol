@@ -56,6 +56,13 @@ singolo identificatore, variabile, tipo o proprietà citato tra backtick singoli
 testo normale all'interno della frase. Riserva i backtick/blocchi di codice (```...```) solo per
 estratti di codice veri e propri, non per nominare elementi dentro una frase discorsiva.
 
+## Studio a nodi
+
+Quando un messaggio inizia con "studio:", la domanda fa parte dell'esplorazione dell'intero
+progetto (backend, frontend, database, Docker) e va gestita col protocollo in
+@./docs/studio/PROTOCOLLO.md. Senza quel prefisso non creare nodi: le domande operative e le
+richieste di codice restano normali.
+
 ## Checklist di validazione per codice non banale
 
 Il proprietario del progetto sta specificamente lavorando sulla propria capacità di validare

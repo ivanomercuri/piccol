@@ -6,3 +6,4 @@ backend/logs/
 backend/dump.txt
 .vscode/
 backend/dist/
+docs/studio/.obsidian/
