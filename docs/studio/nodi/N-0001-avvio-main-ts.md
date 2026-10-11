@@ -1,11 +1,12 @@
 ---
-id: N-001
+id: N-0001
 titolo: Cosa fa main.ts all'avvio del backend
 area: backend
 stato: da-verificare
+padre: nessuno
+collegati: []
 riferimenti: [backend/main.ts, backend/app.setup.ts, backend/app.module.ts, backend/config/logger.ts, backend/docs/AVVIO.md]
 ---
-Padre: nessuno · Collegati: nessuno
 
 **Domanda:** Cosa fa backend/main.ts, riga per riga, e perché in quell'ordine?
 **Risposta:** main.ts gira UNA volta, all'avvio del processo, non a ogni richiesta (a differenza di index.php).
